@@ -202,6 +202,26 @@ func TestMemGet_DecodesTextAndBase64(t *testing.T) {
 	}
 }
 
+func TestMemRelated_TypeDescriptionContainsSameTopic(t *testing.T) {
+	reg := tools.New()
+	fs := newFakeServer(`{"file_id":"f1","related":[]}`, 200, "application/json")
+	defer fs.Close()
+	if err := registerRelated(reg, apiclient.New(fs.URL, "tok")); err != nil {
+		t.Fatal(err)
+	}
+	tool, ok := reg.Get("mem_related")
+	if !ok {
+		t.Fatal("mem_related not registered")
+	}
+	prop, ok := tool.InputSchema.Properties["type"]
+	if !ok {
+		t.Fatal("mem_related has no 'type' property")
+	}
+	if !strings.Contains(prop.Description, "same_topic") {
+		t.Fatalf("mem_related type description does not contain 'same_topic': got %q", prop.Description)
+	}
+}
+
 func TestMemPut_RejectsInvalidBase64(t *testing.T) {
 	fs := newFakeServer(`{}`, 200, "application/json")
 	defer fs.Close()

@@ -419,7 +419,7 @@ func registerRelated(reg *tools.Registry, c *apiclient.Client) error {
 			Required: []string{"file_id"},
 			Properties: map[string]tools.Property{
 				"file_id": {Type: "string", Description: "Anchor file id to find neighbours of"},
-				"type":    {Type: "string", Description: "MIME prefix filter: image|text|application|audio|video"},
+				"type":    {Type: "string", Description: "relation type filter: same_topic|same_event|same_person|sequel"},
 				"limit":   {Type: "integer", Description: "Max results (default 10, max 100)", Default: 10},
 			},
 		},
