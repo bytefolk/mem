@@ -251,6 +251,71 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		t.Fatalf("replay=%+v first=%+v puts=%v", replayed, imported, store.puts)
 	}
 
+	// Exercise the ambiguous-commit verifier against a real pool connection.
+	// A matching durable ledger is success and must preserve uploaded objects.
+	commitErr := errors.New("commit acknowledgement lost")
+	committedCleanupCalls := 0
+	verified, err := service.resolveAmbiguousImportCommit(
+		importTarget{
+			WorkspaceID: targetWorkspace,
+			OwnerID:     targetUser,
+		},
+		importReplay{
+			BundleID:          fixture.bundleID,
+			ArchiveSHA256:     imported.ArchiveSHA256,
+			SourceWorkspaceID: sourceWorkspace,
+		},
+		imported.Counts,
+		commitErr,
+		func(cause error) error {
+			committedCleanupCalls++
+			return cause
+		},
+	)
+	if err != nil || verified == nil || !verified.Replayed ||
+		verified.BundleID != fixture.bundleID ||
+		verified.ArchiveSHA256 != imported.ArchiveSHA256 ||
+		verified.ImportedAt != imported.ImportedAt ||
+		committedCleanupCalls != 0 {
+		t.Fatalf(
+			"verify committed import result=%+v cleanup=%d err=%v",
+			verified,
+			committedCleanupCalls,
+			err,
+		)
+	}
+
+	// Once the same workspace lock is acquired, an empty ledger confirms that
+	// PostgreSQL did not commit and compensation is safe.
+	absentCleanupCalls := 0
+	absentCommitErr := errors.New("commit rejected")
+	verified, err = service.resolveAmbiguousImportCommit(
+		importTarget{
+			WorkspaceID: failureWorkspace,
+			OwnerID:     failureUser,
+		},
+		importReplay{
+			BundleID:          uuid.New(),
+			ArchiveSHA256:     strings.Repeat("f", 64),
+			SourceWorkspaceID: sourceWorkspace,
+		},
+		workspacebundle.ObjectCounts{},
+		absentCommitErr,
+		func(cause error) error {
+			absentCleanupCalls++
+			return cause
+		},
+	)
+	if verified != nil || !errors.Is(err, absentCommitErr) ||
+		absentCleanupCalls != 1 {
+		t.Fatalf(
+			"verify absent import result=%+v cleanup=%d err=%v",
+			verified,
+			absentCleanupCalls,
+			err,
+		)
+	}
+
 	// The restored target is itself exportable, proving imported local storage
 	// keys and target-bound request hashes form another valid bundle.
 	var targetBundle bytes.Buffer

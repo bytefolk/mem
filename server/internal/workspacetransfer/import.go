@@ -30,6 +30,21 @@ type importReplay struct {
 	ImportedAt        time.Time
 }
 
+type importCommitOutcome uint8
+
+const (
+	importCommitUnknown importCommitOutcome = iota
+	importCommitCommitted
+	importCommitAbsent
+	importCommitConflict
+)
+
+type importCommitVerification struct {
+	Outcome importCommitOutcome
+	Replay  importReplay
+	Err     error
+}
+
 func (s *Service) Import(
 	ctx context.Context,
 	request ImportRequest,
@@ -131,22 +146,7 @@ func (s *Service) Import(
 		return nil, err
 	}
 	cleanup := func(cause error) error {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		var cleanupErrors []error
-		for index := len(uploaded) - 1; index >= 0; index-- {
-			if deleteErr := s.store.Delete(cleanupCtx, uploaded[index]); deleteErr != nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf(
-					"delete uploaded object %s: %w",
-					uploaded[index],
-					deleteErr,
-				))
-			}
-		}
-		if len(cleanupErrors) == 0 {
-			return cause
-		}
-		return errors.Join(append([]error{cause}, cleanupErrors...)...)
+		return cleanupUploaded(s.store, uploaded, cause)
 	}
 
 	if err := insertPortableState(
@@ -181,8 +181,24 @@ func (s *Service) Import(
 	if err != nil {
 		return nil, cleanup(fmt.Errorf("record workspace import: %w", err))
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, cleanup(fmt.Errorf("commit workspace import: %w", err))
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		// Commit errors are ambiguous: PostgreSQL may have committed even when
+		// the client did not receive the acknowledgement. pgxpool releases the
+		// transaction connection after Commit returns, so use an independent pool
+		// transaction to wait on the workspace import mutex and inspect the durable
+		// ledger. Uploaded objects are cleaned only while that mutex is held and
+		// ledger absence is therefore confirmed.
+		return s.resolveAmbiguousImportCommit(
+			target,
+			importReplay{
+				BundleID:          archive.Manifest.BundleID,
+				ArchiveSHA256:     archiveDigest,
+				SourceWorkspaceID: archive.Manifest.Source.WorkspaceID,
+			},
+			counts,
+			commitErr,
+			cleanup,
+		)
 	}
 	return &ImportResult{
 		BundleID:          archive.Manifest.BundleID,
@@ -262,6 +278,144 @@ func findImportReplay(
 	return replays[0], true, nil
 }
 
+func (s *Service) resolveAmbiguousImportCommit(
+	target importTarget,
+	expected importReplay,
+	counts workspacebundle.ObjectCounts,
+	commitErr error,
+	cleanup func(error) error,
+) (*ImportResult, error) {
+	verificationCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	verificationTx, err := s.pool.BeginTx(verificationCtx, pgx.TxOptions{
+		IsoLevel: pgx.ReadCommitted,
+	})
+	if err != nil {
+		return resolveImportCommitVerification(
+			importCommitVerification{
+				Outcome: importCommitUnknown,
+				Err:     fmt.Errorf("begin ledger verification: %w", err),
+			},
+			counts,
+			commitErr,
+			cleanup,
+		)
+	}
+	defer rollback(verificationTx)
+
+	// Waiting for the same row lock used by Import establishes that the
+	// ambiguous transaction has finished before an empty ledger is trusted.
+	// It also keeps a concurrent retry from reusing the deterministic object
+	// keys until confirmed-absent cleanup has completed.
+	if _, err := lockImportTarget(
+		verificationCtx,
+		verificationTx,
+		target.WorkspaceID,
+	); err != nil {
+		return resolveImportCommitVerification(
+			importCommitVerification{
+				Outcome: importCommitUnknown,
+				Err:     fmt.Errorf("lock target for ledger verification: %w", err),
+			},
+			counts,
+			commitErr,
+			cleanup,
+		)
+	}
+	replay, found, lookupErr := findImportReplay(
+		verificationCtx,
+		verificationTx,
+		target.WorkspaceID,
+		expected.BundleID,
+		expected.ArchiveSHA256,
+	)
+	return resolveImportCommitVerification(
+		classifyImportCommitVerification(expected, replay, found, lookupErr),
+		counts,
+		commitErr,
+		cleanup,
+	)
+}
+
+func classifyImportCommitVerification(
+	expected, replay importReplay,
+	found bool,
+	err error,
+) importCommitVerification {
+	if err != nil {
+		outcome := importCommitUnknown
+		if errors.Is(err, ErrConflict) {
+			outcome = importCommitConflict
+		}
+		return importCommitVerification{Outcome: outcome, Err: err}
+	}
+	if !found {
+		return importCommitVerification{Outcome: importCommitAbsent}
+	}
+	if replay.BundleID != expected.BundleID ||
+		replay.ArchiveSHA256 != expected.ArchiveSHA256 {
+		return importCommitVerification{
+			Outcome: importCommitConflict,
+			Err: &ConflictError{Conflicts: []Conflict{{
+				Kind:     "bundle_identity",
+				Resource: "workspace_imports",
+				Value:    expected.BundleID.String(),
+				Detail: "commit verification found a different import for " +
+					"the bundle_id or archive digest",
+			}}, Total: 1},
+		}
+	}
+	return importCommitVerification{
+		Outcome: importCommitCommitted,
+		Replay:  replay,
+	}
+}
+
+func resolveImportCommitVerification(
+	verification importCommitVerification,
+	counts workspacebundle.ObjectCounts,
+	commitErr error,
+	cleanup func(error) error,
+) (*ImportResult, error) {
+	switch verification.Outcome {
+	case importCommitCommitted:
+		// The durable result was recovered rather than directly observed, so
+		// replayed=true tells callers that retry semantics produced this answer.
+		return &ImportResult{
+			BundleID:          verification.Replay.BundleID,
+			ArchiveSHA256:     verification.Replay.ArchiveSHA256,
+			SourceWorkspaceID: verification.Replay.SourceWorkspaceID,
+			ImportedAt:        verification.Replay.ImportedAt.UTC(),
+			Counts:            counts,
+			Replayed:          true,
+		}, nil
+	case importCommitAbsent:
+		return nil, cleanup(fmt.Errorf(
+			"commit workspace import was confirmed absent from the ledger: %w",
+			commitErr,
+		))
+	case importCommitConflict:
+		return nil, errors.Join(
+			verification.Err,
+			fmt.Errorf("commit workspace import: %w", commitErr),
+		)
+	default:
+		verificationErr := verification.Err
+		if verificationErr == nil {
+			verificationErr = errors.New("ledger verification returned no outcome")
+		}
+		return nil, errors.Join(
+			fmt.Errorf(
+				"%w; uploaded objects were preserved; retry the same bundle",
+				ErrCommitIndeterminate,
+			),
+			fmt.Errorf("commit workspace import: %w", commitErr),
+			fmt.Errorf("verify workspace import ledger: %w", verificationErr),
+		)
+	}
+}
+
 func (s *Service) uploadArchiveBlobs(
 	ctx context.Context,
 	target importTarget,
@@ -291,7 +445,7 @@ func (s *Service) uploadArchiveBlobs(
 		)
 		reader, err := archive.OpenBlob(file.SHA256)
 		if err != nil {
-			return nil, uploaded, cleanupUploaded(ctx, s.store, uploaded, err)
+			return nil, uploaded, cleanupUploaded(s.store, uploaded, err)
 		}
 		uploaded = append(uploaded, key)
 		verifier := &hashingReader{
@@ -303,21 +457,18 @@ func (s *Service) uploadArchiveBlobs(
 		switch {
 		case putErr != nil:
 			return nil, uploaded, cleanupUploaded(
-				ctx,
 				s.store,
 				uploaded,
 				fmt.Errorf("upload file %s: %w", file.ID, putErr),
 			)
 		case closeErr != nil:
 			return nil, uploaded, cleanupUploaded(
-				ctx,
 				s.store,
 				uploaded,
 				fmt.Errorf("close bundle blob %s: %w", file.SHA256, closeErr),
 			)
 		case verifier.read != blob.Size:
 			return nil, uploaded, cleanupUploaded(
-				ctx,
 				s.store,
 				uploaded,
 				fmt.Errorf(
@@ -330,7 +481,6 @@ func (s *Service) uploadArchiveBlobs(
 			)
 		case hex.EncodeToString(verifier.hasher.Sum(nil)) != file.SHA256:
 			return nil, uploaded, cleanupUploaded(
-				ctx,
 				s.store,
 				uploaded,
 				fmt.Errorf("%w: blob %s upload hash mismatch", ErrIntegrity, file.SHA256),
@@ -357,7 +507,6 @@ func (reader *hashingReader) Read(buffer []byte) (int, error) {
 }
 
 func cleanupUploaded(
-	ctx context.Context,
 	store ObjectStore,
 	keys []string,
 	cause error,

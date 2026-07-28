@@ -306,7 +306,6 @@ func TestCleanupUploadedPreservesCauseAndReportsDeleteFailure(t *testing.T) {
 	store.deleteErr = errors.New("delete unavailable")
 	cause := errors.New("database failure")
 	err := cleanupUploaded(
-		context.Background(),
 		store,
 		[]string{"one", "two"},
 		cause,
@@ -317,6 +316,185 @@ func TestCleanupUploadedPreservesCauseAndReportsDeleteFailure(t *testing.T) {
 	}
 	if strings.Join(store.deletes, ",") != "two,one" {
 		t.Fatalf("cleanup order = %v", store.deletes)
+	}
+}
+
+func TestClassifyImportCommitVerification(t *testing.T) {
+	expected := importReplay{
+		BundleID:          uuid.New(),
+		ArchiveSHA256:     strings.Repeat("a", 64),
+		SourceWorkspaceID: uuid.New(),
+	}
+	committed := expected
+	committed.ImportedAt = time.Date(2026, time.July, 28, 8, 0, 0, 0, time.UTC)
+	queryErr := errors.New("ledger unavailable")
+
+	tests := []struct {
+		name       string
+		replay     importReplay
+		found      bool
+		err        error
+		want       importCommitOutcome
+		wantErr    error
+		wantReplay bool
+	}{
+		{
+			name:       "committed matching ledger",
+			replay:     committed,
+			found:      true,
+			want:       importCommitCommitted,
+			wantReplay: true,
+		},
+		{
+			name:  "confirmed absent ledger",
+			want:  importCommitAbsent,
+			found: false,
+		},
+		{
+			name:    "unknown ledger",
+			err:     queryErr,
+			want:    importCommitUnknown,
+			wantErr: queryErr,
+		},
+		{
+			name: "conflicting ledger",
+			replay: importReplay{
+				BundleID:          expected.BundleID,
+				ArchiveSHA256:     strings.Repeat("b", 64),
+				SourceWorkspaceID: expected.SourceWorkspaceID,
+			},
+			found:   true,
+			want:    importCommitConflict,
+			wantErr: ErrConflict,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := classifyImportCommitVerification(
+				expected,
+				test.replay,
+				test.found,
+				test.err,
+			)
+			if got.Outcome != test.want {
+				t.Fatalf("outcome = %d, want %d", got.Outcome, test.want)
+			}
+			if test.wantErr != nil && !errors.Is(got.Err, test.wantErr) {
+				t.Fatalf("error = %v, want %v", got.Err, test.wantErr)
+			}
+			if test.wantReplay && got.Replay != committed {
+				t.Fatalf("replay = %+v, want %+v", got.Replay, committed)
+			}
+		})
+	}
+}
+
+func TestResolveImportCommitVerificationCleansOnlyConfirmedAbsence(t *testing.T) {
+	commitErr := errors.New("commit acknowledgement lost")
+	ledgerErr := errors.New("ledger unavailable")
+	conflictErr := &ConflictError{Conflicts: []Conflict{{
+		Kind:     "bundle_identity",
+		Resource: "workspace_imports",
+		Value:    uuid.NewString(),
+	}}, Total: 1}
+	replay := importReplay{
+		BundleID:          uuid.New(),
+		ArchiveSHA256:     strings.Repeat("c", 64),
+		SourceWorkspaceID: uuid.New(),
+		ImportedAt:        time.Date(2026, time.July, 28, 9, 0, 0, 0, time.UTC),
+	}
+	counts := workspacebundle.ObjectCounts{Files: 2, Blobs: 1}
+
+	tests := []struct {
+		name         string
+		verification importCommitVerification
+		wantCleanup  bool
+		wantErr      error
+		wantSuccess  bool
+	}{
+		{
+			name: "committed matching ledger preserves objects",
+			verification: importCommitVerification{
+				Outcome: importCommitCommitted,
+				Replay:  replay,
+			},
+			wantSuccess: true,
+		},
+		{
+			name: "confirmed absence cleans objects",
+			verification: importCommitVerification{
+				Outcome: importCommitAbsent,
+			},
+			wantCleanup: true,
+			wantErr:     commitErr,
+		},
+		{
+			name: "unknown ledger preserves objects",
+			verification: importCommitVerification{
+				Outcome: importCommitUnknown,
+				Err:     ledgerErr,
+			},
+			wantErr: ErrCommitIndeterminate,
+		},
+		{
+			name: "conflicting ledger preserves objects",
+			verification: importCommitVerification{
+				Outcome: importCommitConflict,
+				Err:     conflictErr,
+			},
+			wantErr: ErrConflict,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cleanupCalls := 0
+			result, err := resolveImportCommitVerification(
+				test.verification,
+				counts,
+				commitErr,
+				func(cause error) error {
+					cleanupCalls++
+					return cause
+				},
+			)
+			if (cleanupCalls == 1) != test.wantCleanup {
+				t.Fatalf(
+					"cleanup calls = %d, want cleanup %t",
+					cleanupCalls,
+					test.wantCleanup,
+				)
+			}
+			if test.wantSuccess {
+				if err != nil {
+					t.Fatalf("resolve committed import: %v", err)
+				}
+				if result == nil || !result.Replayed ||
+					result.BundleID != replay.BundleID ||
+					result.ArchiveSHA256 != replay.ArchiveSHA256 ||
+					result.SourceWorkspaceID != replay.SourceWorkspaceID ||
+					!result.ImportedAt.Equal(replay.ImportedAt) ||
+					result.Counts != counts {
+					t.Fatalf("result = %+v", result)
+				}
+				return
+			}
+			if result != nil {
+				t.Fatalf("unexpected result = %+v", result)
+			}
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("error = %v, want %v", err, test.wantErr)
+			}
+			if errors.Is(test.wantErr, ErrCommitIndeterminate) &&
+				!strings.Contains(err.Error(), "retry the same bundle") {
+				t.Fatalf("indeterminate error is not actionable: %v", err)
+			}
+			if test.verification.Outcome == importCommitUnknown &&
+				(!errors.Is(err, commitErr) || !errors.Is(err, ledgerErr)) {
+				t.Fatalf("indeterminate error lost causes: %v", err)
+			}
+		})
 	}
 }
 

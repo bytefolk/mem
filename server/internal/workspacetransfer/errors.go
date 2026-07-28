@@ -11,6 +11,11 @@ var (
 	ErrUnsupportedMode   = errors.New("unsupported workspace restore mode")
 	ErrConflict          = errors.New("workspace import conflict")
 	ErrIntegrity         = errors.New("workspace transfer integrity failure")
+	// ErrCommitIndeterminate means the durable ledger could not prove whether
+	// PostgreSQL committed. Callers should retry the exact same bundle.
+	ErrCommitIndeterminate = errors.New(
+		"workspace import commit outcome is indeterminate",
+	)
 )
 
 type Conflict struct {
