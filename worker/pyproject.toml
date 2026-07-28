@@ -26,7 +26,7 @@ dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
     # Imaging
-    "pillow>=10.2",
+    "pillow>=12.3.0",
     # PDF (placeholder — W2 actually uses)
     "pypdf>=4.0",
     # ASR (placeholder — W2 actually uses; pinned wide on purpose)
