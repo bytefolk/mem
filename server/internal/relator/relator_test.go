@@ -74,6 +74,10 @@ func TestRecomputePerson(t *testing.T) {
 	if hits[0].Score <= hits[1].Score {
 		t.Fatalf("expected fB score > fC score, got %.3f vs %.3f", hits[0].Score, hits[1].Score)
 	}
+	if hits[0].Score != 1 || hits[1].Score != 0.5 {
+		t.Fatalf("expected source-person coverage scores 1.0 and 0.5, got %.3f and %.3f",
+			hits[0].Score, hits[1].Score)
+	}
 	// D has no entities → must not appear.
 	for _, h := range hits {
 		if h.FileID == fD {

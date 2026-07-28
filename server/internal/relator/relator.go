@@ -286,9 +286,10 @@ func isImageMIME(mime string) bool {
 }
 
 // recomputePerson finds files that share at least one `person`-typed entity
-// with srcID. score = shared_count / min(src_person_count, dst_person_count),
-// giving a value in (0, 1] — 1 means one file's person-set is a subset of the
-// other's. Top-K by score, ties broken by shared_count.
+// with srcID. score = shared_count / src_person_count, giving a value in
+// (0, 1] — 1 means the destination contains every person attached to the
+// source. The relation is directional, so a partial destination ranks lower.
+// Top-K ties are broken by shared_count.
 //
 // If the src file has zero person entities we still wipe old rows (idempotent
 // rebuild) but insert nothing.
@@ -326,20 +327,11 @@ func (s *Service) recomputePerson(ctx context.Context, srcID, userID uuid.UUID, 
 		     AND fe.file_id != $1
 		     AND f.user_id  = $2
 		   GROUP BY fe.file_id
-		),
-		dst_total AS (
-		  SELECT fe.file_id, COUNT(*)::int AS n
-		    FROM file_entities fe
-		    JOIN entities e ON e.id = fe.entity_id
-		   WHERE e.type = 'person'
-		     AND fe.file_id IN (SELECT file_id FROM dst_shared)
-		   GROUP BY fe.file_id
 		)
 		SELECT d.file_id,
-		       (d.shared::real / GREATEST(LEAST((SELECT n FROM src_count), t.n), 1))::real AS score,
+		       (d.shared::real / GREATEST((SELECT n FROM src_count), 1))::real AS score,
 		       d.shared
 		  FROM dst_shared d
-		  JOIN dst_total  t ON t.file_id = d.file_id
 		 WHERE (SELECT n FROM src_count) > 0
 		 ORDER BY score DESC, d.shared DESC
 		 LIMIT $3

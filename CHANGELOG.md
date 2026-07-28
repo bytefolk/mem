@@ -25,4 +25,9 @@ and this project intends to follow
 - Applied `gofmt` to the existing Go baseline so formatting can be enforced in
   CI.
 
+### Fixed
+
+- Made `same_person` ranking use directional source-person coverage so a full
+  person-set match ranks ahead of a partial match.
+
 [Unreleased]: https://github.com/fullstack-ai-infra/mem/commits/main
