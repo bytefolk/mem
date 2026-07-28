@@ -45,6 +45,52 @@ jobs:
       - name: Validate test Compose model
         run: docker compose -f docker-compose.test.yml config >/dev/null
 
+  standard:
+    name: Go, Worker and Web regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.9.27"
+          enable-cache: true
+          cache-dependency-glob: worker/uv.lock
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install locked dependencies
+        run: |
+          (cd server && go mod download)
+          (cd worker && uv sync --locked --extra test && make proto)
+          (cd web && npm ci && npx playwright install --with-deps chromium)
+
+      - name: Run hermetic and race regression
+        run: |
+          ./scripts/verify.sh unit
+          ./scripts/verify.sh race
+
   postgres:
     name: PostgreSQL integration
     runs-on: ubuntu-24.04
@@ -80,34 +126,8 @@ jobs:
       - name: Migration and PostgreSQL regression
         run: ./scripts/verify.sh integration
 
-  web-acceptance:
-    name: Web memory and transfer acceptance
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install locked dependencies
-        working-directory: web
-        run: |
-          npm ci
-          npx playwright install --with-deps chromium
-
-      - name: Run browser acceptance
-        working-directory: web
-        run: |
-          npm run test:memory
-          npm run test:transfer
+      - name: PostgreSQL race regression
+        run: ./scripts/verify.sh integration-race
 
   acceptance:
     name: HTTP, CLI and MCP lifecycle
