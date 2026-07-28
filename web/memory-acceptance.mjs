@@ -131,6 +131,8 @@ async function readJSON(page, url, options) {
 
 const vite = startVite();
 let browser;
+let failure;
+let failed = false;
 
 try {
   await waitForServer(vite);
@@ -510,10 +512,33 @@ try {
   console.log(
     `Memory acceptance passed. Screenshots: ${artifactDir}/memory-ledger-detail.png, ${artifactDir}/memory-detail-mobile.png`,
   );
+} catch (error) {
+  failure = error;
+  failed = true;
 } finally {
-  await closeBrowserWithin(browser);
-  await stopProcess(vite.child);
+  try {
+    await closeBrowserWithin(browser);
+  } catch (error) {
+    if (failed) {
+      console.warn(`Browser cleanup also failed: ${error instanceof Error ? error.message : error}`);
+    } else {
+      failure = error;
+      failed = true;
+    }
+  }
+  try {
+    await stopProcess(vite.child);
+  } catch (error) {
+    if (failed) {
+      console.warn(`Vite cleanup also failed: ${error instanceof Error ? error.message : error}`);
+    } else {
+      failure = error;
+      failed = true;
+    }
+  }
 }
+
+if (failed) throw failure;
 
 // Playwright/Chrome can leave a transient platform handle behind even after
 // both child processes are gone. Reaching this line means every assertion and

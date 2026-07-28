@@ -103,5 +103,11 @@ The project is not yet publishing stable semantic-versioned releases.
 - Made `same_person` ranking use directional source-person coverage and stable
   file-ID tie-breaking so a full person-set match ranks ahead of a partial
   match and equal candidates are selected deterministically.
+- Align the Worker protobuf/gRPC runtime floors with the checked-in generated
+  stubs and verify that contract in regression tests.
+- Generate Go protobuf stubs directly into their destination instead of
+  deleting a repository-root `github.com/` directory after generation.
+- Preserve the primary Web acceptance failure when browser or Vite cleanup
+  also fails.
 
 [Unreleased]: https://github.com/fullstack-ai-infra/mem/commits/main

@@ -121,7 +121,7 @@ forget 需要 `delete` 及允许删除的 workspace 角色。写入时关联
 
 - Go 1.25
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
-- Node.js 22 and npm
+- Node.js 24 and npm
 - `protoc` 34.1, `protoc-gen-go` v1.36.11, and
   `protoc-gen-go-grpc` v1.6.2 when changing protobuf definitions
 - Docker with Compose

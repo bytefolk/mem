@@ -55,12 +55,9 @@ proto: proto-go proto-python
 proto-go:
 	@echo "[proto] generating Go stubs -> server/internal/workerpb/"
 	@protoc -I worker/proto \
-		--go_out=. --go_opt=paths=import \
-		--go-grpc_out=. --go-grpc_opt=paths=import \
+		--go_out=server/internal/workerpb --go_opt=paths=source_relative \
+		--go-grpc_out=server/internal/workerpb --go-grpc_opt=paths=source_relative \
 		worker/proto/processor.proto
-	@# protoc writes under the go_package import path; move them into place.
-	@mv -f github.com/PeterGuy326/mem/server/internal/workerpb/*.pb.go server/internal/workerpb/
-	@rm -rf github.com
 
 proto-python:
 	@echo "[proto] generating Python stubs -> worker/mem_worker/proto/"

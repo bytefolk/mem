@@ -127,6 +127,8 @@ async function confirmAndImport(page) {
 
 const vite = startVite();
 let browser;
+let failure;
+let failed = false;
 
 try {
   await waitForServer(vite);
@@ -423,9 +425,32 @@ try {
   console.log(
     `Transfer acceptance passed. Screenshots: ${artifactDir}/workspace-transfer-desktop.png, ${artifactDir}/workspace-transfer-mobile.png`,
   );
+} catch (error) {
+  failure = error;
+  failed = true;
 } finally {
-  await closeBrowserWithin(browser);
-  await stopProcess(vite.child);
+  try {
+    await closeBrowserWithin(browser);
+  } catch (error) {
+    if (failed) {
+      console.warn(`Browser cleanup also failed: ${error instanceof Error ? error.message : error}`);
+    } else {
+      failure = error;
+      failed = true;
+    }
+  }
+  try {
+    await stopProcess(vite.child);
+  } catch (error) {
+    if (failed) {
+      console.warn(`Vite cleanup also failed: ${error instanceof Error ? error.message : error}`);
+    } else {
+      failure = error;
+      failed = true;
+    }
+  }
 }
+
+if (failed) throw failure;
 
 process.exit(0);

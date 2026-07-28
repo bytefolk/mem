@@ -24,6 +24,14 @@ The default regression suite does not need Redis, MinIO, Ollama, a cloud
 provider or any API key. The Web acceptance tests use MSW fixtures. Worker
 tests use fakes except for the explicitly opt-in visual-model evaluation.
 
+The two checked-in workflows have distinct responsibilities. `ci.yml` verifies
+generated protobufs, coverage and release-build artifacts;
+`memory-validation.yml` verifies repository metadata, the complete
+Agent-memory regression, owned-database migrations and process-level
+HTTP/CLI/MCP acceptance. Their shared toolchain and service versions must stay
+aligned. Component tests intentionally overlap where artifact production and
+the Agent-memory contract need independent evidence.
+
 ## 2. Bootstrap a clean checkout
 
 From the repository root:
@@ -46,10 +54,9 @@ On a clean Linux host, install Playwright's system packages as well:
 (cd web && npx playwright install --with-deps chromium)
 ```
 
-Expected result: every command exits `0`; the Worker protobuf stubs exist in
-the ignored `worker/mem_worker/proto/` directory; Web dependencies and one
-Playwright browser are installed. No service is started and no user data is
-created.
+Expected result: every command exits `0`; the checked-in Worker protobuf stubs
+are regenerated without a diff; Web dependencies and one Playwright browser
+are installed. No service is started and no user data is created.
 
 ## 3. Hermetic regression
 
