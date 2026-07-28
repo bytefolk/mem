@@ -24,7 +24,7 @@ dependencies = [
     "protobuf>=6.31.1",
     # Config / validation
     "pydantic>=2.6",
-    "pydantic-settings>=2.2",
+    "pydantic-settings>=2.14.2",
     # Imaging
     "pillow>=10.2",
     # PDF (placeholder — W2 actually uses)
