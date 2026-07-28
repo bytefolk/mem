@@ -16,7 +16,7 @@ PROTO_OUT := mem_worker/proto
 .PHONY: install proto test run lint fmt clean docker
 
 install:
-	$(UV) sync --extra test
+	$(UV) sync --extra test --extra dev
 
 # Regenerate Python protobuf + grpc stubs.
 # We rewrite the "import processor_pb2" -> "from . import processor_pb2"

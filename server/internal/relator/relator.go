@@ -2,9 +2,9 @@
 // and entity overlap.
 //
 // SPEC §F4 — four relation types are defined; Phase 1 lands three:
-//   * same_topic  — text embedding cosine similarity
-//   * same_event  — visual embedding cosine similarity (images only)
-//   * same_person — shared `person` entities from face clustering / NER
+//   - same_topic  — text embedding cosine similarity
+//   - same_event  — visual embedding cosine similarity (images only)
+//   - same_person — shared `person` entities from face clustering / NER
 //
 // (sequel needs timeline + narrative heuristics, still future.)
 //
