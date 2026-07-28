@@ -4,12 +4,15 @@
 >
 > 开源 · 自托管 · 模型可插拔 · API / MCP / CLI / UI 共用一套记忆内核。
 
+[![CI](https://github.com/fullstack-ai-infra/mem/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fullstack-ai-infra/mem/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-Phase%201%20MVP-orange.svg)](SPEC.md)
+[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#project-status)
 
----
+**A portable, self-hosted memory plane for AI agents.**
 
-## 这是什么
+`mem` keeps files, metadata, and embeddings under your control and exposes the
+same core through an HTTP API, a command-line client, an MCP server, and a web
+interface.
 
 **mem** 是用户自有的可迁移 Memory Plane：人把文件、照片、录音和笔记放进去，
 Agent 也可以写回任务状态、观察、决定和产物。切换 Claude Code、Codex 等 Agent，
@@ -43,7 +46,23 @@ flowchart LR
     IDX --> CTX
 ```
 
----
+> [!WARNING]
+> `mem` is experimental. Interfaces, storage schemas, and release artifacts may
+> change without notice. Do not use it as the only copy of important data.
+
+## What is in this repository?
+
+| Component | Purpose |
+| --- | --- |
+| `server/` | Go HTTP service (`memd`), CLI (`mem`), and stdio MCP server (`mem-mcp`) |
+| `worker/` | Python gRPC worker for extraction, embeddings, and model providers |
+| `web/` | React/Vite web interface |
+| `docker-compose.yml` | Local PostgreSQL/pgvector, Redis, and MinIO dependencies |
+
+The current implementation includes file and folder operations, token-based
+access, search and retrieval surfaces, an extensible processing worker, and MCP
+tools backed by the same service API. See [SPEC.md](SPEC.md) for the evolving
+product and architecture contract.
 
 ## 五个高频场景
 
@@ -96,7 +115,16 @@ forget 需要 `delete` 及允许删除的 workspace 角色。写入时关联
 `source_file_id` 还需 `read`。
 `source=all` 的调用方必须检查 `partial/warnings`，避免把单路降级当成完整召回。
 
----
+## 开发环境
+
+本地开发依赖：
+
+- Go 1.25
+- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
+- Node.js 22 and npm
+- `protoc` 34.1, `protoc-gen-go` v1.36.11, and
+  `protoc-gen-go-grpc` v1.6.2 when changing protobuf definitions
+- Docker with Compose
 
 ## 为什么是 Agent-Native
 
@@ -216,10 +244,115 @@ mem/
 └── docker-compose.test.yml   ← 一次性 PostgreSQL 回归环境
 ```
 
----
+完整的本地启动、Worker、Web 和 smoke test 步骤见
+[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
+
+Web 开发模式可单独启动：
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+The service requires a development user and token before protected operations
+can be used. Follow [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md) for the complete
+local setup and smoke test. For agent integration, build `mem-mcp` and follow
+the [MCP setup guide](docs/mcp.md).
+
+## Verify a change
+
+CI applies the following checks to pull requests. Run the applicable groups
+locally before opening one; [CONTRIBUTING.md](CONTRIBUTING.md) explains the
+review evidence expected when a check cannot be run.
+
+Go integration tests require an explicitly disposable PostgreSQL database
+whose name ends in `_test`. With the Docker Compose services running, this
+creates `mem_test` if needed:
+
+```bash
+make up
+docker compose exec -T postgres sh -c \
+  "psql -U mem -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='mem_test'\" | grep -q 1 || createdb -U mem mem_test"
+```
+
+Run the Go protobuf, formatting, vet, migration, race/coverage, and build
+checks:
+
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+PATH="$(go env GOPATH)/bin:${PATH}"
+export PATH
+make proto-go
+git diff --exit-code -- server/internal/workerpb
+
+cd server
+test -z "$(gofmt -l .)"
+go vet ./...
+export MEM_TEST_DB=postgres://mem:mem@localhost:5432/mem_test?sslmode=disable
+go run github.com/pressly/goose/v3/cmd/goose@v3.22.1 \
+  -dir internal/db/migrations postgres "${MEM_TEST_DB}" up
+go test -race -p 1 -coverpkg=./... -covermode=atomic \
+  -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+cd ..
+make build
+```
+
+Run the Worker protobuf, coverage, and package checks:
+
+```bash
+cd worker
+uv sync --frozen --extra test --extra dev
+make proto
+git diff --exit-code -- mem_worker/proto
+uv run pytest --cov=mem_worker --cov-report=term-missing \
+  --cov-report=xml:coverage.xml
+uv build
+```
+
+Run the Web checks:
+
+```bash
+cd ../web
+npm ci
+npm audit --omit=dev --audit-level=high  # advisory; findings do not gate CI
+npm run lint
+npm run typecheck
+npm run build
+```
+
+Go and Python tests report coverage in CI. The web package currently uses
+linting, type checking, and a production build as its required baseline.
+Production dependency auditing is advisory so that a newly published external
+advisory cannot block an unrelated pull request.
+
+## Contributing
+
+All changes follow an issue-first, pull-request-only workflow:
+
+1. Open or select an issue and record its type, evidence, scope, and acceptance
+   criteria; bugs also receive an impact severity.
+2. Develop on a branch linked to that issue.
+3. Add tests and verification evidence with the change.
+4. Open a pull request that closes or references the issue.
+5. Obtain an independent review and pass required CI checks before merge.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the development and review rules,
+and [docs/maintainers/triage.md](docs/maintainers/triage.md) for the issue
+taxonomy. Security reports must follow [SECURITY.md](SECURITY.md), not a public
+issue. Release maintainers should use
+[docs/maintainers/releasing.md](docs/maintainers/releasing.md).
+
+## Project status
+
+`mem` is in active experimental development. The repository is establishing a
+stable contribution, test, and release baseline before committing to broad
+distribution channels or compatibility guarantees.
 
 ## License
 
-Apache-2.0 — 应用层永远完整可自托管，没有“开源阉割版”。
+[Apache License 2.0](LICENSE) — 应用层永远完整可自托管，没有“开源阉割版”。
 
 Copyright © 2026 mem contributors.

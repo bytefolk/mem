@@ -39,6 +39,13 @@ The project is not yet publishing stable semantic-versioned releases.
 - Reproducible, project-specific validation for Go, Worker, Web, PostgreSQL
   migrations/race paths and isolated process-level HTTP/CLI/MCP acceptance,
   backed by repository CI.
+- Issue-first contribution, triage, review, security, and community governance
+  standards.
+- Pull request policy and CI jobs for Go, the Python worker, and the Web
+  application.
+- Go and Python coverage artifacts plus verified Go, Python, and Web build
+  artifacts.
+- Checked-in Go and Python protobuf stubs for reproducible fresh-clone builds.
 
 ### Changed
 
@@ -90,3 +97,11 @@ The project is not yet publishing stable semantic-versioned releases.
   cannot echo full untrusted memory payloads into an Agent context.
 - Prevent checkpoint-list pages from amplifying up to 200 complete handoff
   payloads and reference arrays into one Agent context.
+
+### Fixed
+
+- Made `same_person` ranking use directional source-person coverage and stable
+  file-ID tie-breaking so a full person-set match ranks ahead of a partial
+  match and equal candidates are selected deterministically.
+
+[Unreleased]: https://github.com/fullstack-ai-infra/mem/commits/main
