@@ -141,7 +141,7 @@ marker before it can drop anything. The control role therefore needs
    rollback round trip, and asserts both intermediate schema states;
 3. creates separate fresh databases for normal and race runs, then executes
    the real PostgreSQL memory, handoff, workspace-transfer, HTTP-router,
-   folder-lifecycle and relator tests serially; and
+   folder/file path-locking, folder-lifecycle and relator tests serially; and
 4. fails if any required integration test is skipped.
 
 Required tests:
@@ -151,6 +151,8 @@ Required tests:
 - `TestWorkspaceTransferPostgres`
 - `TestHandoffCrossAgentHTTPIntegration`
 - `TestMemoryPathLifecycleIntegration`
+- `TestWorkspacePathLockingIntegration`
+- `TestFilePathLockingIntegration`
 - `TestRecomputePerson`
 
 Expected result: migrations reach the declared current head (currently `13`),
