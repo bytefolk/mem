@@ -59,8 +59,11 @@ run_race() {
   (
     cd "${REPO_ROOT}/server"
     env -u MEM_TEST_DB go test -race -count=1 \
+      ./internal/file \
+      ./internal/folder \
       ./internal/memory \
       ./internal/handoff \
+      ./internal/workspacelock \
       ./internal/workspacebundle \
       ./internal/workspacetransfer \
       ./internal/relator \
@@ -211,6 +214,8 @@ run_postgres_tests() {
     TestWorkspaceTransferPostgres
     TestHandoffCrossAgentHTTPIntegration
     TestMemoryPathLifecycleIntegration
+    TestWorkspacePathLockingIntegration
+    TestFilePathLockingIntegration
     TestRecomputePerson
   )
 
@@ -222,12 +227,13 @@ run_postgres_tests() {
     MEM_TEST_DB="$MEM_TEST_DB" go test \
       ${race_flag:+"$race_flag"} \
       -v -count=1 -p 1 -timeout 20m \
-      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestHandoffCrossAgentHTTPIntegration|TestMemoryPathLifecycleIntegration|TestRecomputePerson)$' \
+      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestHandoffCrossAgentHTTPIntegration|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestRecomputePerson)$' \
       ./internal/memory \
       ./internal/handoff \
       ./internal/workspacetransfer \
       ./internal/api \
       ./internal/folder \
+      ./internal/file \
       ./internal/relator
   ) 2>&1 | tee "$integration_log"
   local test_status="${PIPESTATUS[0]}"

@@ -100,6 +100,9 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Fixed
 
+- Serialized folder prefix mutations with folder, file, memory and checkpoint
+  writers so concurrent renames cannot split a subtree or leave a file path
+  pointing at a differently named folder.
 - Made `same_person` ranking use directional source-person coverage and stable
   file-ID tie-breaking so a full person-set match ranks ahead of a partial
   match and equal candidates are selected deterministically.

@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/PeterGuy326/mem/server/internal/workspacelock"
 )
 
 const memoryColumnNames = `
@@ -71,6 +73,10 @@ func (s *Service) Remember(ctx context.Context, cmd Command) (*RememberResult, e
 		return nil, fmt.Errorf("begin remember transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := workspacelock.ForContentWrite(ctx, tx, normalized.WorkspaceID); err != nil {
+		return nil, err
+	}
 
 	insertSQL := `
 		INSERT INTO memories (

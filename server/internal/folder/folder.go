@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeterGuy326/mem/server/internal/pathx"
+	"github.com/PeterGuy326/mem/server/internal/workspacelock"
 )
 
 // Folder mirrors a row in the `folders` table.
@@ -91,7 +92,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, path string) (*F
 		return nil, nil
 	}
 	var deepest *Folder
-	err = s.withTx(ctx, func(tx pgx.Tx) error {
+	err = s.withContentWriteTx(ctx, userID, func(tx pgx.Tx) error {
 		f, e := ensureFolderTx(ctx, tx, userID, norm)
 		if e != nil {
 			return e
@@ -358,7 +359,7 @@ func (s *Service) Rename(ctx context.Context, userID uuid.UUID, oldPath, newName
 	if newPath == oldNorm {
 		return nil // no-op
 	}
-	return s.withTx(ctx, func(tx pgx.Tx) error {
+	return s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
 		src, err := selectFolderByPathTx(ctx, tx, userID, oldNorm)
 		if err != nil {
 			return err
@@ -407,7 +408,7 @@ func (s *Service) Move(ctx context.Context, userID uuid.UUID, srcPath, dstParent
 		return nil
 	}
 
-	return s.withTx(ctx, func(tx pgx.Tx) error {
+	return s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
 		src, err := selectFolderByPathTx(ctx, tx, userID, srcNorm)
 		if err != nil {
 			return err
@@ -528,7 +529,7 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 	if norm == pathx.Root {
 		return ErrRootOp
 	}
-	return s.withTx(ctx, func(tx pgx.Tx) error {
+	return s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
 		src, err := selectFolderByPathTx(ctx, tx, userID, norm)
 		if err != nil {
 			return err
@@ -703,6 +704,24 @@ func (s *Service) ResolveOrCreate(ctx context.Context, userID uuid.UUID, path st
 	return s.Create(ctx, userID, path)
 }
 
+// ResolveOrCreateLockedTx resolves a folder inside a caller-owned transaction.
+// The caller must acquire workspacelock.ForContentWriteByOwner as the first
+// database action and hold it through the content write that references the
+// returned folder. File.Put and File.Move use this to keep folder_id and path
+// in one serialization window.
+func (s *Service) ResolveOrCreateLockedTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID uuid.UUID,
+	path string,
+) (*Folder, error) {
+	norm, err := pathx.Normalize(path)
+	if err != nil {
+		return nil, err
+	}
+	return ensureFolderTx(ctx, tx, userID, norm)
+}
+
 // --- internal helpers ---
 
 func (s *Service) selectFolderByPath(ctx context.Context, userID uuid.UUID, path string) (*Folder, error) {
@@ -747,6 +766,32 @@ func (s *Service) withTx(ctx context.Context, fn func(pgx.Tx) error) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) withContentWriteTx(
+	ctx context.Context,
+	userID uuid.UUID,
+	fn func(pgx.Tx) error,
+) error {
+	return s.withTx(ctx, func(tx pgx.Tx) error {
+		if _, err := workspacelock.ForContentWriteByOwner(ctx, tx, userID); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
+}
+
+func (s *Service) withPathMutationTx(
+	ctx context.Context,
+	userID uuid.UUID,
+	fn func(pgx.Tx) error,
+) error {
+	return s.withTx(ctx, func(tx pgx.Tx) error {
+		if _, err := workspacelock.ForPathMutation(ctx, tx, userID); err != nil {
+			return err
+		}
+		return fn(tx)
+	})
 }
 
 func cloneUUID(u *uuid.UUID) *uuid.UUID {

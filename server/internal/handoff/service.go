@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/PeterGuy326/mem/server/internal/workspacelock"
 )
 
 // Service persists immutable versioned checkpoints and resolves deterministic
@@ -95,6 +97,10 @@ func (s *Service) Checkpoint(
 		return nil, fmt.Errorf("begin checkpoint transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := workspacelock.ForContentWrite(ctx, tx, normalized.WorkspaceID); err != nil {
+		return nil, err
+	}
 
 	if existing, ok, err := findIdempotentCheckpoint(
 		ctx,
