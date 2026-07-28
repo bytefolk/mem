@@ -453,6 +453,34 @@ cli_memory_id="$(printf '%s' "$cli_json" | jq -er '.memory.id')"
 printf '%s' "$cli_json" |
   jq -e '.replayed == false and .memory.path == "/E2E/CLI"' >/dev/null
 
+cli_memory_detail="$(
+  MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+  MEM_SERVER="$BASE_URL" \
+  MEM_TOKEN="$agent_token" \
+  MEM_WORKSPACE="$workspace_id" \
+    "${E2E_DIR}/mem" memory "$cli_memory_id" \
+      --scope /E2E \
+      --format json
+)"
+printf '%s' "$cli_memory_detail" |
+  jq -e \
+    --arg id "$cli_memory_id" \
+    --arg workspace_id "$workspace_id" \
+    --arg content "CLI adapter reaches the canonical memory API" '
+      .id == $id and
+      .kind == "observation" and
+      .content == $content and
+      .path == "/E2E/CLI" and
+      .source_type == "agent" and
+      .producer_agent == "cli-e2e" and
+      .lifecycle_status == "active" and
+      .state_version == 1 and
+      .citation == ("mem://memories/" + $id) and
+      .provenance.workspace_id == $workspace_id and
+      .provenance.source_type == "agent" and
+      .provenance.producer_agent == "cli-e2e"
+    ' >/dev/null
+
 MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
 MEM_SERVER="$BASE_URL" \
 MEM_TOKEN="$agent_token" \
@@ -467,7 +495,151 @@ MEM_WORKSPACE="$workspace_id" \
       .source_kind == "memory" and .memory_id == $id)
   ' >/dev/null
 
-log "Validating sequential MCP handshake, recall and lifecycle"
+cli_task_key="cli-e2e-${run_suffix}"
+cli_checkpoint_goal="Verify CLI task and checkpoint inspection through memd"
+jq -nc \
+  --arg task_key "$cli_task_key" \
+  --arg goal "$cli_checkpoint_goal" '
+    {
+      contract: "mem.handoff",
+      schema_version: 1,
+      checkpoint_kind: "handoff",
+      task_key: $task_key,
+      scope_path: "/E2E/CLI",
+      state: {
+        status: "ready",
+        goal: $goal,
+        progress: {
+          summary: "The real PostgreSQL-backed checkpoint is ready to inspect",
+          completed: ["persisted a real CLI checkpoint"]
+        },
+        decisions: [],
+        next_steps: [],
+        blockers: [],
+        open_questions: [],
+        artifacts: []
+      },
+      producer: {
+        agent_id: "cli-e2e",
+        session_id: "cli-e2e-read-session"
+      }
+    }
+  ' >"${E2E_DIR}/cli-handoff.json"
+
+cli_checkpoint_json="$(
+  MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+  MEM_SERVER="$BASE_URL" \
+  MEM_TOKEN="$agent_token" \
+  MEM_WORKSPACE="$workspace_id" \
+    "${E2E_DIR}/mem" checkpoint \
+      --input "${E2E_DIR}/cli-handoff.json" \
+      --idempotency-key "cli-e2e-checkpoint-${run_suffix}" \
+      --format json
+)"
+cli_checkpoint_id="$(
+  printf '%s' "$cli_checkpoint_json" |
+    jq -er '.checkpoint.id'
+)"
+printf '%s' "$cli_checkpoint_json" |
+  jq -e \
+    --arg id "$cli_checkpoint_id" \
+    --arg task_key "$cli_task_key" \
+    --arg goal "$cli_checkpoint_goal" '
+      .replayed == false and
+      .checkpoint.id == $id and
+      .checkpoint.task_key == $task_key and
+      .checkpoint.sequence == 1 and
+      .checkpoint.checkpoint_kind == "handoff" and
+      .checkpoint.contract == "mem.handoff" and
+      .checkpoint.schema_version == 1 and
+      .checkpoint.scope_path == "/E2E/CLI" and
+      .checkpoint.producer_agent == "cli-e2e" and
+      .checkpoint.handoff.state.status == "ready" and
+      .checkpoint.handoff.state.goal == $goal
+    ' >/dev/null
+
+cli_tasks_json="$(
+  MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+  MEM_SERVER="$BASE_URL" \
+  MEM_TOKEN="$agent_token" \
+  MEM_WORKSPACE="$workspace_id" \
+    "${E2E_DIR}/mem" tasks \
+      --scope /E2E \
+      --limit 100 \
+      --format json
+)"
+printf '%s' "$cli_tasks_json" |
+  jq -e \
+    --arg id "$cli_checkpoint_id" \
+    --arg task_key "$cli_task_key" '
+      any(.tasks[];
+        .task_key == $task_key and
+        .scope_path == "/E2E/CLI" and
+        .head_checkpoint_id == $id and
+        .head_sequence == 1)
+    ' >/dev/null
+
+cli_checkpoints_json="$(
+  MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+  MEM_SERVER="$BASE_URL" \
+  MEM_TOKEN="$agent_token" \
+  MEM_WORKSPACE="$workspace_id" \
+    "${E2E_DIR}/mem" checkpoints "$cli_task_key" \
+      --scope /E2E \
+      --limit 100 \
+      --format json
+)"
+printf '%s' "$cli_checkpoints_json" |
+  jq -e \
+    --arg id "$cli_checkpoint_id" \
+    --arg task_key "$cli_task_key" '
+      any(.checkpoints[];
+        .id == $id and
+        .task_key == $task_key and
+        .sequence == 1 and
+        .checkpoint_kind == "handoff" and
+        .contract == "mem.handoff" and
+        .schema_version == 1 and
+        .scope_path == "/E2E/CLI" and
+        .status == "ready" and
+        .progress_excerpt ==
+          "The real PostgreSQL-backed checkpoint is ready to inspect" and
+        .progress_length ==
+          ("The real PostgreSQL-backed checkpoint is ready to inspect" | length) and
+        .completed_count == 1 and
+        .reference_count == 0 and
+        .producer_agent == "cli-e2e" and
+        .producer_session == "cli-e2e-read-session")
+    ' >/dev/null
+
+cli_checkpoint_detail="$(
+  MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+  MEM_SERVER="$BASE_URL" \
+  MEM_TOKEN="$agent_token" \
+  MEM_WORKSPACE="$workspace_id" \
+    "${E2E_DIR}/mem" checkpoint get \
+      "$cli_task_key" "$cli_checkpoint_id" \
+      --scope /E2E \
+      --format json
+)"
+printf '%s' "$cli_checkpoint_detail" |
+  jq -e \
+    --arg id "$cli_checkpoint_id" \
+    --arg task_key "$cli_task_key" \
+    --arg goal "$cli_checkpoint_goal" '
+      .id == $id and
+      .task_key == $task_key and
+      .sequence == 1 and
+      .checkpoint_kind == "handoff" and
+      .contract == "mem.handoff" and
+      .schema_version == 1 and
+      .scope_path == "/E2E/CLI" and
+      .producer_agent == "cli-e2e" and
+      .handoff.state.status == "ready" and
+      .handoff.state.goal == $goal
+    ' >/dev/null
+
+log "Validating sequential MCP handshake, recall, inspection and lifecycle"
 : >"${E2E_DIR}/mcp-client.log"
 : >"${E2E_DIR}/mcp.log"
 chmod 600 "${E2E_DIR}/mcp-client.log" "${E2E_DIR}/mcp.log"
@@ -489,7 +661,13 @@ if [[ "$mcp_status" -ne 0 ]]; then
 fi
 mcp_memory_id="$(printf '%s' "$mcp_summary" | jq -er '.memory_id')"
 printf '%s' "$mcp_summary" |
-  jq -e '.state_version == 5' >/dev/null
+  jq -e '
+    .state_version == 5 and
+    .task_key == "mcp-e2e-read-surfaces" and
+    (.checkpoint_id | test(
+      "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    ))
+  ' >/dev/null
 
 forgotten_code="$(
   curl_safe -sS -o "${E2E_DIR}/forgotten.json" -w '%{http_code}' \

@@ -103,6 +103,8 @@ func TestRegistry_CallPassesContextCancellation(t *testing.T) {
 
 func TestSchemaMarshalsRecursiveObjectAndArrayProperties(t *testing.T) {
 	noAdditionalProperties := false
+	minimum := 1
+	maximum := 200
 	schema := Schema{
 		Type:                 "object",
 		Required:             []string{"handoff"},
@@ -114,6 +116,11 @@ func TestSchemaMarshalsRecursiveObjectAndArrayProperties(t *testing.T) {
 				AdditionalProperties: &noAdditionalProperties,
 				Properties: map[string]Property{
 					"schema_version": {Type: "integer", Const: 1},
+					"sequence": {
+						Type:    "integer",
+						Minimum: &minimum,
+						Maximum: &maximum,
+					},
 					"state": {
 						Type:     "object",
 						Required: []string{"completed"},
@@ -147,6 +154,10 @@ func TestSchemaMarshalsRecursiveObjectAndArrayProperties(t *testing.T) {
 	handoffProperties := handoff["properties"].(map[string]any)
 	if handoffProperties["schema_version"].(map[string]any)["const"] != float64(1) {
 		t.Fatalf("recursive const missing: %s", encoded)
+	}
+	sequence := handoffProperties["sequence"].(map[string]any)
+	if sequence["minimum"] != float64(1) || sequence["maximum"] != float64(200) {
+		t.Fatalf("numeric constraints missing: %s", encoded)
 	}
 	state := handoffProperties["state"].(map[string]any)
 	completed := state["properties"].(map[string]any)["completed"].(map[string]any)

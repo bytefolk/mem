@@ -246,6 +246,7 @@ func taskListToolSchema() tools.Schema {
 			"limit": {
 				Type:        "integer",
 				Default:     50,
+				Maximum:     schemaInteger(200),
 				Description: "Page size (max 200)",
 			},
 			"after": {
@@ -276,14 +277,20 @@ func checkpointListToolSchema() tools.Schema {
 			"limit": {
 				Type:        "integer",
 				Default:     50,
+				Maximum:     schemaInteger(200),
 				Description: "Page size (max 200)",
 			},
 			"before": {
 				Type:        "integer",
+				Minimum:     schemaInteger(1),
 				Description: "Return checkpoints before this positive sequence",
 			},
 		},
 	)
+}
+
+func schemaInteger(value int) *int {
+	return &value
 }
 
 func checkpointGetToolSchema() tools.Schema {

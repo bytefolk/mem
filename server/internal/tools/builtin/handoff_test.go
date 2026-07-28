@@ -246,6 +246,37 @@ func TestMemHandoffReadToolsUseTypedClientContracts(t *testing.T) {
 	})
 }
 
+func TestMemHandoffReadSchemasExposeRuntimeBounds(t *testing.T) {
+	taskLimit := taskListToolSchema().Properties["limit"]
+	if taskLimit.Maximum == nil || *taskLimit.Maximum != 200 {
+		t.Fatalf("mem_task_list limit schema = %#v", taskLimit)
+	}
+
+	checkpointProperties := checkpointListToolSchema().Properties
+	checkpointLimit := checkpointProperties["limit"]
+	if checkpointLimit.Maximum == nil || *checkpointLimit.Maximum != 200 {
+		t.Fatalf("mem_checkpoint_list limit schema = %#v", checkpointLimit)
+	}
+	before := checkpointProperties["before"]
+	if before.Minimum == nil || *before.Minimum != 1 {
+		t.Fatalf("mem_checkpoint_list before schema = %#v", before)
+	}
+
+	encoded, err := json.Marshal(checkpointListToolSchema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(encoded, &schema); err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	if properties["limit"].(map[string]any)["maximum"] != float64(200) ||
+		properties["before"].(map[string]any)["minimum"] != float64(1) {
+		t.Fatalf("serialized schema omitted bounds: %s", encoded)
+	}
+}
+
 func TestMemCheckpointRejectsUnknownNestedFields(t *testing.T) {
 	fs := newFakeServer(`{}`, http.StatusCreated, "application/json")
 	defer fs.Close()

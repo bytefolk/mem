@@ -72,6 +72,8 @@ type Property struct {
 	Pattern              string              `json:"pattern,omitempty"`
 	MinLength            int                 `json:"minLength,omitempty"`
 	MaxLength            int                 `json:"maxLength,omitempty"`
+	Minimum              *int                `json:"minimum,omitempty"`
+	Maximum              *int                `json:"maximum,omitempty"`
 	MaxItems             int                 `json:"maxItems,omitempty"`
 	Properties           map[string]Property `json:"properties,omitempty"`
 	Required             []string            `json:"required,omitempty"`

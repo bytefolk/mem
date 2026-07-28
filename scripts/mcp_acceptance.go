@@ -23,9 +23,12 @@ import (
 )
 
 const (
-	protocolVersion = "2024-11-05"
-	memoryContent   = "MCP reaches the canonical HTTP memory service"
-	memoryPath      = "/E2E/MCP"
+	protocolVersion    = "2024-11-05"
+	memoryContent      = "MCP reaches the canonical HTTP memory service"
+	memoryPath         = "/E2E/MCP"
+	mcpTaskKey         = "mcp-e2e-read-surfaces"
+	mcpCheckpointGoal  = "Verify MCP task and checkpoint inspection through memd"
+	mcpProgressSummary = "The real PostgreSQL-backed checkpoint is ready to inspect"
 )
 
 var uuidPattern = regexp.MustCompile(
@@ -63,6 +66,23 @@ type memoryState struct {
 	UsefulCount     int64  `json:"useful_count"`
 }
 
+type memoryDetail struct {
+	ID              string `json:"id"`
+	Kind            string `json:"kind"`
+	Content         string `json:"content"`
+	Path            string `json:"path"`
+	SourceType      string `json:"source_type"`
+	ProducerAgent   string `json:"producer_agent"`
+	LifecycleStatus string `json:"lifecycle_status"`
+	StateVersion    int64  `json:"state_version"`
+	Citation        string `json:"citation"`
+	Provenance      struct {
+		WorkspaceID   string `json:"workspace_id"`
+		SourceType    string `json:"source_type"`
+		ProducerAgent string `json:"producer_agent"`
+	} `json:"provenance"`
+}
+
 type rememberResult struct {
 	Memory   memoryState `json:"memory"`
 	Replayed bool        `json:"replayed"`
@@ -93,9 +113,79 @@ type contextResult struct {
 	Evidence []contextEvidence `json:"evidence"`
 }
 
+type handoffDocument struct {
+	Contract       string `json:"contract"`
+	SchemaVersion  int    `json:"schema_version"`
+	CheckpointKind string `json:"checkpoint_kind"`
+	TaskKey        string `json:"task_key"`
+	ScopePath      string `json:"scope_path"`
+	State          struct {
+		Status   string `json:"status"`
+		Goal     string `json:"goal"`
+		Progress struct {
+			Summary string `json:"summary"`
+		} `json:"progress"`
+	} `json:"state"`
+	Producer struct {
+		AgentID string `json:"agent_id"`
+	} `json:"producer"`
+}
+
+type checkpointRecord struct {
+	ID             string          `json:"id"`
+	TaskKey        string          `json:"task_key"`
+	Sequence       int64           `json:"sequence"`
+	CheckpointKind string          `json:"checkpoint_kind"`
+	Contract       string          `json:"contract"`
+	SchemaVersion  int             `json:"schema_version"`
+	ScopePath      string          `json:"scope_path"`
+	Handoff        handoffDocument `json:"handoff"`
+	ProducerAgent  string          `json:"producer_agent"`
+}
+
+type checkpointResult struct {
+	Checkpoint checkpointRecord `json:"checkpoint"`
+	Replayed   bool             `json:"replayed"`
+}
+
+type checkpointSummary struct {
+	ID              string `json:"id"`
+	TaskKey         string `json:"task_key"`
+	Sequence        int64  `json:"sequence"`
+	CheckpointKind  string `json:"checkpoint_kind"`
+	Contract        string `json:"contract"`
+	SchemaVersion   int    `json:"schema_version"`
+	ScopePath       string `json:"scope_path"`
+	Status          string `json:"status"`
+	ProgressExcerpt string `json:"progress_excerpt"`
+	ProgressLength  int    `json:"progress_length"`
+	CompletedCount  int    `json:"completed_count"`
+	ReferenceCount  int    `json:"reference_count"`
+	ProducerAgent   string `json:"producer_agent"`
+	ProducerSession string `json:"producer_session"`
+}
+
+type taskRecord struct {
+	ID               string `json:"id"`
+	TaskKey          string `json:"task_key"`
+	ScopePath        string `json:"scope_path"`
+	HeadCheckpointID string `json:"head_checkpoint_id"`
+	HeadSequence     int64  `json:"head_sequence"`
+}
+
+type taskListResult struct {
+	Tasks []taskRecord `json:"tasks"`
+}
+
+type checkpointListResult struct {
+	Checkpoints []checkpointSummary `json:"checkpoints"`
+}
+
 type scenarioResult struct {
 	MemoryID     string `json:"memory_id"`
 	StateVersion int64  `json:"state_version"`
+	TaskKey      string `json:"task_key"`
+	CheckpointID string `json:"checkpoint_id"`
 }
 
 type mcpClient struct {
@@ -348,6 +438,10 @@ func runScenario(c *mcpClient) (scenarioResult, error) {
 	}
 	memoryID := remembered.Memory.ID
 
+	if err := requireMemoryGet(c, memoryID); err != nil {
+		return scenarioResult{}, err
+	}
+
 	allRaw, err := listMemories(c, "all")
 	if err != nil {
 		return scenarioResult{}, err
@@ -356,6 +450,11 @@ func runScenario(c *mcpClient) (scenarioResult, error) {
 		return scenarioResult{}, err
 	} else if !present {
 		return scenarioResult{}, errors.New("remembered memory missing from MCP list")
+	}
+
+	checkpointID, err := requireHandoffReadSurfaces(c)
+	if err != nil {
+		return scenarioResult{}, err
 	}
 
 	feedbackRaw, err := c.callTool("mem_feedback", map[string]any{
@@ -477,7 +576,12 @@ func runScenario(c *mcpClient) (scenarioResult, error) {
 		return scenarioResult{}, errors.New("post-forget recall leaked memory content")
 	}
 
-	return scenarioResult{MemoryID: memoryID, StateVersion: 5}, nil
+	return scenarioResult{
+		MemoryID:     memoryID,
+		StateVersion: 5,
+		TaskKey:      mcpTaskKey,
+		CheckpointID: checkpointID,
+	}, nil
 }
 
 func initialize(c *mcpClient) error {
@@ -536,17 +640,278 @@ func requireTools(c *mcpClient) error {
 	sort.Strings(actual)
 	for _, expected := range []string{
 		"mem_archive",
+		"mem_checkpoint",
+		"mem_checkpoint_get",
+		"mem_checkpoint_list",
 		"mem_context",
 		"mem_feedback",
 		"mem_forget",
+		"mem_memory_get",
 		"mem_memory_list",
 		"mem_remember",
 		"mem_restore",
+		"mem_task_list",
 	} {
 		index := sort.SearchStrings(actual, expected)
 		if index == len(actual) || actual[index] != expected {
 			return fmt.Errorf("tools/list omitted %s", expected)
 		}
+	}
+	return nil
+}
+
+func requireMemoryGet(c *mcpClient, memoryID string) error {
+	raw, err := c.callTool("mem_memory_get", map[string]any{
+		"memory_id": memoryID,
+		"scope":     "/E2E",
+	})
+	if err != nil {
+		return err
+	}
+	var detail memoryDetail
+	if err := json.Unmarshal(raw, &detail); err != nil {
+		return fmt.Errorf("decode mem_memory_get result: %w", err)
+	}
+	if detail.ID != memoryID ||
+		detail.Kind != "decision" ||
+		detail.Content != memoryContent ||
+		detail.Path != memoryPath ||
+		detail.SourceType != "agent" ||
+		detail.ProducerAgent != "mcp-e2e" ||
+		detail.LifecycleStatus != "active" ||
+		detail.StateVersion != 1 ||
+		detail.Citation != "mem://memories/"+memoryID ||
+		detail.Provenance.WorkspaceID != os.Getenv("MEM_WORKSPACE") ||
+		detail.Provenance.SourceType != "agent" ||
+		detail.Provenance.ProducerAgent != "mcp-e2e" {
+		return fmt.Errorf(
+			"unexpected mem_memory_get result: id=%q kind=%q path=%q source=%q producer=%q lifecycle=%q version=%d citation=%q provenance_workspace=%q",
+			detail.ID,
+			detail.Kind,
+			detail.Path,
+			detail.SourceType,
+			detail.ProducerAgent,
+			detail.LifecycleStatus,
+			detail.StateVersion,
+			detail.Citation,
+			detail.Provenance.WorkspaceID,
+		)
+	}
+	return nil
+}
+
+func requireHandoffReadSurfaces(c *mcpClient) (string, error) {
+	handoff := map[string]any{
+		"contract":        "mem.handoff",
+		"schema_version":  1,
+		"checkpoint_kind": "handoff",
+		"task_key":        mcpTaskKey,
+		"scope_path":      memoryPath,
+		"state": map[string]any{
+			"status": "ready",
+			"goal":   mcpCheckpointGoal,
+			"progress": map[string]any{
+				"summary":   mcpProgressSummary,
+				"completed": []string{"persisted a real MCP checkpoint"},
+			},
+			"decisions":      []any{},
+			"next_steps":     []any{},
+			"blockers":       []any{},
+			"open_questions": []string{},
+			"artifacts":      []any{},
+		},
+		"producer": map[string]any{
+			"agent_id":   "mcp-e2e",
+			"session_id": "mcp-e2e-read-session",
+		},
+	}
+	raw, err := c.callTool("mem_checkpoint", map[string]any{
+		"task_key":        mcpTaskKey,
+		"idempotency_key": "mcp-e2e-checkpoint-v1",
+		"handoff":         handoff,
+	})
+	if err != nil {
+		return "", err
+	}
+	var created checkpointResult
+	if err := json.Unmarshal(raw, &created); err != nil {
+		return "", fmt.Errorf("decode mem_checkpoint result: %w", err)
+	}
+	if created.Replayed {
+		return "", errors.New("mem_checkpoint unexpectedly replayed")
+	}
+	if err := requireCheckpointRecord(
+		created.Checkpoint,
+		created.Checkpoint.ID,
+		"mem_checkpoint",
+	); err != nil {
+		return "", err
+	}
+	checkpointID := created.Checkpoint.ID
+
+	raw, err = c.callTool("mem_task_list", map[string]any{
+		"scope": "/E2E",
+		"limit": 100,
+	})
+	if err != nil {
+		return "", err
+	}
+	var tasks taskListResult
+	if err := json.Unmarshal(raw, &tasks); err != nil {
+		return "", fmt.Errorf("decode mem_task_list result: %w", err)
+	}
+	taskFound := false
+	for _, task := range tasks.Tasks {
+		if task.TaskKey != mcpTaskKey {
+			continue
+		}
+		taskFound = true
+		if !uuidPattern.MatchString(task.ID) ||
+			task.ScopePath != memoryPath ||
+			task.HeadCheckpointID != checkpointID ||
+			task.HeadSequence != 1 {
+			return "", fmt.Errorf(
+				"unexpected mem_task_list task: id=%q scope=%q head=%q sequence=%d",
+				task.ID,
+				task.ScopePath,
+				task.HeadCheckpointID,
+				task.HeadSequence,
+			)
+		}
+	}
+	if !taskFound {
+		return "", errors.New("mem_task_list omitted the MCP checkpoint task")
+	}
+
+	raw, err = c.callTool("mem_checkpoint_list", map[string]any{
+		"task_key": mcpTaskKey,
+		"scope":    "/E2E",
+		"limit":    100,
+	})
+	if err != nil {
+		return "", err
+	}
+	var checkpoints checkpointListResult
+	if err := json.Unmarshal(raw, &checkpoints); err != nil {
+		return "", fmt.Errorf("decode mem_checkpoint_list result: %w", err)
+	}
+	checkpointFound := false
+	for _, checkpoint := range checkpoints.Checkpoints {
+		if checkpoint.ID != checkpointID {
+			continue
+		}
+		checkpointFound = true
+		if err := requireCheckpointSummary(
+			checkpoint,
+			checkpointID,
+			"mem_checkpoint_list",
+		); err != nil {
+			return "", err
+		}
+	}
+	if !checkpointFound {
+		return "", errors.New("mem_checkpoint_list omitted the MCP checkpoint")
+	}
+
+	raw, err = c.callTool("mem_checkpoint_get", map[string]any{
+		"task_key":      mcpTaskKey,
+		"checkpoint_id": checkpointID,
+		"scope":         "/E2E",
+	})
+	if err != nil {
+		return "", err
+	}
+	var checkpoint checkpointRecord
+	if err := json.Unmarshal(raw, &checkpoint); err != nil {
+		return "", fmt.Errorf("decode mem_checkpoint_get result: %w", err)
+	}
+	if err := requireCheckpointRecord(
+		checkpoint,
+		checkpointID,
+		"mem_checkpoint_get",
+	); err != nil {
+		return "", err
+	}
+	return checkpointID, nil
+}
+
+func requireCheckpointSummary(
+	checkpoint checkpointSummary,
+	checkpointID string,
+	label string,
+) error {
+	if !uuidPattern.MatchString(checkpointID) ||
+		checkpoint.ID != checkpointID ||
+		checkpoint.TaskKey != mcpTaskKey ||
+		checkpoint.Sequence != 1 ||
+		checkpoint.CheckpointKind != "handoff" ||
+		checkpoint.Contract != "mem.handoff" ||
+		checkpoint.SchemaVersion != 1 ||
+		checkpoint.ScopePath != memoryPath ||
+		checkpoint.Status != "ready" ||
+		checkpoint.ProgressExcerpt != mcpProgressSummary ||
+		checkpoint.ProgressLength != len([]rune(mcpProgressSummary)) ||
+		checkpoint.CompletedCount != 1 ||
+		checkpoint.ReferenceCount != 0 ||
+		checkpoint.ProducerAgent != "mcp-e2e" ||
+		checkpoint.ProducerSession != "mcp-e2e-read-session" {
+		return fmt.Errorf(
+			"unexpected %s summary: id=%q task=%q sequence=%d kind=%q contract=%q version=%d scope=%q status=%q progress=%q completed=%d references=%d producer=%q session=%q",
+			label,
+			checkpoint.ID,
+			checkpoint.TaskKey,
+			checkpoint.Sequence,
+			checkpoint.CheckpointKind,
+			checkpoint.Contract,
+			checkpoint.SchemaVersion,
+			checkpoint.ScopePath,
+			checkpoint.Status,
+			checkpoint.ProgressExcerpt,
+			checkpoint.CompletedCount,
+			checkpoint.ReferenceCount,
+			checkpoint.ProducerAgent,
+			checkpoint.ProducerSession,
+		)
+	}
+	return nil
+}
+
+func requireCheckpointRecord(
+	checkpoint checkpointRecord,
+	checkpointID string,
+	label string,
+) error {
+	if !uuidPattern.MatchString(checkpointID) ||
+		checkpoint.ID != checkpointID ||
+		checkpoint.TaskKey != mcpTaskKey ||
+		checkpoint.Sequence != 1 ||
+		checkpoint.CheckpointKind != "handoff" ||
+		checkpoint.Contract != "mem.handoff" ||
+		checkpoint.SchemaVersion != 1 ||
+		checkpoint.ScopePath != memoryPath ||
+		checkpoint.ProducerAgent != "mcp-e2e" ||
+		checkpoint.Handoff.Contract != "mem.handoff" ||
+		checkpoint.Handoff.SchemaVersion != 1 ||
+		checkpoint.Handoff.CheckpointKind != "handoff" ||
+		checkpoint.Handoff.TaskKey != mcpTaskKey ||
+		checkpoint.Handoff.ScopePath != memoryPath ||
+		checkpoint.Handoff.State.Status != "ready" ||
+		checkpoint.Handoff.State.Goal != mcpCheckpointGoal ||
+		checkpoint.Handoff.State.Progress.Summary != mcpProgressSummary ||
+		checkpoint.Handoff.Producer.AgentID != "mcp-e2e" {
+		return fmt.Errorf(
+			"unexpected %s checkpoint: id=%q task=%q sequence=%d kind=%q contract=%q version=%d scope=%q producer=%q handoff_goal=%q",
+			label,
+			checkpoint.ID,
+			checkpoint.TaskKey,
+			checkpoint.Sequence,
+			checkpoint.CheckpointKind,
+			checkpoint.Contract,
+			checkpoint.SchemaVersion,
+			checkpoint.ScopePath,
+			checkpoint.ProducerAgent,
+			checkpoint.Handoff.State.Goal,
+		)
 	}
 	return nil
 }
