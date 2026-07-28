@@ -27,7 +27,8 @@ and this project intends to follow
 
 ### Fixed
 
-- Made `same_person` ranking use directional source-person coverage so a full
-  person-set match ranks ahead of a partial match.
+- Made `same_person` ranking use directional source-person coverage and stable
+  file-ID tie-breaking so a full person-set match ranks ahead of a partial
+  match and equal candidates are selected deterministically.
 
 [Unreleased]: https://github.com/fullstack-ai-infra/mem/commits/main

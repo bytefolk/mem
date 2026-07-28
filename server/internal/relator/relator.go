@@ -289,7 +289,7 @@ func isImageMIME(mime string) bool {
 // with srcID. score = shared_count / src_person_count, giving a value in
 // (0, 1] — 1 means the destination contains every person attached to the
 // source. The relation is directional, so a partial destination ranks lower.
-// Top-K ties are broken by shared_count.
+// Top-K ties are broken by shared_count and then file ID.
 //
 // If the src file has zero person entities we still wipe old rows (idempotent
 // rebuild) but insert nothing.
@@ -333,7 +333,7 @@ func (s *Service) recomputePerson(ctx context.Context, srcID, userID uuid.UUID, 
 		       d.shared
 		  FROM dst_shared d
 		 WHERE (SELECT n FROM src_count) > 0
-		 ORDER BY score DESC, d.shared DESC
+		 ORDER BY score DESC, d.shared DESC, d.file_id
 		 LIMIT $3
 	`, srcID, userID, topK)
 	if err != nil {

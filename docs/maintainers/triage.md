@@ -73,6 +73,10 @@ Feature and maintenance issues can begin at E0. For them, E2–E4 describe
 source-level support for the limitation, independent reproduction, and
 end-to-end confirmation of the delivered outcome.
 
+Public issue forms let reporters select only E0–E2. A maintainer assigns E3
+after someone independently reproduces the claim and E4 only after a
+non-author verifies the delivered outcome end to end.
+
 ### Status
 
 | Label | Meaning |

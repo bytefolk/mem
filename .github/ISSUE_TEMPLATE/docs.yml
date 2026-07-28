@@ -54,12 +54,10 @@ body:
     id: evidence
     attributes:
       label: Current evidence level
-      description: Choose the strongest level supported by current artifacts.
+      description: Choose E0–E2 based on the submitted artifacts. Maintainers assign E3 after independent reproduction and E4 after verifying the resolution.
       options:
         - "evidence:e0-unreviewed — New report; evidence has not been assessed"
         - "evidence:e1-report — A clear documentation gap or error is reported"
         - "evidence:e2-source — Source, code, or specification confirms the correct behavior"
-        - "evidence:e3-reproduced — The documentation failure is independently reproduced"
-        - "evidence:e4-e2e — The corrected instructions are independently verified end to end"
     validations:
       required: true

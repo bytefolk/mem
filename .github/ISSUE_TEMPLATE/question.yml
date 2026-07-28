@@ -51,12 +51,10 @@ body:
     id: evidence
     attributes:
       label: Current evidence level
-      description: Choose the strongest level supported by current context.
+      description: Choose E0–E2 based on the submitted context. Maintainers assign E3 after independent reproduction and E4 after verifying the answer or outcome.
       options:
         - "evidence:e0-unreviewed — New question; context has not been assessed"
         - "evidence:e1-report — A clear question and relevant context are available"
         - "evidence:e2-source — Source, code, or specification supports the question"
-        - "evidence:e3-reproduced — The underlying behavior is independently reproduced"
-        - "evidence:e4-e2e — The answer or outcome is independently validated end to end"
     validations:
       required: true

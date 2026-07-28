@@ -6,7 +6,7 @@
 #   make test      # pytest
 #   make run       # python -m mem_worker.server
 #   make lint      # ruff + mypy
-#   make clean     # remove generated code + caches
+#   make clean     # remove local environments, build output, and caches
 
 PYTHON ?= python3.11
 UV     ?= uv
@@ -50,9 +50,7 @@ fmt:
 	$(UV) run ruff check --fix mem_worker tests
 
 clean:
-	rm -rf .venv .pytest_cache .ruff_cache .mypy_cache \
-	       $(PROTO_OUT)/processor_pb2.py \
-	       $(PROTO_OUT)/processor_pb2_grpc.py
+	rm -rf .venv dist build *.egg-info .pytest_cache .ruff_cache .mypy_cache
 	find . -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
 docker:

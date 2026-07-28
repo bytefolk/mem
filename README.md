@@ -35,6 +35,8 @@ Prerequisites:
 - Go 1.25
 - Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
 - Node.js 22 and npm
+- `protoc` 34.1, `protoc-gen-go` v1.36.11, and
+  `protoc-gen-go-grpc` v1.6.2 when changing protobuf definitions
 - Docker with Compose
 
 Clone the repository, start the backing services, and build the Go binaries:
@@ -72,24 +74,62 @@ the [MCP setup guide](docs/mcp.md).
 
 ## Verify a change
 
-CI applies the same checks to pull requests. Run them locally before opening
-one:
+CI applies the following checks to pull requests. Run the applicable groups
+locally before opening one; [CONTRIBUTING.md](CONTRIBUTING.md) explains the
+review evidence expected when a check cannot be run.
+
+Go integration tests require an explicitly disposable PostgreSQL database
+whose name ends in `_test`. With the Docker Compose services running, this
+creates `mem_test` if needed:
 
 ```bash
-# Go
+make up
+docker compose exec -T postgres sh -c \
+  "psql -U mem -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='mem_test'\" | grep -q 1 || createdb -U mem mem_test"
+```
+
+Run the Go protobuf, formatting, vet, migration, race/coverage, and build
+checks:
+
+```bash
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+PATH="$(go env GOPATH)/bin:${PATH}"
+export PATH
+make proto-go
+git diff --exit-code -- server/internal/workerpb
+
 cd server
+test -z "$(gofmt -l .)"
 go vet ./...
-go test ./...
+export MEM_TEST_DB=postgres://mem:mem@localhost:5432/mem_test?sslmode=disable
+go run github.com/pressly/goose/v3/cmd/goose@v3.22.1 \
+  -dir internal/db/migrations postgres "${MEM_TEST_DB}" up
+go test -race -p 1 -coverpkg=./... -covermode=atomic \
+  -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+cd ..
+make build
+```
 
-# Python
-cd ../worker
-uv sync --extra test --extra dev
+Run the Worker protobuf, coverage, and package checks:
+
+```bash
+cd worker
+uv sync --frozen --extra test --extra dev
 make proto
-uv run pytest --cov=mem_worker --cov-report=term-missing
+git diff --exit-code -- mem_worker/proto
+uv run pytest --cov=mem_worker --cov-report=term-missing \
+  --cov-report=xml:coverage.xml
+uv build
+```
 
-# Web
+Run the Web checks:
+
+```bash
 cd ../web
 npm ci
+npm audit --omit=dev --audit-level=high  # advisory; findings do not gate CI
 npm run lint
 npm run typecheck
 npm run build
@@ -97,6 +137,8 @@ npm run build
 
 Go and Python tests report coverage in CI. The web package currently uses
 linting, type checking, and a production build as its required baseline.
+Production dependency auditing is advisory so that a newly published external
+advisory cannot block an unrelated pull request.
 
 ## Contributing
 

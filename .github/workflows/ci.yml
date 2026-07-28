@@ -212,7 +212,8 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Audit production dependencies
+      - name: Audit production dependencies (advisory)
+        continue-on-error: true
         working-directory: web
         run: npm audit --omit=dev --audit-level=high
 
