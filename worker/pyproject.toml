@@ -28,7 +28,7 @@ dependencies = [
     # Imaging
     "pillow>=10.2",
     # PDF (placeholder — W2 actually uses)
-    "pypdf>=4.0",
+    "pypdf>=6.14.2",
     # ASR (placeholder — W2 actually uses; pinned wide on purpose)
     "faster-whisper>=1.0",
     # HTTP
