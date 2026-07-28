@@ -2,12 +2,14 @@
 //
 // Transport: newline-delimited JSON-RPC 2.0 over stdio.
 // Protocol:  MCP 2024-11-05 baseline (initialize, tools/list, tools/call,
-//            notifications/initialized).
+//
+//	notifications/initialized).
 //
 // Configuration is read from flags or environment:
 //
 //	--server / MEM_SERVER   memd base URL (default http://localhost:8787)
 //	--token  / MEM_TOKEN    bearer token (required for any write/read scope)
+//	--workspace / MEM_WORKSPACE optional memory workspace UUID
 //
 // Claude Desktop config example (~/Library/Application Support/Claude/claude_desktop_config.json):
 //
@@ -53,11 +55,13 @@ var serverInfo = map[string]any{
 
 func main() {
 	var (
-		server string
-		token  string
+		server    string
+		token     string
+		workspace string
 	)
 	flag.StringVar(&server, "server", envOr("MEM_SERVER", "http://localhost:8787"), "memd base URL")
 	flag.StringVar(&token, "token", os.Getenv("MEM_TOKEN"), "bearer token (or MEM_TOKEN env var)")
+	flag.StringVar(&workspace, "workspace", os.Getenv("MEM_WORKSPACE"), "workspace UUID (or MEM_WORKSPACE env var)")
 	flag.Parse()
 
 	log.SetOutput(os.Stderr)
@@ -69,7 +73,8 @@ func main() {
 	}
 
 	reg := tools.New()
-	if err := builtin.RegisterAll(reg, apiclient.New(server, token)); err != nil {
+	client := apiclient.New(server, token).WithWorkspace(workspace)
+	if err := builtin.RegisterAll(reg, client); err != nil {
 		log.Fatalf("register builtin tools: %v", err)
 	}
 	log.Printf("ready: server=%s, %d tools registered", server, len(reg.List()))

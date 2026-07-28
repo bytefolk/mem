@@ -60,7 +60,7 @@ func TestRecomputePerson(t *testing.T) {
 		t.Fatalf("recomputePerson: %v", err)
 	}
 
-	hits, err := svc.Get(ctx, user, fA, TypeSamePerson, 10)
+	hits, err := svc.Get(ctx, user, fA, TypeSamePerson, nil, 10)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestRecomputePerson(t *testing.T) {
 	if err := svc.recomputePerson(ctx, fA, user, 10); err != nil {
 		t.Fatalf("recomputePerson (rerun): %v", err)
 	}
-	hits2, err := svc.Get(ctx, user, fA, TypeSamePerson, 10)
+	hits2, err := svc.Get(ctx, user, fA, TypeSamePerson, nil, 10)
 	if err != nil {
 		t.Fatalf("Get (rerun): %v", err)
 	}

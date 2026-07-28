@@ -2,9 +2,9 @@
 // and entity overlap.
 //
 // SPEC §F4 — four relation types are defined; Phase 1 lands three:
-//   * same_topic  — text embedding cosine similarity
-//   * same_event  — visual embedding cosine similarity (images only)
-//   * same_person — shared `person` entities from face clustering / NER
+//   - same_topic  — text embedding cosine similarity
+//   - same_event  — visual embedding cosine similarity (images only)
+//   - same_person — shared `person` entities from face clustering / NER
 //
 // (sequel needs timeline + narrative heuristics, still future.)
 //
@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -90,7 +91,13 @@ type Hit struct {
 
 // Get returns the top related files for srcID. filterType narrows by relation
 // type when non-empty.
-func (s *Service) Get(ctx context.Context, userID, srcID uuid.UUID, filterType string, limit int) ([]Hit, error) {
+func (s *Service) Get(
+	ctx context.Context,
+	userID, srcID uuid.UUID,
+	filterType string,
+	allowedPaths []string,
+	limit int,
+) ([]Hit, error) {
 	if limit <= 0 {
 		limit = defaultTopK
 	}
@@ -102,6 +109,35 @@ func (s *Service) Get(ctx context.Context, userID, srcID uuid.UUID, filterType s
 	if filterType != "" {
 		args = append(args, filterType)
 		where = append(where, fmt.Sprintf("r.type = $%d", len(args)))
+	}
+	restricted := true
+	for _, p := range allowedPaths {
+		if p == "/" {
+			restricted = false
+			break
+		}
+	}
+	if len(allowedPaths) == 0 {
+		restricted = false
+	}
+	if restricted {
+		clauses := make([]string, 0, len(allowedPaths))
+		for _, p := range allowedPaths {
+			if p == "" {
+				continue
+			}
+			args = append(args, p)
+			n := len(args)
+			clauses = append(clauses, fmt.Sprintf(
+				"(f.path = $%d OR left(f.path, length($%d) + 1) = $%d || '/')",
+				n, n, n,
+			))
+		}
+		if len(clauses) > 0 {
+			where = append(where, "("+strings.Join(clauses, " OR ")+")")
+		} else {
+			where = append(where, "FALSE")
+		}
 	}
 	args = append(args, limit)
 	limitIdx := len(args)

@@ -58,16 +58,17 @@ type PutResult struct {
 // Path-related filters are mutually exclusive — pass at most one of:
 //
 //	Path:   exact folder match (folder_id resolved from this)
-//	Prefix: subtree match via `files.path LIKE prefix || '/%'` (plus exact equal)
+//	Prefix: subtree match (plus exact equal)
 type ListFilter struct {
-	Tag    string
-	Type   string // mime prefix, e.g. "image" -> "image/%"
-	Path   string // exact folder absolute path; "" = no filter
-	Prefix string // subtree absolute path; "" = no filter
-	Since  *time.Time
-	Until  *time.Time
-	Limit  int
-	Page   int
+	Tag          string
+	Type         string // mime prefix, e.g. "image" -> "image/%"
+	Path         string // exact folder absolute path; "" = no filter
+	Prefix       string // subtree absolute path; "" = no filter
+	AllowedPaths []string
+	Since        *time.Time
+	Until        *time.Time
+	Limit        int
+	Page         int
 }
 
 // Service is the file service.
@@ -276,9 +277,44 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID, f ListFilter) ([]F
 		if norm == pathx.Root {
 			// no constraint — entire user subtree is the prefix
 		} else {
-			q.WriteString(fmt.Sprintf(" AND (path = $%d OR path LIKE $%d)", idx, idx+1))
-			args = append(args, norm, norm+"/%")
-			idx += 2
+			q.WriteString(fmt.Sprintf(
+				" AND (path = $%d OR left(path, length($%d) + 1) = $%d || '/')",
+				idx, idx, idx,
+			))
+			args = append(args, norm)
+			idx++
+		}
+	}
+	if len(f.AllowedPaths) > 0 {
+		normalized := make([]string, 0, len(f.AllowedPaths))
+		unrestricted := false
+		for _, raw := range f.AllowedPaths {
+			if raw == "" {
+				return nil, errors.New("allowed path is empty")
+			}
+			norm, err := pathx.Normalize(raw)
+			if err != nil {
+				return nil, fmt.Errorf("allowed path: %w", err)
+			}
+			if norm == pathx.Root {
+				unrestricted = true
+				break
+			}
+			normalized = append(normalized, norm)
+		}
+		clauses := make([]string, 0, len(normalized))
+		if !unrestricted {
+			for _, norm := range normalized {
+				clauses = append(clauses, fmt.Sprintf(
+					"(path = $%d OR left(path, length($%d) + 1) = $%d || '/')",
+					idx, idx, idx,
+				))
+				args = append(args, norm)
+				idx++
+			}
+		}
+		if len(clauses) > 0 {
+			q.WriteString(" AND (" + strings.Join(clauses, " OR ") + ")")
 		}
 	}
 	if f.Since != nil {

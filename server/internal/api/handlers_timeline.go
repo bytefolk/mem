@@ -46,13 +46,13 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type entry struct {
-		ID        string    `json:"id"`
-		Name      string    `json:"name"`
-		Path      string    `json:"path"`
-		MIME      string    `json:"mime"`
-		At        time.Time `json:"at"`
-		Summary   *string   `json:"summary,omitempty"`
-		Caption   *string   `json:"caption,omitempty"`
+		ID      string    `json:"id"`
+		Name    string    `json:"name"`
+		Path    string    `json:"path"`
+		MIME    string    `json:"mime"`
+		At      time.Time `json:"at"`
+		Summary *string   `json:"summary,omitempty"`
+		Caption *string   `json:"caption,omitempty"`
 	}
 	groups := map[string][]entry{}
 	order := []string{}
@@ -61,6 +61,9 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&e.ID, &e.Name, &e.Path, &e.MIME, &e.At, &e.Summary, &e.Caption); err != nil {
 			writeError(w, http.StatusInternalServerError, "scan", err.Error())
 			return
+		}
+		if !tokenAllowsPath(r, e.Path) {
+			continue
 		}
 		key := e.At.Format("2006-01")
 		if _, ok := groups[key]; !ok {

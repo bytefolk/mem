@@ -16,10 +16,10 @@ func TestNormalize(t *testing.T) {
 		{"/Photos/2012", "/Photos/2012", false},
 		{"/Photos//2012", "/Photos/2012", false},
 		{"/Photos/2012/", "/Photos/2012", false},
-		{"Photos", "", true},      // not absolute
-		{"/./foo", "", true},      // reserved
-		{"/../foo", "", true},     // reserved
-		{"/a/\x00", "", true},     // NUL in segment
+		{"Photos", "", true},  // not absolute
+		{"/./foo", "", true},  // reserved
+		{"/../foo", "", true}, // reserved
+		{"/a/\x00", "", true}, // NUL in segment
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -44,7 +44,19 @@ func TestNormalize(t *testing.T) {
 
 func TestValidateName(t *testing.T) {
 	t.Parallel()
-	bad := []string{"", ".", "..", "a/b", "a\x00b"}
+	bad := []string{
+		"",
+		".",
+		"..",
+		"a/b",
+		"a\x00b",
+		"a\nb",
+		"a\x1bb",
+		"a\u009bb",
+		"a\u2028b",
+		"a\u202eb",
+		string([]byte{'a', 0xff, 'b'}),
+	}
 	for _, s := range bad {
 		if err := ValidateName(s); err == nil {
 			t.Fatalf("expected error for %q", s)
