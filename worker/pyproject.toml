@@ -49,7 +49,7 @@ clip = [
     # of NVIDIA CUDA shims that we never use on a typical local dev box.
     # Override the index via [tool.uv.sources] below.
     "open_clip_torch>=2.24",
-    "torch>=2.2",
+    "torch>=2.13.0",
     "torchvision>=0.17",
 ]
 test = [
