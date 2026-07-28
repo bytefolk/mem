@@ -35,6 +35,9 @@ The project is not yet publishing stable semantic-versioned releases.
 - Architecture decision record for immutable memory occurrences.
 - `mem auth status` for verifying the current token and reporting workspace
   access.
+- Reproducible, project-specific validation for Go, Worker, Web, PostgreSQL
+  migrations/race paths and isolated process-level HTTP/CLI/MCP acceptance,
+  backed by repository CI.
 
 ### Changed
 
@@ -50,6 +53,13 @@ The project is not yet publishing stable semantic-versioned releases.
 - Namespaced login, logout and token management under `mem auth`; legacy
   top-level paths remain hidden compatibility aliases with deprecation
   warnings.
+- Split mem-specific development, test-environment and regression rules into
+  project documentation. Organization-wide defaults are being centralized in
+  `fullstack-ai-infra/.github`; the repository fallback remains until those
+  defaults are active.
+- Removed the repository-specific cloud-model credential and model-probing
+  helpers. Core Agent memory remains model-independent; optional indexing
+  providers stay behind the Worker contract.
 
 ### Security
 

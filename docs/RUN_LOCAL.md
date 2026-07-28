@@ -1,6 +1,10 @@
 # 本地运行 mem 全栈（裸机 · 无 Docker）
 
-这台机器没有 Docker，所以整套栈用**本地进程**拉起，不走 `docker compose`。
+本文用于启动完整开发栈和手工 smoke。可重复的单元、Race、PostgreSQL 集成、
+Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
+
+在没有 Docker 的 macOS 开发环境中，整套栈可用**本地进程**拉起，不走
+`docker compose`。
 一条命令起、一条命令停，运行时数据全部落在 `.dev/`（已 gitignore）。
 
 ```

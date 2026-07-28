@@ -70,15 +70,22 @@
 
 ## 5. 发布门槛
 
-每次影响迁移、记忆、搜索或授权边界的发布至少运行：
+每次影响迁移、记忆、搜索或授权边界的发布至少按
+[docs/TESTING.md](../TESTING.md) 运行：
 
-- Go 全量测试与静态检查；
-- Worker 全量测试（包含图片原始字节与视觉维度回归）；
-- Web typecheck/build 与任务、Resume、搜索错误态验收；
-- 新建临时数据库的 migration 测试；
+- `make test`：Go 全量测试与静态检查、Worker 回归、Web
+  typecheck/lint/build 及 Memory/Transfer 浏览器验收；
+- `make test-race`：高风险 Go 路径 race 回归；
+- `make test-env-up && make test-integration &&
+  make test-integration-race`：隔离 `_test` 数据库上的 migration 与
+  PostgreSQL 语义/race 场景，具体版本和必跑清单以 `docs/TESTING.md` 为准；
+- `make test-acceptance`：隔离进程上的真实 HTTP、CLI 和 MCP Agent-memory
+  接续；
 - 两个独立环境之间的 bundle round-trip；
 - transfer 的部署级 archive/metadata/record/并发/超时边界与磁盘耗尽错误映射；
 - `git diff --check` 和 JSON Schema 解析。
 
 任何测试如因外部模型、对象存储或数据库不可用而跳过，发布记录必须明确标出，不能
-把“未执行”记为“通过”。
+把“未执行”记为“通过”。双部署 bundle round-trip、真实 Claude Code/Codex
+宿主 smoke 和外部模型质量评测当前仍是发布级手工验收，不得用 mock 或单进程测试
+替代其结论。

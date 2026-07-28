@@ -195,6 +195,8 @@ mem workspace export --output agent-workspace.membundle
 - 北极星可重复验收：[docs/acceptance/NORTH_STAR.md](docs/acceptance/NORTH_STAR.md)
 - Workspace bundle 决策：[docs/adr/0004-workspace-bundle.md](docs/adr/0004-workspace-bundle.md)
 - 本地运行与验证：[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)
+- 项目开发边界：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- 测试环境与回归门槛：[docs/TESTING.md](docs/TESTING.md)
 - 参与贡献：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 
@@ -209,8 +211,9 @@ mem/
 ├── server/                   ← Go 主服务（API / CLI / MCP Server）
 ├── worker/                   ← Python AI Worker（Processor + Provider）
 ├── web/                      ← AI 网盘 UI
-├── docs/                     ← 方向、运行与接入文档
-└── docker-compose.yml        ← 本地基础设施
+├── docs/                     ← 产品方向、开发、测试与接入文档
+├── docker-compose.yml        ← 本地开发基础设施
+└── docker-compose.test.yml   ← 一次性 PostgreSQL 回归环境
 ```
 
 ---
