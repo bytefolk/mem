@@ -264,6 +264,165 @@ func TestResumeCommandPostsSelectionAndBudgets(t *testing.T) {
 	}
 }
 
+func TestHandoffReadCommandsExposeTasksAndCheckpointHistory(t *testing.T) {
+	taskKey := "project/migration β"
+	taskID := "11111111-1111-1111-1111-111111111111"
+	checkpointID := "22222222-2222-2222-2222-222222222222"
+	after := "33333333-3333-3333-3333-333333333333"
+
+	t.Run("tasks", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/v1/tasks" {
+				t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+			}
+			query := r.URL.Query()
+			if query.Get("scope") != "/Projects/mem α" ||
+				query.Get("limit") != "25" ||
+				query.Get("after") != after {
+				t.Fatalf("query = %v", query)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"tasks":[{
+				"id":"`+taskID+`",
+				"task_key":"project/migration β",
+				"scope_path":"/Projects/mem",
+				"head_checkpoint_id":"`+checkpointID+`",
+				"head_sequence":4
+			}]}`)
+		}))
+		defer server.Close()
+		setHandoffTestConfig(t, server.URL, "token", "workspace")
+
+		root := newRootCmd()
+		var output bytes.Buffer
+		root.SetOut(&output)
+		root.SetArgs([]string{
+			"tasks",
+			"--scope", "/Projects/mem α",
+			"--limit", "25",
+			"--after", after,
+			"--format", "json",
+		})
+		if err := root.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		var response apiclient.TaskListResponse
+		if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+			t.Fatalf("output is not JSON: %v\n%s", err, output.String())
+		}
+		if len(response.Tasks) != 1 ||
+			response.Tasks[0].TaskKey != taskKey ||
+			response.Tasks[0].HeadSequence != 4 {
+			t.Fatalf("response = %+v", response)
+		}
+	})
+
+	t.Run("checkpoints", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			wantPath := "/v1/tasks/" + url.PathEscape(taskKey) + "/checkpoints"
+			if r.Method != http.MethodGet || r.URL.EscapedPath() != wantPath {
+				t.Fatalf("request = %s %s, want %s", r.Method, r.URL.EscapedPath(), wantPath)
+			}
+			query := r.URL.Query()
+			if query.Get("scope") != "/Projects/mem" ||
+				query.Get("limit") != "10" ||
+				query.Get("before") != "9" {
+				t.Fatalf("query = %v", query)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"checkpoints":[{
+				"id":"`+checkpointID+`",
+				"task_key":"project/migration β",
+				"sequence":4,
+				"checkpoint_kind":"handoff",
+				"scope_path":"/Projects/mem",
+				"handoff":{"state":{"status":"ready"}},
+				"created_at":"2026-07-28T12:00:00Z",
+				"references":[]
+			}]}`)
+		}))
+		defer server.Close()
+		setHandoffTestConfig(t, server.URL, "token", "workspace")
+
+		root := newRootCmd()
+		var output bytes.Buffer
+		root.SetOut(&output)
+		root.SetArgs([]string{
+			"checkpoints", taskKey,
+			"--scope", "/Projects/mem",
+			"--limit", "10",
+			"--before", "9",
+		})
+		if err := root.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{checkpointID, "handoff", "ready", "/Projects/mem"} {
+			if !strings.Contains(output.String(), want) {
+				t.Fatalf("output missing %q:\n%s", want, output.String())
+			}
+		}
+	})
+
+	t.Run("checkpoint get", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			wantPath := "/v1/tasks/" + url.PathEscape(taskKey) +
+				"/checkpoints/" + checkpointID
+			if r.Method != http.MethodGet || r.URL.EscapedPath() != wantPath {
+				t.Fatalf("request = %s %s, want %s", r.Method, r.URL.EscapedPath(), wantPath)
+			}
+			if got := r.URL.Query().Get("scope"); got != "/Projects/mem" {
+				t.Fatalf("scope = %q", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+				"id":"`+checkpointID+`",
+				"task_key":"project/migration β",
+				"sequence":4,
+				"checkpoint_kind":"handoff",
+				"contract":"mem.handoff",
+				"schema_version":1,
+				"scope_path":"/Projects/mem",
+				"handoff":{"state":{
+					"status":"ready",
+					"goal":"Continue safely\u001b]0;spoof\u0007",
+					"progress":{"summary":"Review complete"}
+				}},
+				"created_at":"2026-07-28T12:00:00Z",
+				"references":[{"uri":"mem://memories/one"}]
+			}`)
+		}))
+		defer server.Close()
+		setHandoffTestConfig(t, server.URL, "token", "workspace")
+
+		root := newRootCmd()
+		var output bytes.Buffer
+		root.SetOut(&output)
+		root.SetArgs([]string{
+			"checkpoint", "get", taskKey, checkpointID,
+			"--scope", "/Projects/mem",
+		})
+		if err := root.Execute(); err != nil {
+			t.Fatal(err)
+		}
+		got := output.String()
+		for _, want := range []string{
+			checkpointID,
+			"schema_version",
+			"ready",
+			`Continue safely\x1b]0;spoof\x07`,
+			"references",
+			"1",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("output missing %q:\n%s", want, got)
+			}
+		}
+		if strings.ContainsRune(got, '\x1b') || strings.ContainsRune(got, '\a') {
+			t.Fatalf("text output contains terminal control: %q", got)
+		}
+	})
+}
+
 func testHandoffJSON(t *testing.T, taskKey string) string {
 	t.Helper()
 	document := apiclient.HandoffV1{

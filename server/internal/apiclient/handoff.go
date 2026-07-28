@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -101,6 +105,77 @@ type ResumeRequest struct {
 	MaxChars     int    `json:"max_chars,omitempty"`
 }
 
+// Task is the bounded task projection returned by GET /v1/tasks.
+type Task struct {
+	ID               string    `json:"id"`
+	WorkspaceID      string    `json:"workspace_id"`
+	TaskKey          string    `json:"task_key"`
+	ScopePath        string    `json:"scope_path"`
+	HeadCheckpointID *string   `json:"head_checkpoint_id,omitempty"`
+	HeadSequence     int64     `json:"head_sequence"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// CheckpointReference is one immutable evidence reference attached to a task
+// checkpoint. Metadata is intentionally kept as raw JSON so this thin client
+// does not invent a second reference contract.
+type CheckpointReference struct {
+	CheckpointID   string          `json:"checkpoint_id"`
+	Ordinal        int             `json:"ordinal"`
+	Relation       string          `json:"relation"`
+	URI            string          `json:"uri"`
+	ExpectedSHA256 string          `json:"expected_sha256,omitempty"`
+	Required       bool            `json:"required"`
+	Metadata       json.RawMessage `json:"metadata"`
+}
+
+// CheckpointRecord mirrors the canonical immutable checkpoint detail returned
+// by list/get endpoints. Server-only replay and token evidence is absent.
+type CheckpointRecord struct {
+	ID               string                `json:"id"`
+	WorkspaceID      string                `json:"workspace_id"`
+	TaskID           string                `json:"task_id"`
+	TaskKey          string                `json:"task_key"`
+	Sequence         int64                 `json:"sequence"`
+	CheckpointKind   string                `json:"checkpoint_kind"`
+	Contract         string                `json:"contract"`
+	SchemaVersion    int                   `json:"schema_version"`
+	BaseCheckpointID *string               `json:"base_checkpoint_id,omitempty"`
+	ScopePath        string                `json:"scope_path"`
+	Handoff          HandoffV1             `json:"handoff"`
+	PayloadSHA256    string                `json:"payload_sha256"`
+	CreatedByUserID  *string               `json:"created_by_user_id,omitempty"`
+	ProducerAgent    string                `json:"producer_agent"`
+	ProducerSession  string                `json:"producer_session,omitempty"`
+	CreatedAt        time.Time             `json:"created_at"`
+	References       []CheckpointReference `json:"references"`
+}
+
+type TaskListOptions struct {
+	Scope string
+	Limit int
+	After string
+}
+
+type TaskListResponse struct {
+	Tasks []Task `json:"tasks"`
+}
+
+type CheckpointListOptions struct {
+	Scope  string
+	Limit  int
+	Before int64
+}
+
+type CheckpointListResponse struct {
+	Checkpoints []CheckpointRecord `json:"checkpoints"`
+}
+
+type CheckpointGetOptions struct {
+	Scope string
+}
+
 // Checkpoint idempotently persists one immutable handoff revision. The raw
 // response is returned unchanged so adapters do not create a second response
 // contract while the canonical API envelope evolves.
@@ -179,6 +254,112 @@ func (c *Client) Resume(
 		return nil, err
 	}
 	return out, nil
+}
+
+// ListTasks returns a bounded page of tasks visible inside the authenticated
+// workspace and optional virtual-path scope.
+func (c *Client) ListTasks(
+	ctx context.Context,
+	options TaskListOptions,
+) (*TaskListResponse, error) {
+	if c == nil {
+		return nil, fmt.Errorf("apiclient: nil client")
+	}
+	query, err := handoffReadQuery(options.Scope, options.Limit)
+	if err != nil {
+		return nil, err
+	}
+	if after := strings.TrimSpace(options.After); after != "" {
+		id, err := uuid.Parse(after)
+		if err != nil || id == uuid.Nil {
+			return nil, fmt.Errorf("apiclient: task after cursor must be a UUID")
+		}
+		query.Set("after", id.String())
+	}
+	path := "/v1/tasks"
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var response TaskListResponse
+	if err := c.DoJSON(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Tasks == nil {
+		response.Tasks = []Task{}
+	}
+	return &response, nil
+}
+
+// ListCheckpoints returns newest-first immutable revisions for one task.
+func (c *Client) ListCheckpoints(
+	ctx context.Context,
+	taskKey string,
+	options CheckpointListOptions,
+) (*CheckpointListResponse, error) {
+	if c == nil {
+		return nil, fmt.Errorf("apiclient: nil client")
+	}
+	if err := validateTaskKey(taskKey); err != nil {
+		return nil, err
+	}
+	query, err := handoffReadQuery(options.Scope, options.Limit)
+	if err != nil {
+		return nil, err
+	}
+	if options.Before < 0 {
+		return nil, fmt.Errorf("apiclient: checkpoint before sequence must not be negative")
+	}
+	if options.Before > 0 {
+		query.Set("before", strconv.FormatInt(options.Before, 10))
+	}
+	path := taskEndpoint(taskKey, "checkpoints")
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var response CheckpointListResponse
+	if err := c.DoJSON(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return nil, err
+	}
+	if response.Checkpoints == nil {
+		response.Checkpoints = []CheckpointRecord{}
+	}
+	return &response, nil
+}
+
+// GetCheckpoint resolves one immutable checkpoint without revealing whether a
+// missing record belongs to another workspace or lies outside the token path.
+func (c *Client) GetCheckpoint(
+	ctx context.Context,
+	taskKey string,
+	checkpointID string,
+	options CheckpointGetOptions,
+) (*CheckpointRecord, error) {
+	if c == nil {
+		return nil, fmt.Errorf("apiclient: nil client")
+	}
+	if err := validateTaskKey(taskKey); err != nil {
+		return nil, err
+	}
+	id, err := uuid.Parse(strings.TrimSpace(checkpointID))
+	if err != nil || id == uuid.Nil {
+		return nil, fmt.Errorf("apiclient: checkpoint id must be a UUID")
+	}
+	query, err := handoffReadQuery(options.Scope, 0)
+	if err != nil {
+		return nil, err
+	}
+	path := taskEndpoint(
+		taskKey,
+		"checkpoints/"+url.PathEscape(id.String()),
+	)
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var checkpoint CheckpointRecord
+	if err := c.DoJSON(ctx, http.MethodGet, path, nil, &checkpoint); err != nil {
+		return nil, err
+	}
+	return &checkpoint, nil
 }
 
 // Validate checks the contract invariants adapters need in order to produce a
@@ -264,6 +445,24 @@ func validateTaskKey(taskKey string) error {
 		return fmt.Errorf("apiclient: task_key exceeds 200 characters")
 	}
 	return nil
+}
+
+func handoffReadQuery(scope string, limit int) (url.Values, error) {
+	query := url.Values{}
+	scope = strings.TrimSpace(scope)
+	if scope != "" {
+		if !strings.HasPrefix(scope, "/") {
+			return nil, fmt.Errorf("apiclient: handoff scope must be an absolute virtual path")
+		}
+		query.Set("scope", scope)
+	}
+	if limit < 0 || limit > 200 {
+		return nil, fmt.Errorf("apiclient: handoff list limit must be between 0 and 200")
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	return query, nil
 }
 
 func taskEndpoint(taskKey, action string) string {

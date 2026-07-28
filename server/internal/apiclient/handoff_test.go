@@ -136,6 +136,167 @@ func TestResumePostsSelectionWithoutDuplicatingTaskKeyInBody(t *testing.T) {
 	}
 }
 
+func TestHandoffReadMethodsPreserveCanonicalPathsAndQueries(t *testing.T) {
+	taskKey := "task 42/phase-a"
+	taskID := "11111111-1111-1111-1111-111111111111"
+	checkpointID := "22222222-2222-2222-2222-222222222222"
+	after := "33333333-3333-3333-3333-333333333333"
+	var requestIndex int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestIndex++
+		w.Header().Set("Content-Type", "application/json")
+		switch requestIndex {
+		case 1:
+			if r.Method != http.MethodGet || r.URL.EscapedPath() != "/v1/tasks" {
+				t.Fatalf("task request = %s %s", r.Method, r.URL.EscapedPath())
+			}
+			if query := r.URL.Query(); query.Get("scope") != "/Projects/mem α" ||
+				query.Get("limit") != "25" ||
+				query.Get("after") != after {
+				t.Fatalf("task query = %v", query)
+			}
+			_, _ = io.WriteString(w, `{"tasks":[{
+				"id":"`+taskID+`",
+				"task_key":"task 42/phase-a",
+				"scope_path":"/Projects/mem",
+				"head_checkpoint_id":"`+checkpointID+`",
+				"head_sequence":4
+			}]}`)
+		case 2:
+			want := "/v1/tasks/task%2042%2Fphase-a/checkpoints"
+			if r.Method != http.MethodGet || r.URL.EscapedPath() != want {
+				t.Fatalf("checkpoint list request = %s %s", r.Method, r.URL.EscapedPath())
+			}
+			if query := r.URL.Query(); query.Get("scope") != "/Projects/mem" ||
+				query.Get("limit") != "10" ||
+				query.Get("before") != "9" {
+				t.Fatalf("checkpoint list query = %v", query)
+			}
+			_, _ = io.WriteString(w, `{"checkpoints":[{
+				"id":"`+checkpointID+`",
+				"task_id":"`+taskID+`",
+				"task_key":"task 42/phase-a",
+				"sequence":4,
+				"checkpoint_kind":"handoff",
+				"contract":"mem.handoff",
+				"schema_version":1,
+				"scope_path":"/Projects/mem",
+				"handoff":{"task_key":"task 42/phase-a"},
+				"references":[]
+			}]}`)
+		case 3:
+			want := "/v1/tasks/task%2042%2Fphase-a/checkpoints/" + checkpointID
+			if r.Method != http.MethodGet || r.URL.EscapedPath() != want {
+				t.Fatalf("checkpoint get request = %s %s", r.Method, r.URL.EscapedPath())
+			}
+			if got := r.URL.Query().Get("scope"); got != "/Projects/mem" {
+				t.Fatalf("checkpoint get scope = %q", got)
+			}
+			_, _ = io.WriteString(w, `{
+				"id":"`+checkpointID+`",
+				"task_id":"`+taskID+`",
+				"task_key":"task 42/phase-a",
+				"sequence":4,
+				"checkpoint_kind":"handoff",
+				"contract":"mem.handoff",
+				"schema_version":1,
+				"scope_path":"/Projects/mem",
+				"handoff":{"task_key":"task 42/phase-a"},
+				"references":[]
+			}`)
+		default:
+			t.Fatalf("unexpected request %d: %s %s", requestIndex, r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client := New(srv.URL, "token")
+	tasks, err := client.ListTasks(context.Background(), TaskListOptions{
+		Scope: "/Projects/mem α",
+		Limit: 25,
+		After: after,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks.Tasks) != 1 ||
+		tasks.Tasks[0].ID != taskID ||
+		tasks.Tasks[0].HeadCheckpointID == nil ||
+		*tasks.Tasks[0].HeadCheckpointID != checkpointID {
+		t.Fatalf("tasks = %+v", tasks)
+	}
+
+	checkpoints, err := client.ListCheckpoints(
+		context.Background(),
+		taskKey,
+		CheckpointListOptions{Scope: "/Projects/mem", Limit: 10, Before: 9},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints.Checkpoints) != 1 ||
+		checkpoints.Checkpoints[0].ID != checkpointID ||
+		checkpoints.Checkpoints[0].Handoff.TaskKey != taskKey {
+		t.Fatalf("checkpoints = %+v", checkpoints)
+	}
+
+	checkpoint, err := client.GetCheckpoint(
+		context.Background(),
+		taskKey,
+		checkpointID,
+		CheckpointGetOptions{Scope: "/Projects/mem"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.ID != checkpointID || checkpoint.TaskKey != taskKey {
+		t.Fatalf("checkpoint = %+v", checkpoint)
+	}
+}
+
+func TestHandoffReadMethodsRejectInvalidInputBeforeRequest(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer srv.Close()
+	client := New(srv.URL, "token")
+
+	if _, err := client.ListTasks(context.Background(), TaskListOptions{
+		Scope: "relative",
+	}); err == nil {
+		t.Fatal("relative task scope accepted")
+	}
+	if _, err := client.ListTasks(context.Background(), TaskListOptions{
+		Limit: 201,
+	}); err == nil {
+		t.Fatal("oversized task limit accepted")
+	}
+	if _, err := client.ListTasks(context.Background(), TaskListOptions{
+		After: "not-a-uuid",
+	}); err == nil {
+		t.Fatal("invalid task after cursor accepted")
+	}
+	if _, err := client.ListCheckpoints(
+		context.Background(),
+		"task",
+		CheckpointListOptions{Before: -1},
+	); err == nil {
+		t.Fatal("negative checkpoint sequence accepted")
+	}
+	if _, err := client.GetCheckpoint(
+		context.Background(),
+		"task",
+		"not-a-uuid",
+		CheckpointGetOptions{},
+	); err == nil {
+		t.Fatal("invalid checkpoint id accepted")
+	}
+	if requests != 0 {
+		t.Fatalf("invalid inputs made %d request(s)", requests)
+	}
+}
+
 func TestHandoffValidateRequiresRequiredArrays(t *testing.T) {
 	handoff := validHandoff("task-42")
 	handoff.State.OpenQuestions = nil

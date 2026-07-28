@@ -182,12 +182,16 @@ evidence returns `502/context_unavailable`.
 | `mem put - --name foo.txt [--to /]` | Upload from stdin |
 | `mem put <path> --tag x --tag y` | With tags |
 | `mem remember <content> --kind decision --path /Projects/x --idempotency-key key` | Write structured Agent memory |
+| `mem memory <id> [--scope /Projects/x]` | Get one full structured memory by UUID |
 | `mem memories [--scope /Projects/x] [--lifecycle active\|archived\|all]` | List bounded structured-memory summaries |
 | `mem feedback <id> --action useful\|not_useful\|pin\|unpin --expected-version N --idempotency-key key` | Append explicit feedback |
 | `mem archive <id> ...` / `mem restore <id> ...` | Reversible recall lifecycle control |
 | `mem forget <id> --expected-version N --idempotency-key key --reason user_request --yes` | Irreversibly redact a live memory payload |
 | `mem context <query> --source all\|file\|memory` | Build a bounded evidence pack without generating an answer |
 | `mem checkpoint --input <handoff.json\|-> --idempotency-key key` | Commit an immutable portable task checkpoint |
+| `mem tasks [--scope /Projects/x]` | List resumable task summaries |
+| `mem checkpoints <task_key>` | List immutable checkpoint history for one task |
+| `mem checkpoint get <task_key> <checkpoint_id>` | Get one immutable checkpoint and handoff payload |
 | `mem resume <task_key>` | Restore the current task head and resolved/missing references |
 | `mem workspace export --output <file.membundle>` | Export the complete current workspace without overwriting by default |
 | `mem workspace import --input <file.membundle> --mode fresh --yes` | Restore a validated bundle into an empty target workspace |

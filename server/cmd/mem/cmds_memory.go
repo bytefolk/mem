@@ -37,6 +37,48 @@ var forgetReasons = map[string]struct{}{
 	"other":        {},
 }
 
+func newMemoryCmd() *cobra.Command {
+	var scope string
+	cmd := &cobra.Command{
+		Use:   "memory <memory-id>",
+		Short: "Get one structured Agent memory",
+		Long: `Get the full content and provenance for one known structured-memory UUID.
+
+Missing, cross-workspace, and out-of-token-path records share the same
+not-found response. Use --scope only to narrow the authenticated path boundary.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			format, err := rememberOutputFormat(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := configuredMemoryClient()
+			if err != nil {
+				return err
+			}
+			record, err := client.GetMemory(
+				cmd.Context(),
+				strings.TrimSpace(args[0]),
+				apiclient.MemoryGetOptions{Scope: strings.TrimSpace(scope)},
+			)
+			if err != nil {
+				return fromAPIError(err)
+			}
+			if format == "json" {
+				return writeCommandJSON(cmd, record)
+			}
+			return printMemoryDetail(cmd, record)
+		},
+	}
+	cmd.Flags().StringVar(
+		&scope,
+		"scope",
+		"",
+		"optional absolute virtual path that narrows token access",
+	)
+	return cmd
+}
+
 func newMemoriesCmd() *cobra.Command {
 	var (
 		scope     string
@@ -382,6 +424,32 @@ func printMemoriesTable(cmd *cobra.Command, response *apiclient.MemoryListRespon
 		fmt.Fprintf(writer, "\nnext_cursor\t%s\n", response.NextCursor)
 	}
 	_ = writer.Flush()
+}
+
+func printMemoryDetail(cmd *cobra.Command, memory *apiclient.Memory) error {
+	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+	fmt.Fprintf(writer, "memory_id\t%s\n", memory.ID)
+	fmt.Fprintf(writer, "kind\t%s\n", terminalSafe(memory.Kind))
+	fmt.Fprintf(writer, "lifecycle\t%s\n", terminalSafe(memory.LifecycleStatus))
+	fmt.Fprintf(writer, "pinned\t%t\n", memory.Pinned)
+	fmt.Fprintf(writer, "state_version\t%d\n", memory.StateVersion)
+	fmt.Fprintf(writer, "path\t%s\n", terminalSafe(memory.Path))
+	fmt.Fprintf(writer, "source_type\t%s\n", terminalSafe(memory.SourceType))
+	if memory.SourceRef != "" {
+		fmt.Fprintf(writer, "source_ref\t%s\n", terminalSafe(memory.SourceRef))
+	}
+	if memory.ContentSHA256 != "" {
+		fmt.Fprintf(writer, "content_sha256\t%s\n", memory.ContentSHA256)
+	}
+	if !memory.CreatedAt.IsZero() {
+		fmt.Fprintf(
+			writer,
+			"created_at\t%s\n",
+			memory.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		)
+	}
+	fmt.Fprintf(writer, "content\t%s\n", terminalSafe(memory.Content))
+	return writer.Flush()
 }
 
 func printMemoryMutation(

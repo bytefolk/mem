@@ -63,6 +63,71 @@ func registerResume(reg *tools.Registry, c *apiclient.Client) error {
 	})
 }
 
+func registerTaskList(reg *tools.Registry, c *apiclient.Client) error {
+	return reg.Register(tools.Tool{
+		Name: "mem_task_list",
+		Description: "List bounded task summaries visible in the authenticated workspace " +
+			"and optional virtual-path scope.",
+		InputSchema: taskListToolSchema(),
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			var input taskListToolInput
+			if err := decodeToolInput(args, &input); err != nil {
+				return nil, fmt.Errorf("mem_task_list: invalid input: %w", err)
+			}
+			return c.ListTasks(ctx, apiclient.TaskListOptions{
+				Scope: input.Scope,
+				Limit: input.Limit,
+				After: input.After,
+			})
+		},
+	})
+}
+
+func registerCheckpointList(reg *tools.Registry, c *apiclient.Client) error {
+	return reg.Register(tools.Tool{
+		Name: "mem_checkpoint_list",
+		Description: "List newest-first immutable checkpoints for one task, with optional " +
+			"path scope and sequence pagination.",
+		InputSchema: checkpointListToolSchema(),
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			var input checkpointListToolInput
+			if err := decodeToolInput(args, &input); err != nil {
+				return nil, fmt.Errorf("mem_checkpoint_list: invalid input: %w", err)
+			}
+			return c.ListCheckpoints(
+				ctx,
+				input.TaskKey,
+				apiclient.CheckpointListOptions{
+					Scope:  input.Scope,
+					Limit:  input.Limit,
+					Before: input.Before,
+				},
+			)
+		},
+	})
+}
+
+func registerCheckpointGet(reg *tools.Registry, c *apiclient.Client) error {
+	return reg.Register(tools.Tool{
+		Name: "mem_checkpoint_get",
+		Description: "Get one immutable checkpoint by task key and checkpoint UUID, " +
+			"including its versioned handoff payload and evidence references.",
+		InputSchema: checkpointGetToolSchema(),
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			var input checkpointGetToolInput
+			if err := decodeToolInput(args, &input); err != nil {
+				return nil, fmt.Errorf("mem_checkpoint_get: invalid input: %w", err)
+			}
+			return c.GetCheckpoint(
+				ctx,
+				input.TaskKey,
+				input.CheckpointID,
+				apiclient.CheckpointGetOptions{Scope: input.Scope},
+			)
+		},
+	})
+}
+
 type checkpointToolInput struct {
 	TaskKey        string              `json:"task_key"`
 	IdempotencyKey string              `json:"idempotency_key"`
@@ -76,6 +141,25 @@ type resumeToolInput struct {
 	Focus        string `json:"focus,omitempty"`
 	Limit        int    `json:"limit,omitempty"`
 	MaxChars     int    `json:"max_chars,omitempty"`
+}
+
+type taskListToolInput struct {
+	Scope string `json:"scope,omitempty"`
+	Limit int    `json:"limit,omitempty"`
+	After string `json:"after,omitempty"`
+}
+
+type checkpointListToolInput struct {
+	TaskKey string `json:"task_key"`
+	Scope   string `json:"scope,omitempty"`
+	Limit   int    `json:"limit,omitempty"`
+	Before  int64  `json:"before,omitempty"`
+}
+
+type checkpointGetToolInput struct {
+	TaskKey      string `json:"task_key"`
+	CheckpointID string `json:"checkpoint_id"`
+	Scope        string `json:"scope,omitempty"`
 }
 
 func decodeToolInput(args map[string]any, out any) error {
@@ -144,6 +228,84 @@ func resumeToolSchema() tools.Schema {
 				Type:        "integer",
 				Default:     12000,
 				Description: "Maximum character budget for related evidence",
+			},
+		},
+	)
+}
+
+func taskListToolSchema() tools.Schema {
+	return closedSchema(
+		nil,
+		map[string]tools.Property{
+			"scope": {
+				Type:        "string",
+				Pattern:     "^/",
+				MaxLength:   2048,
+				Description: "Optional virtual path that may only narrow token access",
+			},
+			"limit": {
+				Type:        "integer",
+				Default:     50,
+				Description: "Page size (max 200)",
+			},
+			"after": {
+				Type:        "string",
+				Format:      "uuid",
+				Description: "Task UUID cursor from the previous page",
+			},
+		},
+	)
+}
+
+func checkpointListToolSchema() tools.Schema {
+	return closedSchema(
+		[]string{"task_key"},
+		map[string]tools.Property{
+			"task_key": {
+				Type:        "string",
+				MinLength:   1,
+				MaxLength:   200,
+				Description: "Stable task key",
+			},
+			"scope": {
+				Type:        "string",
+				Pattern:     "^/",
+				MaxLength:   2048,
+				Description: "Optional virtual path that may only narrow token access",
+			},
+			"limit": {
+				Type:        "integer",
+				Default:     50,
+				Description: "Page size (max 200)",
+			},
+			"before": {
+				Type:        "integer",
+				Description: "Return checkpoints before this positive sequence",
+			},
+		},
+	)
+}
+
+func checkpointGetToolSchema() tools.Schema {
+	return closedSchema(
+		[]string{"task_key", "checkpoint_id"},
+		map[string]tools.Property{
+			"task_key": {
+				Type:        "string",
+				MinLength:   1,
+				MaxLength:   200,
+				Description: "Stable task key",
+			},
+			"checkpoint_id": {
+				Type:        "string",
+				Format:      "uuid",
+				Description: "Immutable checkpoint UUID",
+			},
+			"scope": {
+				Type:        "string",
+				Pattern:     "^/",
+				MaxLength:   2048,
+				Description: "Optional virtual path that may only narrow token access",
 			},
 		},
 	)

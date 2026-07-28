@@ -1,12 +1,10 @@
-// Package tools is the single source of truth for the user-facing tool
-// surface that bridges memd's HTTP API to multiple entrypoints (CLI, MCP,
-// and—when needed—future REST/SDK wrappers).
+// Package tools defines the Agent-facing registry exposed by mem-mcp.
 //
 // Why a registry? SPEC §0 promises "CLI + MCP + API 三位一体". The HTTP API
-// is the canonical surface; CLI and MCP are alternate frontends. Without a
-// registry, every new feature (search, ask, related, face, …) requires
-// hand-touching three places. With a registry, a new feature registers one
-// Tool and both CLI and MCP pick it up automatically.
+// is the canonical surface; CLI and MCP are alternate frontends. MCP tools
+// register here, while the Cobra CLI declares its own commands. Both adapters
+// must call the same typed apiclient methods, and parity tests must cover each
+// public capability across those explicit surfaces.
 //
 // A Tool is intentionally minimal: a name, a description, a JSON Schema for
 // inputs, and a Run function that returns a serializable result. The schema
@@ -38,10 +36,9 @@ type Tool struct {
 	Description string
 
 	// InputSchema is a JSON Schema (draft 2020-12 subset) describing
-	// the accepted arguments. Used by:
-	//   - MCP `tools/list` response (input_schema)
-	//   - CLI argument validation / help generation
-	//   - LLM-side function-call schema generation
+	// the accepted arguments. It is used by the MCP `tools/list` response
+	// and LLM-side function-call schema generation. CLI validation is explicit
+	// in the corresponding Cobra command and shares the typed apiclient call.
 	InputSchema Schema
 
 	// Run executes the tool against memd. The args map matches

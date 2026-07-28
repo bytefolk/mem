@@ -68,10 +68,14 @@ The canonical product surface is:
 |------|-------------|
 | `mem_remember` | Idempotently persist an observation, decision, preference, task state, fact, note or artifact reference |
 | `mem_memory_list` | List bounded structured-memory summaries; `mem_list` remains the file list |
+| `mem_memory_get` | Get one full structured memory by UUID within the token path boundary |
 | `mem_feedback` | Record useful/not-useful or pin/unpin feedback with optimistic concurrency |
 | `mem_archive` / `mem_restore` | Reversibly exclude a memory from or return it to normal recall |
 | `mem_forget` | Irreversibly redact one live memory payload after explicit confirmation |
 | `mem_checkpoint` | Persist a versioned task checkpoint or an explicit handoff to another Agent/device |
+| `mem_task_list` | List bounded resumable-task summaries |
+| `mem_checkpoint_list` | List newest-first immutable checkpoint history for one task |
+| `mem_checkpoint_get` | Get one immutable checkpoint and its full handoff payload |
 | `mem_resume` | Restore the current task head or a selected historical checkpoint, including resolved and missing evidence |
 | `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets |
 | `mem_context` | Build an evidence-backed context pack for the calling Agent |
@@ -114,6 +118,12 @@ Typical handoff:
 or failed its SHA-256 check. The Agent must report that gap instead of
 pretending the restore is complete.
 
+For explicit inspection rather than resume, use `mem_task_list` to discover
+task keys, `mem_checkpoint_list` to page through one task's immutable history,
+and `mem_checkpoint_get` to read a selected versioned payload. All three use
+the same workspace/path authorization and not-found semantics as the canonical
+HTTP endpoints.
+
 ## `mem_remember`, `mem_context`, and citations
 
 `mem_remember` writes one immutable, auditable occurrence. The caller must use
@@ -148,6 +158,9 @@ workspace and creator fields.
 pin/feedback projections, `state_version`, provenance identifiers and an
 opaque `next_cursor`. It never returns every record's full content. Pass the
 cursor back unchanged with the same filters and Token path boundary.
+`mem_memory_get` resolves one known UUID and returns its full content and
+provenance; absent, cross-workspace and out-of-path records deliberately share
+the same not-found response.
 
 All control writes require the `state_version` last inspected by the caller
 and a stable `idempotency_key`:
@@ -315,10 +328,12 @@ reused to switch into another membership.
 Permission rules are enforced by memd, not by MCP arguments:
 
 - `mem_remember` requires `write`; linking `source_file_id` also requires `read`.
-- `mem_memory_list` requires `read`.
+- `mem_memory_list` and `mem_memory_get` require `read`.
 - `mem_feedback`, `mem_archive` and `mem_restore` require `read + write`.
 - `mem_forget` requires `delete` plus a workspace role that permits deletion.
 - `mem_checkpoint` requires `write`; referenced `mem://` evidence also requires
+  `read`.
+- `mem_task_list`, `mem_checkpoint_list` and `mem_checkpoint_get` require
   `read`.
 - `mem_resume` requires `read`; its optional related-evidence enrichment runs
   only with `search`.

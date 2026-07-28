@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -133,6 +134,116 @@ func TestMemResumeUsesTypedClientAndDoesNotDuplicateTaskKey(t *testing.T) {
 	if !ok || !strings.Contains(string(raw), `"contract":"mem.resume"`) {
 		t.Fatalf("transparent output = %T %v", out, out)
 	}
+}
+
+func TestMemHandoffReadToolsUseTypedClientContracts(t *testing.T) {
+	t.Run("task list", func(t *testing.T) {
+		fs := newFakeServer(
+			`{"tasks":[{"id":"11111111-1111-1111-1111-111111111111","task_key":"task-42"}]}`,
+			http.StatusOK,
+			"application/json",
+		)
+		defer fs.Close()
+		reg := tools.New()
+		if err := registerTaskList(reg, apiclient.New(fs.URL, "token")); err != nil {
+			t.Fatal(err)
+		}
+		out, err := reg.Call(context.Background(), "mem_task_list", map[string]any{
+			"scope": "/Projects/mem α",
+			"limit": float64(25),
+			"after": "33333333-3333-3333-3333-333333333333",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		query, err := url.ParseQuery(fs.lastQuery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fs.lastMethod != http.MethodGet || fs.lastPath != "/v1/tasks" ||
+			query.Get("scope") != "/Projects/mem α" ||
+			query.Get("limit") != "25" ||
+			query.Get("after") != "33333333-3333-3333-3333-333333333333" {
+			t.Fatalf("request = %s %s?%s", fs.lastMethod, fs.lastPath, fs.lastQuery)
+		}
+		response, ok := out.(*apiclient.TaskListResponse)
+		if !ok || len(response.Tasks) != 1 || response.Tasks[0].TaskKey != "task-42" {
+			t.Fatalf("output = %#v", out)
+		}
+	})
+
+	t.Run("checkpoint list", func(t *testing.T) {
+		fs := newFakeServer(
+			`{"checkpoints":[{"id":"22222222-2222-2222-2222-222222222222","task_key":"task-42","sequence":4,"handoff":{}}]}`,
+			http.StatusOK,
+			"application/json",
+		)
+		defer fs.Close()
+		reg := tools.New()
+		if err := registerCheckpointList(reg, apiclient.New(fs.URL, "token")); err != nil {
+			t.Fatal(err)
+		}
+		out, err := reg.Call(context.Background(), "mem_checkpoint_list", map[string]any{
+			"task_key": "task-42",
+			"scope":    "/Projects/mem",
+			"limit":    float64(10),
+			"before":   float64(9),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		query, err := url.ParseQuery(fs.lastQuery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fs.lastMethod != http.MethodGet ||
+			fs.lastPath != "/v1/tasks/task-42/checkpoints" ||
+			query.Get("scope") != "/Projects/mem" ||
+			query.Get("limit") != "10" ||
+			query.Get("before") != "9" {
+			t.Fatalf("request = %s %s?%s", fs.lastMethod, fs.lastPath, fs.lastQuery)
+		}
+		response, ok := out.(*apiclient.CheckpointListResponse)
+		if !ok || len(response.Checkpoints) != 1 ||
+			response.Checkpoints[0].Sequence != 4 {
+			t.Fatalf("output = %#v", out)
+		}
+	})
+
+	t.Run("checkpoint get", func(t *testing.T) {
+		checkpointID := "22222222-2222-2222-2222-222222222222"
+		fs := newFakeServer(
+			`{"id":"`+checkpointID+`","task_key":"task-42","sequence":4,"handoff":{}}`,
+			http.StatusOK,
+			"application/json",
+		)
+		defer fs.Close()
+		reg := tools.New()
+		if err := registerCheckpointGet(reg, apiclient.New(fs.URL, "token")); err != nil {
+			t.Fatal(err)
+		}
+		out, err := reg.Call(context.Background(), "mem_checkpoint_get", map[string]any{
+			"task_key":      "task-42",
+			"checkpoint_id": checkpointID,
+			"scope":         "/Projects/mem",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		query, err := url.ParseQuery(fs.lastQuery)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fs.lastMethod != http.MethodGet ||
+			fs.lastPath != "/v1/tasks/task-42/checkpoints/"+checkpointID ||
+			query.Get("scope") != "/Projects/mem" {
+			t.Fatalf("request = %s %s?%s", fs.lastMethod, fs.lastPath, fs.lastQuery)
+		}
+		checkpoint, ok := out.(*apiclient.CheckpointRecord)
+		if !ok || checkpoint.ID != checkpointID || checkpoint.Sequence != 4 {
+			t.Fatalf("output = %#v", out)
+		}
+	})
 }
 
 func TestMemCheckpointRejectsUnknownNestedFields(t *testing.T) {

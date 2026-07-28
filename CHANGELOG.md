@@ -9,8 +9,9 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Added
 
-- Versioned `mem.handoff` v1 checkpoints, optimistic head comparison and
-  deterministic `resume` across API, CLI and MCP.
+- Versioned `mem.handoff` v1 checkpoints, optimistic head comparison,
+  deterministic `resume`, and task/checkpoint list/get inspection across API,
+  CLI and MCP.
 - Portable workspace bundle v1 with manifest, seven typed indexes, immutable
   checkpoint payloads, content-addressed blobs, checksums and dependency
   validation.
@@ -23,8 +24,8 @@ The project is not yet publishing stable semantic-versioned releases.
   ranking gate with an explicit checked-in baseline report.
 - Model-independent structured Agent memories with provenance, stable
   `mem://memories/<id>` citations and PostgreSQL lexical recall.
-- Idempotent `POST /v1/memories`, scoped `GET /v1/memories/{id}`,
-  `mem remember` and MCP `mem_remember`.
+- Idempotent `POST /v1/memories`, scoped `GET /v1/memories/{id}`, CLI
+  `mem remember` / `mem memory` and MCP `mem_remember` / `mem_memory_get`.
 - Authorization-bound cursor pagination and a bounded-summary memory ledger.
 - Auditable memory feedback (`useful`, `not_useful`, `pin`, `unpin`),
   optimistic archive/restore transitions and retry-safe forgetting across the

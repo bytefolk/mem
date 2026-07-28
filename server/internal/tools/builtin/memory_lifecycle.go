@@ -21,6 +21,42 @@ var memoryKindEnum = []string{
 	"artifact",
 }
 
+func registerMemoryGet(reg *tools.Registry, client *apiclient.Client) error {
+	return reg.Register(tools.Tool{
+		Name: "mem_memory_get",
+		Description: "Get one structured memory by UUID, including its full content and " +
+			"provenance, within the authenticated workspace and path boundary.",
+		InputSchema: closedSchema(
+			[]string{"memory_id"},
+			map[string]tools.Property{
+				"memory_id": {
+					Type:        "string",
+					Format:      "uuid",
+					Description: "Structured memory UUID",
+				},
+				"scope": {
+					Type:        "string",
+					Pattern:     "^/",
+					MaxLength:   2048,
+					Description: "Optional virtual path that may only narrow token access",
+				},
+			},
+		),
+		Run: func(ctx context.Context, args map[string]any) (any, error) {
+			memoryID, ok := memoryOptionalString(args, "memory_id")
+			if !ok {
+				return nil, fmt.Errorf("mem_memory_get: memory_id is required")
+			}
+			scope, _ := memoryOptionalString(args, "scope")
+			return client.GetMemory(
+				ctx,
+				memoryID,
+				apiclient.MemoryGetOptions{Scope: scope},
+			)
+		},
+	})
+}
+
 func registerMemoryList(reg *tools.Registry, client *apiclient.Client) error {
 	return reg.Register(tools.Tool{
 		Name: "mem_memory_list",

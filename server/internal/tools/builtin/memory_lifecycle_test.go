@@ -63,6 +63,53 @@ func TestMemMemoryListMapsBoundedSummaryFilters(t *testing.T) {
 	}
 }
 
+func TestMemMemoryGetMapsScopedDetail(t *testing.T) {
+	server := newFakeServer(
+		`{
+			"id":"`+lifecycleTestMemoryID+`",
+			"kind":"decision",
+			"content":"Use immutable checkpoints",
+			"path":"/Projects/mem",
+			"attributes":{},
+			"source_locator":{}
+		}`,
+		http.StatusOK,
+		"application/json",
+	)
+	defer server.Close()
+	registry := tools.New()
+	if err := registerMemoryGet(registry, apiclient.New(server.URL, "token")); err != nil {
+		t.Fatal(err)
+	}
+
+	output, err := registry.Call(context.Background(), "mem_memory_get", map[string]any{
+		"memory_id": lifecycleTestMemoryID,
+		"scope":     "/Projects/mem α",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := url.ParseQuery(server.lastQuery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.lastMethod != http.MethodGet ||
+		server.lastPath != "/v1/memories/"+lifecycleTestMemoryID ||
+		query.Get("scope") != "/Projects/mem α" {
+		t.Fatalf(
+			"request = %s %s?%s",
+			server.lastMethod,
+			server.lastPath,
+			server.lastQuery,
+		)
+	}
+	memory, ok := output.(*apiclient.Memory)
+	if !ok || memory.ID != lifecycleTestMemoryID ||
+		memory.Content != "Use immutable checkpoints" {
+		t.Fatalf("output = %#v", output)
+	}
+}
+
 func TestMemoryMutationToolsMapContract(t *testing.T) {
 	tests := []struct {
 		name     string

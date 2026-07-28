@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/PeterGuy326/mem/server/internal/apiclient"
 	"github.com/spf13/cobra"
@@ -83,6 +84,146 @@ Examples:
 	)
 	_ = cmd.MarkFlagRequired("input")
 	_ = cmd.MarkFlagRequired("idempotency-key")
+	cmd.AddCommand(newCheckpointGetCmd())
+	return cmd
+}
+
+func newTasksCmd() *cobra.Command {
+	var (
+		scope string
+		limit int
+		after string
+	)
+	cmd := &cobra.Command{
+		Use:   "tasks",
+		Short: "List resumable Agent tasks",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			format, err := rememberOutputFormat(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := configuredMemoryClient()
+			if err != nil {
+				return err
+			}
+			response, err := client.ListTasks(
+				commandContext(cmd),
+				apiclient.TaskListOptions{
+					Scope: strings.TrimSpace(scope),
+					Limit: limit,
+					After: strings.TrimSpace(after),
+				},
+			)
+			if err != nil {
+				return fromAPIError(err)
+			}
+			if format == "json" {
+				return writeCommandJSON(cmd, response)
+			}
+			return printTasksText(cmd, response)
+		},
+	}
+	cmd.Flags().StringVar(
+		&scope,
+		"scope",
+		"",
+		"optional absolute virtual path that narrows token access",
+	)
+	cmd.Flags().IntVar(&limit, "limit", 50, "page size (max 200)")
+	cmd.Flags().StringVar(&after, "after", "", "task UUID cursor from the previous page")
+	return cmd
+}
+
+func newCheckpointsCmd() *cobra.Command {
+	var (
+		scope  string
+		limit  int
+		before int64
+	)
+	cmd := &cobra.Command{
+		Use:   "checkpoints <task-key>",
+		Short: "List immutable checkpoints for one task",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			format, err := rememberOutputFormat(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := configuredMemoryClient()
+			if err != nil {
+				return err
+			}
+			response, err := client.ListCheckpoints(
+				commandContext(cmd),
+				args[0],
+				apiclient.CheckpointListOptions{
+					Scope:  strings.TrimSpace(scope),
+					Limit:  limit,
+					Before: before,
+				},
+			)
+			if err != nil {
+				return fromAPIError(err)
+			}
+			if format == "json" {
+				return writeCommandJSON(cmd, response)
+			}
+			return printCheckpointsText(cmd, response)
+		},
+	}
+	cmd.Flags().StringVar(
+		&scope,
+		"scope",
+		"",
+		"optional absolute virtual path that narrows token access",
+	)
+	cmd.Flags().IntVar(&limit, "limit", 50, "page size (max 200)")
+	cmd.Flags().Int64Var(
+		&before,
+		"before",
+		0,
+		"return checkpoints before this positive sequence",
+	)
+	return cmd
+}
+
+func newCheckpointGetCmd() *cobra.Command {
+	var scope string
+	cmd := &cobra.Command{
+		Use:   "get <task-key> <checkpoint-id>",
+		Short: "Get one immutable task checkpoint",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			format, err := rememberOutputFormat(cmd)
+			if err != nil {
+				return err
+			}
+			client, err := configuredMemoryClient()
+			if err != nil {
+				return err
+			}
+			checkpoint, err := client.GetCheckpoint(
+				commandContext(cmd),
+				args[0],
+				args[1],
+				apiclient.CheckpointGetOptions{Scope: strings.TrimSpace(scope)},
+			)
+			if err != nil {
+				return fromAPIError(err)
+			}
+			if format == "json" {
+				return writeCommandJSON(cmd, checkpoint)
+			}
+			return printCheckpointDetailText(cmd, checkpoint)
+		},
+	}
+	cmd.Flags().StringVar(
+		&scope,
+		"scope",
+		"",
+		"optional absolute virtual path that narrows token access",
+	)
 	return cmd
 }
 
@@ -245,6 +386,87 @@ func printCheckpointText(w io.Writer, raw json.RawMessage) error {
 	}
 	fmt.Fprintf(w, "replayed: %t\n", response.Replayed)
 	return nil
+}
+
+func printTasksText(cmd *cobra.Command, response *apiclient.TaskListResponse) error {
+	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tTASK\tHEAD\tSEQUENCE\tSCOPE\tUPDATED")
+	for _, task := range response.Tasks {
+		head := ""
+		if task.HeadCheckpointID != nil {
+			head = *task.HeadCheckpointID
+		}
+		updated := ""
+		if !task.UpdatedAt.IsZero() {
+			updated = task.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+		}
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%s\t%d\t%s\t%s\n",
+			task.ID,
+			terminalSafe(task.TaskKey),
+			head,
+			task.HeadSequence,
+			terminalSafe(task.ScopePath),
+			updated,
+		)
+	}
+	return writer.Flush()
+}
+
+func printCheckpointsText(
+	cmd *cobra.Command,
+	response *apiclient.CheckpointListResponse,
+) error {
+	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+	fmt.Fprintln(writer, "ID\tSEQUENCE\tKIND\tSTATUS\tSCOPE\tCREATED")
+	for _, checkpoint := range response.Checkpoints {
+		created := ""
+		if !checkpoint.CreatedAt.IsZero() {
+			created = checkpoint.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+		}
+		fmt.Fprintf(
+			writer,
+			"%s\t%d\t%s\t%s\t%s\t%s\n",
+			checkpoint.ID,
+			checkpoint.Sequence,
+			terminalSafe(checkpoint.CheckpointKind),
+			terminalSafe(checkpoint.Handoff.State.Status),
+			terminalSafe(checkpoint.ScopePath),
+			created,
+		)
+	}
+	return writer.Flush()
+}
+
+func printCheckpointDetailText(
+	cmd *cobra.Command,
+	checkpoint *apiclient.CheckpointRecord,
+) error {
+	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+	fmt.Fprintf(writer, "checkpoint\t%s\n", checkpoint.ID)
+	fmt.Fprintf(writer, "task\t%s\n", terminalSafe(checkpoint.TaskKey))
+	fmt.Fprintf(writer, "sequence\t%d\n", checkpoint.Sequence)
+	fmt.Fprintf(writer, "kind\t%s\n", terminalSafe(checkpoint.CheckpointKind))
+	fmt.Fprintf(writer, "contract\t%s\n", terminalSafe(checkpoint.Contract))
+	fmt.Fprintf(writer, "schema_version\t%d\n", checkpoint.SchemaVersion)
+	fmt.Fprintf(writer, "scope\t%s\n", terminalSafe(checkpoint.ScopePath))
+	fmt.Fprintf(writer, "status\t%s\n", terminalSafe(checkpoint.Handoff.State.Status))
+	fmt.Fprintf(writer, "goal\t%s\n", terminalSafe(checkpoint.Handoff.State.Goal))
+	fmt.Fprintf(
+		writer,
+		"progress\t%s\n",
+		terminalSafe(checkpoint.Handoff.State.Progress.Summary),
+	)
+	fmt.Fprintf(writer, "references\t%d\n", len(checkpoint.References))
+	if !checkpoint.CreatedAt.IsZero() {
+		fmt.Fprintf(
+			writer,
+			"created_at\t%s\n",
+			checkpoint.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		)
+	}
+	return writer.Flush()
 }
 
 func printResumeText(w io.Writer, raw json.RawMessage) error {

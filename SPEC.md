@@ -532,9 +532,14 @@ mem remember <content> --kind <kind> --path <path> \
   --idempotency-key <stable-key> [--event-at <rfc3339>] \
   [--source-type <type>] [--source-ref <ref>] [--source-file-id <uuid>] \
   [--agent-id <id>] [--session-id <id>] [--task-id <id>]
+mem memory <memory-id> [--scope <path>] [--format json]
 mem context <query> [--scope <path>] [--source all|file|memory] \
   [--memory-kind <kind>] [--limit N] [--max-chars N] [--format json]
 mem checkpoint --input <handoff.json|-> --idempotency-key <stable-key>
+mem tasks [--scope <path>] [--limit N] [--after <task-uuid>] [--format json]
+mem checkpoints <task-key> [--scope <path>] [--limit N] \
+  [--before <sequence>] [--format json]
+mem checkpoint get <task-key> <checkpoint-id> [--scope <path>] [--format json]
 mem resume <task-key> [--checkpoint-id <uuid>] [--scope <path>] \
   [--focus <text>] [--limit N] [--max-chars N] [--format json]
 
@@ -618,6 +623,15 @@ CLI 的 `--idempotency-key` 由适配器转换为 HTTP `Idempotency-Key` Header�
       limit:     { type: integer, default: 50, maximum: 100 }
       cursor:    { type: string }
 
+- name: mem_memory_get
+  description: 按 UUID 读取一条结构化记忆的完整内容和来源
+  input_schema:
+    type: object
+    properties:
+      memory_id: { type: string, format: uuid }
+      scope:     { type: string }
+    required: [memory_id]
+
 - name: mem_feedback
   description: 幂等记录 useful/not_useful 或 pin/unpin，并做 state_version CAS
   input_schema:
@@ -688,6 +702,36 @@ CLI 的 `--idempotency-key` 由适配器转换为 HTTP `Idempotency-Key` Header�
       limit:         { type: integer, default: 8 }
       max_chars:     { type: integer, default: 12000 }
     required: [task_key]
+
+- name: mem_task_list
+  description: 列出当前 workspace/path 可见的可恢复任务
+  input_schema:
+    type: object
+    properties:
+      scope: { type: string }
+      limit: { type: integer, default: 50, maximum: 200 }
+      after: { type: string, format: uuid }
+
+- name: mem_checkpoint_list
+  description: 按 task_key 列出不可变 checkpoint 历史
+  input_schema:
+    type: object
+    properties:
+      task_key: { type: string }
+      scope:    { type: string }
+      limit:    { type: integer, default: 50, maximum: 200 }
+      before:   { type: integer }
+    required: [task_key]
+
+- name: mem_checkpoint_get
+  description: 按 task_key 和 UUID 读取一个不可变 checkpoint
+  input_schema:
+    type: object
+    properties:
+      task_key:      { type: string }
+      checkpoint_id: { type: string, format: uuid }
+      scope:         { type: string }
+    required: [task_key, checkpoint_id]
 
 - name: mem_get
   description: 读取文件文本内容（自动转写音频/OCR 图片）

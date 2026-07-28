@@ -74,6 +74,65 @@ func TestMemoriesCommandMapsFiltersAndWritesJSONToCommandOutput(t *testing.T) {
 	}
 }
 
+func TestMemoryCommandGetsScopedDetailAndEscapesText(t *testing.T) {
+	var gotQuery url.Values
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet ||
+			r.URL.Path != "/v1/memories/"+commandLifecycleMemoryID {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"id":"`+commandLifecycleMemoryID+`",
+			"kind":"decision",
+			"content":"Use immutable checkpoints\u001b]0;spoof\u0007\nnext",
+			"attributes":{},
+			"path":"/Projects/mem",
+			"source_type":"agent",
+			"source_ref":"agent://codex/task-42",
+			"source_locator":{},
+			"content_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"lifecycle_status":"active",
+			"state_version":3,
+			"created_at":"2026-07-28T12:00:00Z",
+			"updated_at":"2026-07-28T12:00:00Z"
+		}`)
+	}))
+	defer server.Close()
+	setMemoryCommandTestConfig(t, server.URL)
+
+	root := newRootCmd()
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetArgs([]string{
+		"memory",
+		commandLifecycleMemoryID,
+		"--scope", "/Projects/mem α",
+	})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if gotQuery.Get("scope") != "/Projects/mem α" {
+		t.Fatalf("query = %#v", gotQuery)
+	}
+	got := output.String()
+	for _, want := range []string{
+		"memory_id",
+		commandLifecycleMemoryID,
+		"state_version",
+		"3",
+		`Use immutable checkpoints\x1b]0;spoof\x07\x0anext`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.ContainsRune(got, '\x1b') || strings.ContainsRune(got, '\a') {
+		t.Fatalf("text output contains a terminal control: %q", got)
+	}
+}
+
 func TestMemoryMutationCommandsMapBodiesAndIdempotency(t *testing.T) {
 	tests := []struct {
 		name       string
