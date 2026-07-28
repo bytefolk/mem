@@ -5,8 +5,7 @@ import type {
   WorkspaceObjectCounts,
 } from './types';
 
-export const WORKSPACE_BUNDLE_MEDIA_TYPE_BASE = 'application/vnd.mem.workspace-bundle+zip';
-export const WORKSPACE_BUNDLE_MEDIA_TYPE = `${WORKSPACE_BUNDLE_MEDIA_TYPE_BASE}; version=1`;
+export const WORKSPACE_BUNDLE_MEDIA_TYPE = 'application/vnd.mem.workspace-bundle+zip';
 export const WORKSPACE_BUNDLE_EXTENSION = '.membundle';
 
 export type WorkspaceTransferErrorKind =
@@ -95,28 +94,28 @@ function parseMediaType(value: string): ParsedMediaType | null {
   return { type, parameters };
 }
 
-/** Server responses must carry the complete, versioned v1 media type. */
-export function isVersionedWorkspaceBundleMediaType(value: string): boolean {
+/**
+ * The bundle schema version lives in manifest.json. HTTP requests and
+ * responses use the canonical media type without parameters.
+ */
+export function isWorkspaceBundleMediaType(value: string): boolean {
   const parsed = parseMediaType(value);
   return Boolean(
-    parsed &&
-    parsed.type === WORKSPACE_BUNDLE_MEDIA_TYPE_BASE &&
-    parsed.parameters.size === 1 &&
-    parsed.parameters.get('version') === '1',
+    parsed && parsed.type === WORKSPACE_BUNDLE_MEDIA_TYPE && parsed.parameters.size === 0,
   );
 }
 
 /**
  * File.type is supplied by the operating system and custom extensions often
- * arrive without parameters (or with an empty type). The extension remains
- * mandatory; when a MIME is present it must identify this bundle format/v1.
+ * arrive empty. The extension remains mandatory; when a MIME is present it
+ * must match the canonical, parameter-free bundle media type.
  */
 function isSupportedLocalFileMediaType(value: string): boolean {
   if (!value) return true;
   const parsed = parseMediaType(value);
-  if (!parsed || parsed.type !== WORKSPACE_BUNDLE_MEDIA_TYPE_BASE) return false;
-  if (parsed.parameters.size === 0) return true;
-  return parsed.parameters.size === 1 && parsed.parameters.get('version') === '1';
+  return Boolean(
+    parsed && parsed.type === WORKSPACE_BUNDLE_MEDIA_TYPE && parsed.parameters.size === 0,
+  );
 }
 
 export function validateWorkspaceBundleFile(file: File): WorkspaceBundleFileIssue | null {
@@ -280,7 +279,7 @@ export async function exportWorkspaceBundle(workspaceID: string): Promise<Worksp
       headers: { Accept: WORKSPACE_BUNDLE_MEDIA_TYPE },
     });
     if (!response.ok) throw await errorFromResponse(response);
-    if (!isVersionedWorkspaceBundleMediaType(response.headers.get('Content-Type') ?? '')) {
+    if (!isWorkspaceBundleMediaType(response.headers.get('Content-Type') ?? '')) {
       throw new WorkspaceTransferError({
         kind: 'unsupported',
         message: 'workspace export returned an unsupported media type',

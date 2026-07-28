@@ -10,7 +10,7 @@ const webRoot = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.TRANSFER_E2E_PORT ?? 5193);
 const baseURL = `http://127.0.0.1:${port}`;
 const artifactDir = path.join(tmpdir(), `mem-transfer-acceptance-${process.pid}`);
-const bundleMIME = 'application/vnd.mem.workspace-bundle+zip; version=1';
+const bundleMIME = 'application/vnd.mem.workspace-bundle+zip';
 const exportedBytes = 'PK\u0003\u0004MEM.WORKSPACE_BUNDLE.V1\nmanifest.json\nchecksums.sha256\n';
 
 function startVite() {
@@ -146,6 +146,27 @@ try {
       { exact: true },
     )
     .waitFor();
+  const mediaTypeChecks = await page.evaluate(async () => {
+    const { WORKSPACE_BUNDLE_MEDIA_TYPE, isWorkspaceBundleMediaType } =
+      await import('/src/lib/workspace-transfer.ts');
+    return {
+      canonical: WORKSPACE_BUNDLE_MEDIA_TYPE,
+      acceptsCanonical: isWorkspaceBundleMediaType(WORKSPACE_BUNDLE_MEDIA_TYPE),
+      rejectsVersionParameter: isWorkspaceBundleMediaType(
+        `${WORKSPACE_BUNDLE_MEDIA_TYPE}; version=1`,
+      ),
+      rejectsCharsetParameter: isWorkspaceBundleMediaType(
+        `${WORKSPACE_BUNDLE_MEDIA_TYPE}; charset=binary`,
+      ),
+    };
+  });
+  assert.deepEqual(mediaTypeChecks, {
+    canonical: bundleMIME,
+    acceptsCanonical: true,
+    rejectsVersionParameter: false,
+    rejectsCharsetParameter: false,
+  });
+  console.log('✓ canonical parameter-free workspace bundle media type');
   await page.screenshot({
     path: path.join(artifactDir, 'workspace-transfer-desktop.png'),
     fullPage: true,
@@ -153,8 +174,14 @@ try {
   console.log('✓ discoverable transfer route and fresh-only contract');
 
   const downloadPromise = page.waitForEvent('download');
+  const exportResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes('/v1/workspaces/current/export') &&
+      response.request().method() === 'GET',
+  );
   await page.getByTestId('workspace-export-button').click();
-  const download = await downloadPromise;
+  const [download, exportResponse] = await Promise.all([downloadPromise, exportResponsePromise]);
+  assert.equal(await exportResponse.headerValue('content-type'), bundleMIME);
   assert.equal(download.suggestedFilename(), 'workspace-agent-drive-demo.membundle');
   const exportPath = path.join(artifactDir, download.suggestedFilename());
   await download.saveAs(exportPath);
@@ -194,7 +221,9 @@ try {
       response.request().method() === 'POST',
   );
   await confirmAndImport(page);
-  assert.equal((await importResponse).status(), 200);
+  const completedImportResponse = await importResponse;
+  assert.equal(completedImportResponse.status(), 200);
+  assert.equal(await completedImportResponse.request().headerValue('content-type'), bundleMIME);
   const success = page.getByTestId('workspace-import-success');
   await success.getByText('Workspace restored atomically', { exact: true }).waitFor();
   await success.getByText('12', { exact: true }).waitFor();

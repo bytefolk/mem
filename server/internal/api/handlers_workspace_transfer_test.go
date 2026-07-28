@@ -298,8 +298,8 @@ func TestWorkspaceImportRejectsTransportViolationsBeforeService(t *testing.T) {
 			wantStatus: http.StatusUnsupportedMediaType,
 		},
 		{
-			name:        "content type parameters rejected",
-			contentType: workspacebundle.BundleMediaType + "; charset=binary",
+			name:        "version media type parameter rejected",
+			contentType: workspacebundle.BundleMediaType + "; version=1",
 			path:        "/v1/workspaces/current/import?mode=fresh",
 			wantStatus:  http.StatusUnsupportedMediaType,
 		},

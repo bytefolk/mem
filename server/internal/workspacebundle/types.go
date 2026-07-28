@@ -14,7 +14,9 @@ const (
 
 	ArchiveFormatZIP64 = "zip64"
 	ArchiveLayoutV1    = "fixed-v1"
-	BundleMediaType    = "application/vnd.mem.workspace-bundle+zip"
+	// BundleMediaType is intentionally parameter-free. SchemaVersionV1 is
+	// carried and validated in manifest.json rather than an HTTP parameter.
+	BundleMediaType = "application/vnd.mem.workspace-bundle+zip"
 
 	ManifestPath             = "manifest.json"
 	ChecksumsPath            = "checksums.sha256"
