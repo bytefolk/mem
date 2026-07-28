@@ -1,4 +1,4 @@
-# ADR 0003: Workspace bundle v1
+# ADR 0004: Workspace bundle v1
 
 - Status: Accepted
 - Date: 2026-07-28

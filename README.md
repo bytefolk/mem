@@ -193,7 +193,7 @@ mem workspace export --output agent-workspace.membundle
 - 结构化记忆记录决策：[docs/adr/0001-agent-memory-records.md](docs/adr/0001-agent-memory-records.md)
 - MCP 接入与工具约定：[docs/mcp.md](docs/mcp.md)
 - 北极星可重复验收：[docs/acceptance/NORTH_STAR.md](docs/acceptance/NORTH_STAR.md)
-- Workspace bundle 决策：[docs/adr/0003-workspace-bundle.md](docs/adr/0003-workspace-bundle.md)
+- Workspace bundle 决策：[docs/adr/0004-workspace-bundle.md](docs/adr/0004-workspace-bundle.md)
 - 本地运行与验证：[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)
 - 参与贡献：[CONTRIBUTING.md](CONTRIBUTING.md)
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
