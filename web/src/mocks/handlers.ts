@@ -1117,7 +1117,34 @@ export const handlers = [
     const before = Number(url.searchParams.get('before') ?? Number.MAX_SAFE_INTEGER);
     const limit = Number(url.searchParams.get('limit') ?? 50);
     return HttpResponse.json({
-      checkpoints: checkpoints.filter((candidate) => candidate.sequence < before).slice(0, limit),
+      checkpoints: checkpoints
+        .filter((candidate) => candidate.sequence < before)
+        .slice(0, limit)
+        .map((candidate) => {
+          const progress = candidate.handoff.state.progress;
+          const progressRunes = Array.from(progress.summary);
+          return {
+            id: candidate.id,
+            workspace_id: candidate.workspace_id,
+            task_id: candidate.task_id,
+            task_key: candidate.task_key,
+            sequence: candidate.sequence,
+            checkpoint_kind: candidate.checkpoint_kind,
+            contract: candidate.contract,
+            schema_version: candidate.schema_version,
+            base_checkpoint_id: candidate.base_checkpoint_id,
+            scope_path: candidate.scope_path,
+            status: candidate.handoff.state.status,
+            progress_excerpt: progressRunes.slice(0, 500).join(''),
+            progress_length: progressRunes.length,
+            completed_count: progress.completed.length,
+            reference_count: candidate.references.length,
+            payload_sha256: candidate.payload_sha256,
+            producer_agent: candidate.producer_agent,
+            producer_session: candidate.producer_session,
+            created_at: candidate.created_at,
+          };
+        }),
     });
   }),
 

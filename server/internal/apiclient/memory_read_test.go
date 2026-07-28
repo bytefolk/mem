@@ -84,6 +84,9 @@ func TestListMemoriesUsesTypedStablePaginationContract(t *testing.T) {
 
 func TestGetMemoryUsesTypedDetailContract(t *testing.T) {
 	memoryID := uuid.NewString()
+	workspaceID := uuid.NewString()
+	createdByUserID := uuid.NewString()
+	sourceFileID := uuid.NewString()
 	var gotQuery url.Values
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/memories/"+memoryID {
@@ -93,17 +96,31 @@ func TestGetMemoryUsesTypedDetailContract(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
 			"id":"`+memoryID+`",
-			"workspace_id":"`+uuid.NewString()+`",
+			"workspace_id":"`+workspaceID+`",
+			"created_by_user_id":"`+createdByUserID+`",
 			"kind":"note",
 			"content":"Visible detail",
-			"attributes":{},
+			"attributes":{"importance":"high"},
 			"path":"/Work/Project",
 			"source_type":"user",
-			"source_locator":{},
+			"source_file_id":"`+sourceFileID+`",
+			"source_file_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"source_locator":{"line":42},
+			"producer_agent":"codex",
 			"content_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			"lifecycle_status":"active",
 			"created_at":"2026-07-28T00:00:00Z",
-			"updated_at":"2026-07-28T00:00:00Z"
+			"updated_at":"2026-07-28T00:00:00Z",
+			"citation":"mem://memories/`+memoryID+`",
+			"provenance":{
+				"workspace_id":"`+workspaceID+`",
+				"created_by_user_id":"`+createdByUserID+`",
+				"source_type":"user",
+				"source_file_id":"`+sourceFileID+`",
+				"source_file_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"source_locator":{"line":42},
+				"producer_agent":"codex"
+			}
 		}`)
 	}))
 	defer server.Close()
@@ -119,7 +136,14 @@ func TestGetMemoryUsesTypedDetailContract(t *testing.T) {
 	if gotQuery.Get("scope") != "/Work" ||
 		record.ID != memoryID ||
 		record.Content != "Visible detail" ||
-		record.SourceType != "user" {
+		record.Citation != "mem://memories/"+memoryID ||
+		record.Provenance.WorkspaceID != workspaceID ||
+		record.Provenance.CreatedByUserID == nil ||
+		*record.Provenance.CreatedByUserID != createdByUserID ||
+		record.Provenance.SourceFileID == nil ||
+		*record.Provenance.SourceFileID != sourceFileID ||
+		record.Provenance.ProducerAgent != "codex" ||
+		string(record.Provenance.SourceLocator) != `{"line":42}` {
 		t.Fatalf("query=%v record=%+v", gotQuery, record)
 	}
 }

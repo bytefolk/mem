@@ -61,6 +61,24 @@ async function stopProcess(child) {
   if (child.exitCode === null) child.kill('SIGKILL');
 }
 
+async function closeBrowserWithin(browser, timeoutMs = 5_000) {
+  if (!browser) return;
+  let timeout;
+  try {
+    const closed = await Promise.race([
+      browser.close().then(() => true),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+    if (!closed) {
+      console.warn(`Browser close exceeded ${timeoutMs}ms; forcing runner exit after Vite cleanup.`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function launchBrowser() {
   try {
     return await chromium.launch({ headless: true });
@@ -406,7 +424,7 @@ try {
     `Transfer acceptance passed. Screenshots: ${artifactDir}/workspace-transfer-desktop.png, ${artifactDir}/workspace-transfer-mobile.png`,
   );
 } finally {
-  await browser?.close();
+  await closeBrowserWithin(browser);
   await stopProcess(vite.child);
 }
 

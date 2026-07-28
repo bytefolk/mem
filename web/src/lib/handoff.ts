@@ -3,6 +3,7 @@ import type {
   AgentTask,
   Capabilities,
   CheckpointRecord,
+  CheckpointSummary,
   ResumeRequest,
   ResumeResponse,
   Workspace,
@@ -57,8 +58,8 @@ export function listTasks(params: ListTasksParams = {}): Promise<{ tasks: AgentT
 export function listCheckpoints(
   taskKey: string,
   params: ListCheckpointsParams = {},
-): Promise<{ checkpoints: CheckpointRecord[] }> {
-  return api.get<{ checkpoints: CheckpointRecord[] }>(
+): Promise<{ checkpoints: CheckpointSummary[] }> {
+  return api.get<{ checkpoints: CheckpointSummary[] }>(
     `${taskAPIPath(taskKey)}/checkpoints`,
     {
       query: {

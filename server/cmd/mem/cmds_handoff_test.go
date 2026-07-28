@@ -336,9 +336,13 @@ func TestHandoffReadCommandsExposeTasksAndCheckpointHistory(t *testing.T) {
 				"sequence":4,
 				"checkpoint_kind":"handoff",
 				"scope_path":"/Projects/mem",
-				"handoff":{"state":{"status":"ready"}},
+				"status":"ready",
+				"progress_excerpt":"Review complete",
+				"progress_length":15,
+				"completed_count":1,
+				"reference_count":0,
 				"created_at":"2026-07-28T12:00:00Z",
-				"references":[]
+				"payload_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			}]}`)
 		}))
 		defer server.Close()

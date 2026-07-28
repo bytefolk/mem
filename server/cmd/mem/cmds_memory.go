@@ -426,17 +426,94 @@ func printMemoriesTable(cmd *cobra.Command, response *apiclient.MemoryListRespon
 	_ = writer.Flush()
 }
 
-func printMemoryDetail(cmd *cobra.Command, memory *apiclient.Memory) error {
+func printMemoryDetail(cmd *cobra.Command, memory *apiclient.MemoryDetail) error {
 	writer := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
 	fmt.Fprintf(writer, "memory_id\t%s\n", memory.ID)
+	fmt.Fprintf(writer, "citation\t%s\n", terminalSafe(memory.Citation))
 	fmt.Fprintf(writer, "kind\t%s\n", terminalSafe(memory.Kind))
 	fmt.Fprintf(writer, "lifecycle\t%s\n", terminalSafe(memory.LifecycleStatus))
 	fmt.Fprintf(writer, "pinned\t%t\n", memory.Pinned)
 	fmt.Fprintf(writer, "state_version\t%d\n", memory.StateVersion)
 	fmt.Fprintf(writer, "path\t%s\n", terminalSafe(memory.Path))
-	fmt.Fprintf(writer, "source_type\t%s\n", terminalSafe(memory.SourceType))
-	if memory.SourceRef != "" {
-		fmt.Fprintf(writer, "source_ref\t%s\n", terminalSafe(memory.SourceRef))
+	fmt.Fprintf(
+		writer,
+		"workspace_id\t%s\n",
+		terminalSafe(memory.Provenance.WorkspaceID),
+	)
+	if memory.Provenance.CreatedByUserID != nil {
+		fmt.Fprintf(
+			writer,
+			"created_by_user_id\t%s\n",
+			terminalSafe(*memory.Provenance.CreatedByUserID),
+		)
+	}
+	if memory.Provenance.EventAt != nil {
+		fmt.Fprintf(
+			writer,
+			"event_at\t%s\n",
+			memory.Provenance.EventAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		)
+	}
+	fmt.Fprintf(
+		writer,
+		"source_type\t%s\n",
+		terminalSafe(memory.Provenance.SourceType),
+	)
+	if memory.Provenance.SourceRef != "" {
+		fmt.Fprintf(
+			writer,
+			"source_ref\t%s\n",
+			terminalSafe(memory.Provenance.SourceRef),
+		)
+	}
+	if memory.Provenance.SourceFileID != nil {
+		fmt.Fprintf(
+			writer,
+			"source_file_id\t%s\n",
+			terminalSafe(*memory.Provenance.SourceFileID),
+		)
+	}
+	if memory.Provenance.SourceFileSHA256 != "" {
+		fmt.Fprintf(
+			writer,
+			"source_file_sha256\t%s\n",
+			terminalSafe(memory.Provenance.SourceFileSHA256),
+		)
+	}
+	if len(memory.Provenance.SourceLocator) > 0 {
+		fmt.Fprintf(
+			writer,
+			"source_locator\t%s\n",
+			terminalSafe(string(memory.Provenance.SourceLocator)),
+		)
+	}
+	if memory.Provenance.ProducerAgent != "" {
+		fmt.Fprintf(
+			writer,
+			"producer_agent\t%s\n",
+			terminalSafe(memory.Provenance.ProducerAgent),
+		)
+	}
+	if memory.Provenance.ProducerSession != "" {
+		fmt.Fprintf(
+			writer,
+			"producer_session\t%s\n",
+			terminalSafe(memory.Provenance.ProducerSession),
+		)
+	}
+	if memory.Provenance.ProducerTask != "" {
+		fmt.Fprintf(
+			writer,
+			"producer_task\t%s\n",
+			terminalSafe(memory.Provenance.ProducerTask),
+		)
+	}
+	if len(memory.Attributes) > 0 {
+		fmt.Fprintf(
+			writer,
+			"attributes\t%s\n",
+			terminalSafe(string(memory.Attributes)),
+		)
 	}
 	if memory.ContentSHA256 != "" {
 		fmt.Fprintf(writer, "content_sha256\t%s\n", memory.ContentSHA256)
@@ -446,6 +523,13 @@ func printMemoryDetail(cmd *cobra.Command, memory *apiclient.Memory) error {
 			writer,
 			"created_at\t%s\n",
 			memory.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		)
+	}
+	if !memory.UpdatedAt.IsZero() {
+		fmt.Fprintf(
+			writer,
+			"updated_at\t%s\n",
+			memory.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 		)
 	}
 	fmt.Fprintf(writer, "content\t%s\n", terminalSafe(memory.Content))

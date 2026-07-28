@@ -86,8 +86,9 @@ func registerTaskList(reg *tools.Registry, c *apiclient.Client) error {
 func registerCheckpointList(reg *tools.Registry, c *apiclient.Client) error {
 	return reg.Register(tools.Tool{
 		Name: "mem_checkpoint_list",
-		Description: "List newest-first immutable checkpoints for one task, with optional " +
-			"path scope and sequence pagination.",
+		Description: "List newest-first bounded checkpoint summaries for one task, with " +
+			"optional path scope and sequence pagination. Use mem_checkpoint_get for " +
+			"the full handoff payload.",
 		InputSchema: checkpointListToolSchema(),
 		Run: func(ctx context.Context, args map[string]any) (any, error) {
 			var input checkpointListToolInput

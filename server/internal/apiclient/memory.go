@@ -48,6 +48,31 @@ type Memory struct {
 	UpdatedAt        time.Time       `json:"updated_at"`
 }
 
+// MemoryProvenance is the canonical public origin projection returned by the
+// memory detail endpoint. Authentication token IDs and idempotency material
+// are intentionally absent.
+type MemoryProvenance struct {
+	WorkspaceID      string          `json:"workspace_id"`
+	CreatedByUserID  *string         `json:"created_by_user_id,omitempty"`
+	EventAt          *time.Time      `json:"event_at,omitempty"`
+	SourceType       string          `json:"source_type"`
+	SourceRef        string          `json:"source_ref,omitempty"`
+	SourceFileID     *string         `json:"source_file_id,omitempty"`
+	SourceFileSHA256 string          `json:"source_file_sha256,omitempty"`
+	SourceLocator    json.RawMessage `json:"source_locator"`
+	ProducerAgent    string          `json:"producer_agent,omitempty"`
+	ProducerSession  string          `json:"producer_session,omitempty"`
+	ProducerTask     string          `json:"producer_task,omitempty"`
+}
+
+// MemoryDetail mirrors GET /v1/memories/{id}: the full public memory
+// projection plus its stable citation and explicit provenance envelope.
+type MemoryDetail struct {
+	Memory
+	Citation   string           `json:"citation"`
+	Provenance MemoryProvenance `json:"provenance"`
+}
+
 // MemoryListOptions filters a stable newest-first keyset page. Cursor is
 // opaque and should be passed back unchanged from MemoryListPage.NextCursor.
 type MemoryListOptions struct {
@@ -345,7 +370,7 @@ func (c *Client) GetMemory(
 	ctx context.Context,
 	memoryID string,
 	options MemoryGetOptions,
-) (*Memory, error) {
+) (*MemoryDetail, error) {
 	if c == nil {
 		return nil, fmt.Errorf("apiclient: nil client")
 	}
@@ -366,7 +391,7 @@ func (c *Client) GetMemory(
 	if encoded := query.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
-	var record Memory
+	var record MemoryDetail
 	if err := c.DoJSON(ctx, http.MethodGet, path, nil, &record); err != nil {
 		return nil, err
 	}

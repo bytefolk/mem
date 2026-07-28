@@ -435,6 +435,50 @@ curl_safe -fsS -X POST "${BASE_URL}/v1/context" \
     any(.evidence[]; .memory_id == $id and .source_kind == "memory")
   ' >/dev/null
 
+log "Creating an out-of-token-path checkpoint for adapter isolation"
+outside_task_key="outside-e2e-${run_suffix}"
+outside_checkpoint_sentinel="outside-handoff-${run_suffix}-must-never-reach-the-path-scoped-agent"
+jq -nc \
+  --arg task_key "$outside_task_key" \
+  --arg sentinel "$outside_checkpoint_sentinel" '
+    {
+      contract: "mem.handoff",
+      schema_version: 1,
+      checkpoint_kind: "handoff",
+      task_key: $task_key,
+      scope_path: "/Outside",
+      state: {
+        status: "ready",
+        goal: $sentinel,
+        progress: {
+          summary: $sentinel,
+          completed: []
+        },
+        decisions: [],
+        next_steps: [],
+        blockers: [],
+        open_questions: [],
+        artifacts: []
+      },
+      producer: {
+        agent_id: "outside-session"
+      }
+    }
+  ' >"${E2E_DIR}/outside-handoff.json"
+outside_checkpoint_json="$(
+  curl_safe -fsS -X POST \
+    "${BASE_URL}/v1/tasks/${outside_task_key}/checkpoints" \
+    -H "Authorization: Bearer ${session_token}" \
+    -H "X-Workspace-ID: ${workspace_id}" \
+    -H 'Content-Type: application/json' \
+    -H "Idempotency-Key: outside-checkpoint-${run_suffix}" \
+    --data-binary "@${E2E_DIR}/outside-handoff.json"
+)"
+outside_checkpoint_id="$(
+  printf '%s' "$outside_checkpoint_json" |
+    jq -er '.checkpoint.id'
+)"
+
 log "Validating CLI against the same HTTP service"
 cli_json="$(
   MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
@@ -467,6 +511,13 @@ printf '%s' "$cli_memory_detail" |
     --arg id "$cli_memory_id" \
     --arg workspace_id "$workspace_id" \
     --arg content "CLI adapter reaches the canonical memory API" '
+      ([.. | objects | keys[]] |
+        index("created_by_token_id") == null and
+        index("forgotten_by_token_id") == null and
+        index("idempotency_key") == null and
+        index("idempotency_key_sha256") == null and
+        index("request_sha256") == null and
+        index("replay_principal_sha256") == null) and
       .id == $id and
       .kind == "observation" and
       .content == $content and
@@ -496,7 +547,8 @@ MEM_WORKSPACE="$workspace_id" \
   ' >/dev/null
 
 cli_task_key="cli-e2e-${run_suffix}"
-cli_checkpoint_goal="Verify CLI task and checkpoint inspection through memd"
+cli_checkpoint_private="cli-private-${run_suffix}-must-not-enter-checkpoint-list"
+cli_checkpoint_goal="Verify CLI inspection: ${cli_checkpoint_private}"
 jq -nc \
   --arg task_key "$cli_task_key" \
   --arg goal "$cli_checkpoint_goal" '
@@ -510,7 +562,7 @@ jq -nc \
         status: "ready",
         goal: $goal,
         progress: {
-          summary: "The real PostgreSQL-backed checkpoint is ready to inspect",
+          summary: ("界" * 600),
           completed: ["persisted a real CLI checkpoint"]
         },
         decisions: [],
@@ -564,14 +616,18 @@ cli_tasks_json="$(
   MEM_TOKEN="$agent_token" \
   MEM_WORKSPACE="$workspace_id" \
     "${E2E_DIR}/mem" tasks \
-      --scope /E2E \
+      --scope / \
       --limit 100 \
       --format json
 )"
 printf '%s' "$cli_tasks_json" |
   jq -e \
     --arg id "$cli_checkpoint_id" \
-    --arg task_key "$cli_task_key" '
+    --arg task_key "$cli_task_key" \
+    --arg outside_task_key "$outside_task_key" '
+      all(.tasks[];
+        .task_key != $outside_task_key and
+        (.scope_path == "/E2E" or (.scope_path | startswith("/E2E/")))) and
       any(.tasks[];
         .task_key == $task_key and
         .scope_path == "/E2E/CLI" and
@@ -592,7 +648,16 @@ cli_checkpoints_json="$(
 printf '%s' "$cli_checkpoints_json" |
   jq -e \
     --arg id "$cli_checkpoint_id" \
-    --arg task_key "$cli_task_key" '
+    --arg task_key "$cli_task_key" \
+    --arg private "$cli_checkpoint_private" '
+      all(.checkpoints[];
+        (has("handoff") | not) and
+        (has("references") | not) and
+        (has("created_by_user_id") | not) and
+        (has("created_by_token_id") | not) and
+        (has("idempotency_key") | not) and
+        (has("request_sha256") | not)) and
+      ([.checkpoints[] | .. | strings | select(contains($private))] | length == 0) and
       any(.checkpoints[];
         .id == $id and
         .task_key == $task_key and
@@ -602,12 +667,11 @@ printf '%s' "$cli_checkpoints_json" |
         .schema_version == 1 and
         .scope_path == "/E2E/CLI" and
         .status == "ready" and
-        .progress_excerpt ==
-          "The real PostgreSQL-backed checkpoint is ready to inspect" and
-        .progress_length ==
-          ("The real PostgreSQL-backed checkpoint is ready to inspect" | length) and
+        .progress_excerpt == ("界" * 500) and
+        .progress_length == 600 and
         .completed_count == 1 and
         .reference_count == 0 and
+        (.payload_sha256 | test("^[0-9a-f]{64}$")) and
         .producer_agent == "cli-e2e" and
         .producer_session == "cli-e2e-read-session")
     ' >/dev/null
@@ -636,8 +700,41 @@ printf '%s' "$cli_checkpoint_detail" |
       .scope_path == "/E2E/CLI" and
       .producer_agent == "cli-e2e" and
       .handoff.state.status == "ready" and
-      .handoff.state.goal == $goal
+      .handoff.state.goal == $goal and
+      .handoff.state.progress.summary == ("界" * 600)
     ' >/dev/null
+
+outside_cli_checkpoints="$(
+  MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+  MEM_SERVER="$BASE_URL" \
+  MEM_TOKEN="$agent_token" \
+  MEM_WORKSPACE="$workspace_id" \
+    "${E2E_DIR}/mem" checkpoints "$outside_task_key" \
+      --scope / \
+      --limit 100 \
+      --format json
+)"
+printf '%s' "$outside_cli_checkpoints" |
+  jq -e '.checkpoints == []' >/dev/null
+
+set +e
+MEM_CONFIG="${E2E_DIR}/nonexistent-cli-config.yaml" \
+MEM_SERVER="$BASE_URL" \
+MEM_TOKEN="$agent_token" \
+MEM_WORKSPACE="$workspace_id" \
+  "${E2E_DIR}/mem" checkpoint get \
+    "$outside_task_key" "$outside_checkpoint_id" \
+    --scope / \
+    --format json \
+    >"${E2E_DIR}/outside-cli-get.stdout" \
+    2>"${E2E_DIR}/outside-cli-get.stderr"
+outside_cli_get_status=$?
+set -e
+outside_cli_get_error="$(<"${E2E_DIR}/outside-cli-get.stderr")"
+if [[ "$outside_cli_get_status" -eq 0 ||
+  "$outside_cli_get_error" != *"not_found"* ]]; then
+  die "out-of-token-path CLI checkpoint get did not fail with not_found"
+fi
 
 log "Validating sequential MCP handshake, recall, inspection and lifecycle"
 : >"${E2E_DIR}/mcp-client.log"
@@ -648,6 +745,8 @@ mcp_summary="$(
   MEM_SERVER="$BASE_URL" \
   MEM_TOKEN="$agent_token" \
   MEM_WORKSPACE="$workspace_id" \
+  MEM_OUTSIDE_TASK_KEY="$outside_task_key" \
+  MEM_OUTSIDE_CHECKPOINT_ID="$outside_checkpoint_id" \
     "${E2E_DIR}/mcp-acceptance" \
       --mcp-binary "${E2E_DIR}/mem-mcp" \
       --log "${E2E_DIR}/mcp.log"

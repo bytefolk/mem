@@ -465,6 +465,28 @@ export interface HandoffReference {
   metadata: unknown;
 }
 
+export interface CheckpointSummary {
+  id: string;
+  workspace_id: string;
+  task_id: string;
+  task_key: string;
+  sequence: number;
+  checkpoint_kind: CheckpointKind;
+  contract: string;
+  schema_version: number;
+  base_checkpoint_id?: string | null;
+  scope_path: string;
+  status: TaskStatus;
+  progress_excerpt: string;
+  progress_length: number;
+  completed_count: number;
+  reference_count: number;
+  payload_sha256: string;
+  producer_agent: string;
+  producer_session?: string;
+  created_at: string;
+}
+
 export interface CheckpointRecord {
   id: string;
   workspace_id: string;

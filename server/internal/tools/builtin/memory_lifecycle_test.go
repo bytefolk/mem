@@ -67,11 +67,20 @@ func TestMemMemoryGetMapsScopedDetail(t *testing.T) {
 	server := newFakeServer(
 		`{
 			"id":"`+lifecycleTestMemoryID+`",
+			"workspace_id":"11111111-1111-4111-8111-111111111111",
 			"kind":"decision",
 			"content":"Use immutable checkpoints",
 			"path":"/Projects/mem",
 			"attributes":{},
-			"source_locator":{}
+			"source_type":"agent",
+			"source_locator":{},
+			"citation":"mem://memories/`+lifecycleTestMemoryID+`",
+			"provenance":{
+				"workspace_id":"11111111-1111-4111-8111-111111111111",
+				"source_type":"agent",
+				"source_locator":{},
+				"producer_agent":"codex"
+			}
 		}`,
 		http.StatusOK,
 		"application/json",
@@ -103,9 +112,12 @@ func TestMemMemoryGetMapsScopedDetail(t *testing.T) {
 			server.lastQuery,
 		)
 	}
-	memory, ok := output.(*apiclient.Memory)
+	memory, ok := output.(*apiclient.MemoryDetail)
 	if !ok || memory.ID != lifecycleTestMemoryID ||
-		memory.Content != "Use immutable checkpoints" {
+		memory.Content != "Use immutable checkpoints" ||
+		memory.Citation != "mem://memories/"+lifecycleTestMemoryID ||
+		memory.Provenance.WorkspaceID != "11111111-1111-4111-8111-111111111111" ||
+		memory.Provenance.ProducerAgent != "codex" {
 		t.Fatalf("output = %#v", output)
 	}
 }

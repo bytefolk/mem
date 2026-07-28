@@ -174,7 +174,17 @@ func TestMemHandoffReadToolsUseTypedClientContracts(t *testing.T) {
 
 	t.Run("checkpoint list", func(t *testing.T) {
 		fs := newFakeServer(
-			`{"checkpoints":[{"id":"22222222-2222-2222-2222-222222222222","task_key":"task-42","sequence":4,"handoff":{}}]}`,
+			`{"checkpoints":[{
+				"id":"22222222-2222-2222-2222-222222222222",
+				"task_key":"task-42",
+				"sequence":4,
+				"status":"ready",
+				"progress_excerpt":"bounded progress",
+				"progress_length":900,
+				"completed_count":2,
+				"reference_count":3,
+				"payload_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}]}`,
 			http.StatusOK,
 			"application/json",
 		)
@@ -205,7 +215,12 @@ func TestMemHandoffReadToolsUseTypedClientContracts(t *testing.T) {
 		}
 		response, ok := out.(*apiclient.CheckpointListResponse)
 		if !ok || len(response.Checkpoints) != 1 ||
-			response.Checkpoints[0].Sequence != 4 {
+			response.Checkpoints[0].Sequence != 4 ||
+			response.Checkpoints[0].Status != "ready" ||
+			response.Checkpoints[0].ProgressExcerpt != "bounded progress" ||
+			response.Checkpoints[0].ProgressLength != 900 ||
+			response.Checkpoints[0].CompletedCount != 2 ||
+			response.Checkpoints[0].ReferenceCount != 3 {
 			t.Fatalf("output = %#v", out)
 		}
 	})

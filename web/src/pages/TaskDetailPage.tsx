@@ -39,7 +39,7 @@ export function TaskDetailPage() {
           <span className="font-mono text-2xs uppercase tracking-[0.16em] text-fg-subtle">
             {t('task.taskKey')}
           </span>
-          {head && <TaskStatusBadge status={head.handoff.state.status} />}
+          {head && <TaskStatusBadge status={head.status} />}
         </div>
         <h1 className="break-all font-mono text-2xl font-semibold text-fg">{taskKey}</h1>
         {head && (

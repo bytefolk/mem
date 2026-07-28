@@ -74,7 +74,7 @@ The canonical product surface is:
 | `mem_forget` | Irreversibly redact one live memory payload after explicit confirmation |
 | `mem_checkpoint` | Persist a versioned task checkpoint or an explicit handoff to another Agent/device |
 | `mem_task_list` | List bounded resumable-task summaries |
-| `mem_checkpoint_list` | List newest-first immutable checkpoint history for one task |
+| `mem_checkpoint_list` | List newest-first bounded checkpoint summaries for one task |
 | `mem_checkpoint_get` | Get one immutable checkpoint and its full handoff payload |
 | `mem_resume` | Restore the current task head or a selected historical checkpoint, including resolved and missing evidence |
 | `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets |
@@ -122,7 +122,11 @@ For explicit inspection rather than resume, use `mem_task_list` to discover
 task keys, `mem_checkpoint_list` to page through one task's immutable history,
 and `mem_checkpoint_get` to read a selected versioned payload. All three use
 the same workspace/path authorization and not-found semantics as the canonical
-HTTP endpoints.
+HTTP endpoints. `mem_checkpoint_list` never returns full handoff payloads or
+reference arrays: each item contains immutable identity fields, status, a
+500-code-point `progress_excerpt`, its original `progress_length`, and
+completed/reference counts. Fetch only the selected checkpoint when an Agent
+needs its full state.
 
 ## `mem_remember`, `mem_context`, and citations
 

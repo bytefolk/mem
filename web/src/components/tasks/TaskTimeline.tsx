@@ -4,14 +4,14 @@ import { CheckpointKindBadge, TaskStatusBadge } from './TaskStatusBadge';
 import { checkpointPagePath } from '@/lib/handoff';
 import { formatDateTime, truncateMiddle } from '@/lib/format';
 import { useT } from '@/i18n';
-import type { CheckpointRecord } from '@/lib/types';
+import type { CheckpointSummary } from '@/lib/types';
 
 export function TaskTimeline({
   taskKey,
   checkpoints,
 }: {
   taskKey: string;
-  checkpoints: CheckpointRecord[];
+  checkpoints: CheckpointSummary[];
 }) {
   const { t } = useT();
 
@@ -27,7 +27,6 @@ export function TaskTimeline({
       </div>
       <ol className="divide-y divide-border">
         {checkpoints.map((checkpoint, index) => {
-          const state = checkpoint.handoff.state;
           const isHead = index === 0;
           return (
             <li
@@ -48,20 +47,20 @@ export function TaskTimeline({
                 <div className="min-w-0">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     {isHead && <span className="ledger-head-mark">{t('task.head')}</span>}
-                    <TaskStatusBadge status={state.status} />
+                    <TaskStatusBadge status={checkpoint.status} />
                     <CheckpointKindBadge kind={checkpoint.checkpoint_kind} />
                     <span className="text-2xs text-fg-subtle">
                       {checkpoint.producer_agent}
                     </span>
                   </div>
-                  <div className="text-sm text-fg">{state.progress.summary}</div>
+                  <div className="text-sm text-fg">{checkpoint.progress_excerpt}</div>
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs text-fg-subtle">
                     <span>{formatDateTime(checkpoint.created_at)}</span>
                     <span className="inline-flex items-center gap-1 font-mono">
                       <GitCommitHorizontal className="h-3 w-3" />
                       {truncateMiddle(checkpoint.payload_sha256, 18)}
                     </span>
-                    <span>{t('task.completedCount', { n: state.progress.completed.length })}</span>
+                    <span>{t('task.completedCount', { n: checkpoint.completed_count })}</span>
                   </div>
                 </div>
                 <div className="flex items-center self-center text-fg-subtle group-hover:text-accent">

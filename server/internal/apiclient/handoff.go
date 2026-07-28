@@ -131,7 +131,7 @@ type CheckpointReference struct {
 }
 
 // CheckpointRecord mirrors the canonical immutable checkpoint detail returned
-// by list/get endpoints. Server-only replay and token evidence is absent.
+// by get/resume endpoints. Server-only replay and token evidence is absent.
 type CheckpointRecord struct {
 	ID               string                `json:"id"`
 	WorkspaceID      string                `json:"workspace_id"`
@@ -152,6 +152,31 @@ type CheckpointRecord struct {
 	References       []CheckpointReference `json:"references"`
 }
 
+// CheckpointSummary is the bounded projection returned by checkpoint list
+// endpoints. Fetch a selected checkpoint to receive its complete handoff and
+// evidence references.
+type CheckpointSummary struct {
+	ID               string    `json:"id"`
+	WorkspaceID      string    `json:"workspace_id"`
+	TaskID           string    `json:"task_id"`
+	TaskKey          string    `json:"task_key"`
+	Sequence         int64     `json:"sequence"`
+	CheckpointKind   string    `json:"checkpoint_kind"`
+	Contract         string    `json:"contract"`
+	SchemaVersion    int       `json:"schema_version"`
+	BaseCheckpointID *string   `json:"base_checkpoint_id,omitempty"`
+	ScopePath        string    `json:"scope_path"`
+	Status           string    `json:"status"`
+	ProgressExcerpt  string    `json:"progress_excerpt"`
+	ProgressLength   int       `json:"progress_length"`
+	CompletedCount   int       `json:"completed_count"`
+	ReferenceCount   int       `json:"reference_count"`
+	PayloadSHA256    string    `json:"payload_sha256"`
+	ProducerAgent    string    `json:"producer_agent"`
+	ProducerSession  string    `json:"producer_session,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
 type TaskListOptions struct {
 	Scope string
 	Limit int
@@ -169,7 +194,7 @@ type CheckpointListOptions struct {
 }
 
 type CheckpointListResponse struct {
-	Checkpoints []CheckpointRecord `json:"checkpoints"`
+	Checkpoints []CheckpointSummary `json:"checkpoints"`
 }
 
 type CheckpointGetOptions struct {
@@ -321,7 +346,7 @@ func (c *Client) ListCheckpoints(
 		return nil, err
 	}
 	if response.Checkpoints == nil {
-		response.Checkpoints = []CheckpointRecord{}
+		response.Checkpoints = []CheckpointSummary{}
 	}
 	return &response, nil
 }

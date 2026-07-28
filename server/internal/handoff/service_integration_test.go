@@ -70,6 +70,7 @@ func TestHandoffPostgres(t *testing.T) {
 			"first-"+uuid.NewString(),
 			"/Work/project",
 		)
+		firstCommand.Handoff.State.Progress.Summary = strings.Repeat("界", 600)
 		first, err := service.Checkpoint(ctx, firstCommand)
 		if err != nil {
 			t.Fatal(err)
@@ -80,6 +81,22 @@ func TestHandoffPostgres(t *testing.T) {
 		}
 		if len(first.Checkpoint.References) != 3 {
 			t.Fatalf("first references = %#v", first.Checkpoint.References)
+		}
+		summaries, err := service.ListCheckpoints(ctx, ListCheckpointsQuery{
+			WorkspaceID: workspaceA,
+			TaskKey:     taskKey,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(summaries) != 1 ||
+			summaries[0].ID != first.Checkpoint.ID ||
+			summaries[0].Status != TaskStatusReady ||
+			len([]rune(summaries[0].ProgressExcerpt)) != 500 ||
+			summaries[0].ProgressLength != 600 ||
+			summaries[0].CompletedCount != 1 ||
+			summaries[0].ReferenceCount != 3 {
+			t.Fatalf("bounded checkpoint summaries = %+v", summaries)
 		}
 
 		retry := firstCommand

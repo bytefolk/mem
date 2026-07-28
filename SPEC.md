@@ -713,15 +713,38 @@ CLI 的 `--idempotency-key` 由适配器转换为 HTTP `Idempotency-Key` Header�
       after: { type: string, format: uuid }
 
 - name: mem_checkpoint_list
-  description: 按 task_key 列出不可变 checkpoint 历史
+  description: 按 task_key 列出有界的不可变 checkpoint 摘要；完整 handoff 仅由 get 返回
   input_schema:
     type: object
     properties:
       task_key: { type: string }
       scope:    { type: string }
       limit:    { type: integer, default: 50, maximum: 200 }
-      before:   { type: integer }
+      before:   { type: integer, minimum: 1 }
     required: [task_key]
+  output:
+    checkpoints:
+      - {
+          id,
+          workspace_id,
+          task_id,
+          task_key,
+          sequence,
+          checkpoint_kind,
+          contract,
+          schema_version,
+          base_checkpoint_id,
+          scope_path,
+          status,
+          progress_excerpt,
+          progress_length,
+          completed_count,
+          reference_count,
+          payload_sha256,
+          producer_agent,
+          producer_session,
+          created_at
+        }
 
 - name: mem_checkpoint_get
   description: 按 task_key 和 UUID 读取一个不可变 checkpoint

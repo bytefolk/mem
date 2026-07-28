@@ -181,8 +181,11 @@ func TestHandoffReadMethodsPreserveCanonicalPathsAndQueries(t *testing.T) {
 				"contract":"mem.handoff",
 				"schema_version":1,
 				"scope_path":"/Projects/mem",
-				"handoff":{"task_key":"task 42/phase-a"},
-				"references":[]
+				"status":"ready",
+				"progress_excerpt":"Client contract implemented",
+				"progress_length":27,
+				"completed_count":1,
+				"reference_count":0
 			}]}`)
 		case 3:
 			want := "/v1/tasks/task%2042%2Fphase-a/checkpoints/" + checkpointID
@@ -236,7 +239,9 @@ func TestHandoffReadMethodsPreserveCanonicalPathsAndQueries(t *testing.T) {
 	}
 	if len(checkpoints.Checkpoints) != 1 ||
 		checkpoints.Checkpoints[0].ID != checkpointID ||
-		checkpoints.Checkpoints[0].Handoff.TaskKey != taskKey {
+		checkpoints.Checkpoints[0].TaskKey != taskKey ||
+		checkpoints.Checkpoints[0].Status != "ready" ||
+		checkpoints.Checkpoints[0].ProgressExcerpt != "Client contract implemented" {
 		t.Fatalf("checkpoints = %+v", checkpoints)
 	}
 

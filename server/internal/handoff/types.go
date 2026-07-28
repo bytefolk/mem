@@ -167,6 +167,32 @@ type CheckpointRecord struct {
 	RequestSHA256  string `json:"-"`
 }
 
+// CheckpointSummary is the bounded list projection for immutable checkpoint
+// history. The full handoff payload and evidence references are available only
+// through GetCheckpoint or Resume, preventing a list page from amplifying up
+// to 200 large Agent payloads into one response.
+type CheckpointSummary struct {
+	ID               uuid.UUID  `json:"id"`
+	WorkspaceID      uuid.UUID  `json:"workspace_id"`
+	TaskID           uuid.UUID  `json:"task_id"`
+	TaskKey          string     `json:"task_key"`
+	Sequence         int64      `json:"sequence"`
+	CheckpointKind   string     `json:"checkpoint_kind"`
+	Contract         string     `json:"contract"`
+	SchemaVersion    int        `json:"schema_version"`
+	BaseCheckpointID *uuid.UUID `json:"base_checkpoint_id,omitempty"`
+	ScopePath        string     `json:"scope_path"`
+	Status           string     `json:"status"`
+	ProgressExcerpt  string     `json:"progress_excerpt"`
+	ProgressLength   int        `json:"progress_length"`
+	CompletedCount   int        `json:"completed_count"`
+	ReferenceCount   int        `json:"reference_count"`
+	PayloadSHA256    string     `json:"payload_sha256"`
+	ProducerAgent    string     `json:"producer_agent"`
+	ProducerSession  string     `json:"producer_session,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
 type CheckpointResult struct {
 	Checkpoint CheckpointRecord `json:"checkpoint"`
 	Replayed   bool             `json:"replayed"`
@@ -227,5 +253,5 @@ type ServicePort interface {
 	Resume(context.Context, ResumeQuery) (*ResumeSnapshot, error)
 	GetCheckpoint(context.Context, GetCheckpointQuery) (*CheckpointRecord, error)
 	ListTasks(context.Context, ListTasksQuery) ([]Task, error)
-	ListCheckpoints(context.Context, ListCheckpointsQuery) ([]CheckpointRecord, error)
+	ListCheckpoints(context.Context, ListCheckpointsQuery) ([]CheckpointSummary, error)
 }

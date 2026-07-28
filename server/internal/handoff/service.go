@@ -47,6 +47,31 @@ const checkpointColumns = `
 	c.idempotency_key,
 	c.request_sha256`
 
+const checkpointSummaryColumns = `
+	c.id,
+	c.workspace_id,
+	c.task_id,
+	t.task_key,
+	c.sequence,
+	c.checkpoint_kind,
+	c.contract_name,
+	c.schema_version,
+	c.base_checkpoint_id,
+	c.scope_path,
+	c.payload #>> '{state,status}',
+	left(c.payload #>> '{state,progress,summary}', 500),
+	char_length(c.payload #>> '{state,progress,summary}'),
+	jsonb_array_length(c.payload #> '{state,progress,completed}'),
+	(
+		SELECT count(*)::integer
+		  FROM task_checkpoint_refs r
+		 WHERE r.checkpoint_id = c.id
+	),
+	c.payload_sha256,
+	c.producer_agent,
+	c.producer_session,
+	c.created_at`
+
 // Checkpoint atomically creates or replays one checkpoint.
 //
 // The agent_tasks row is locked before checking and advancing the head, making
@@ -472,7 +497,7 @@ func (s *Service) ListTasks(
 func (s *Service) ListCheckpoints(
 	ctx context.Context,
 	q ListCheckpointsQuery,
-) ([]CheckpointRecord, error) {
+) ([]CheckpointSummary, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("handoff service is not configured")
 	}
@@ -505,7 +530,7 @@ func (s *Service) ListCheckpoints(
 	}
 	args = append(args, q.Limit)
 	rows, err := s.pool.Query(ctx, `
-		SELECT `+checkpointColumns+`
+		SELECT `+checkpointSummaryColumns+`
 		  FROM task_checkpoints c
 		  JOIN agent_tasks t ON t.id = c.task_id
 		 WHERE `+strings.Join(where, " AND ")+`
@@ -515,26 +540,16 @@ func (s *Service) ListCheckpoints(
 		return nil, fmt.Errorf("list task checkpoints: %w", err)
 	}
 	defer rows.Close()
-	out := make([]CheckpointRecord, 0, q.Limit)
+	out := make([]CheckpointSummary, 0, q.Limit)
 	for rows.Next() {
-		record, err := scanCheckpoint(rows)
+		record, err := scanCheckpointSummary(rows)
 		if err != nil {
-			return nil, fmt.Errorf("scan task checkpoint: %w", err)
+			return nil, fmt.Errorf("scan task checkpoint summary: %w", err)
 		}
 		out = append(out, record)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate task checkpoints: %w", err)
-	}
-	rows.Close()
-	// Load references only after releasing the checkpoint query connection.
-	// This keeps ListCheckpoints safe with a pool configured to one connection.
-	for i := range out {
-		refs, err := loadReferences(ctx, s.pool, out[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		out[i].References = refs
 	}
 	return out, nil
 }
@@ -744,6 +759,43 @@ func scanCheckpoint(row rowScanner) (CheckpointRecord, error) {
 	record.CreatedAt = record.CreatedAt.UTC()
 	record.References = []Reference{}
 	return record, nil
+}
+
+func scanCheckpointSummary(row rowScanner) (CheckpointSummary, error) {
+	var summary CheckpointSummary
+	err := row.Scan(
+		&summary.ID,
+		&summary.WorkspaceID,
+		&summary.TaskID,
+		&summary.TaskKey,
+		&summary.Sequence,
+		&summary.CheckpointKind,
+		&summary.Contract,
+		&summary.SchemaVersion,
+		&summary.BaseCheckpointID,
+		&summary.ScopePath,
+		&summary.Status,
+		&summary.ProgressExcerpt,
+		&summary.ProgressLength,
+		&summary.CompletedCount,
+		&summary.ReferenceCount,
+		&summary.PayloadSHA256,
+		&summary.ProducerAgent,
+		&summary.ProducerSession,
+		&summary.CreatedAt,
+	)
+	if err != nil {
+		return CheckpointSummary{}, err
+	}
+	if summary.SchemaVersion != SchemaVersionV1 {
+		return CheckpointSummary{}, fmt.Errorf(
+			"%w: stored schema_version %d",
+			ErrUnsupportedVersion,
+			summary.SchemaVersion,
+		)
+	}
+	summary.CreatedAt = summary.CreatedAt.UTC()
+	return summary, nil
 }
 
 func loadReferences(

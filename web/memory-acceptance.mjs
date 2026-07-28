@@ -67,6 +67,24 @@ async function stopProcess(child) {
   if (child.exitCode === null) child.kill('SIGKILL');
 }
 
+async function closeBrowserWithin(browser, timeoutMs = 5_000) {
+  if (!browser) return;
+  let timeout;
+  try {
+    const closed = await Promise.race([
+      browser.close().then(() => true),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+    if (!closed) {
+      console.warn(`Browser close exceeded ${timeoutMs}ms; forcing runner exit after Vite cleanup.`);
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function launchBrowser() {
   try {
     return await chromium.launch({ headless: true });
@@ -493,7 +511,7 @@ try {
     `Memory acceptance passed. Screenshots: ${artifactDir}/memory-ledger-detail.png, ${artifactDir}/memory-detail-mobile.png`,
   );
 } finally {
-  await browser?.close();
+  await closeBrowserWithin(browser);
   await stopProcess(vite.child);
 }
 

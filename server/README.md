@@ -109,7 +109,7 @@ All token-protected routes require `Authorization: Bearer <token>`.
 | `POST`   | `/v1/context`               | search | build a bounded evidence pack from `all`, `file` or `memory` sources |
 | `GET`    | `/v1/tasks`                 | read | list path-scoped portable Agent tasks |
 | `POST`   | `/v1/tasks/{task_key}/checkpoints` | write (+ read for `mem://` refs) | commit an immutable `mem.handoff` revision; requires `Idempotency-Key` |
-| `GET`    | `/v1/tasks/{task_key}/checkpoints` | read | list checkpoint history newest first |
+| `GET`    | `/v1/tasks/{task_key}/checkpoints` | read | list bounded checkpoint summaries newest first |
 | `GET`    | `/v1/tasks/{task_key}/checkpoints/{id}` | read | inspect one versioned handoff |
 | `POST`   | `/v1/tasks/{task_key}/resume` | read | restore the task head or selected checkpoint; `search` optionally enriches related context |
 | `GET`    | `/v1/workspaces/current/export` | read + admin, unrestricted path, owner/admin role | build and download a validated `.membundle` v1 archive |
@@ -146,6 +146,12 @@ to another workspace receives `403 token_workspace_forbidden`.
 uses an opaque `(created_at,id)` cursor bound to the normalized filters and the
 Token path boundary. Details add the stable `mem://memories/<id>` citation and
 public provenance.
+
+`GET /v1/tasks/{task_key}/checkpoints` likewise returns a bounded history
+projection: status, a 500-code-point progress excerpt, total progress length,
+completed/reference counts and immutable identity fields. Full handoff state
+and references are available only through the selected checkpoint detail or
+resume endpoint.
 
 Every feedback/lifecycle write requires a stable `Idempotency-Key` and the
 memory's current `state_version`. New events return `201`; an equivalent retry
@@ -190,7 +196,7 @@ evidence returns `502/context_unavailable`.
 | `mem context <query> --source all\|file\|memory` | Build a bounded evidence pack without generating an answer |
 | `mem checkpoint --input <handoff.json\|-> --idempotency-key key` | Commit an immutable portable task checkpoint |
 | `mem tasks [--scope /Projects/x]` | List resumable task summaries |
-| `mem checkpoints <task_key>` | List immutable checkpoint history for one task |
+| `mem checkpoints <task_key>` | List bounded immutable checkpoint summaries for one task |
 | `mem checkpoint get <task_key> <checkpoint_id>` | Get one immutable checkpoint and handoff payload |
 | `mem resume <task_key>` | Restore the current task head and resolved/missing references |
 | `mem workspace export --output <file.membundle>` | Export the complete current workspace without overwriting by default |

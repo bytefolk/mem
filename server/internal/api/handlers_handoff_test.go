@@ -19,16 +19,17 @@ import (
 )
 
 type handoffServiceStub struct {
-	checkpointCommand handoff.CheckpointCommand
-	resumeQuery       handoff.ResumeQuery
-	listTasksQuery    handoff.ListTasksQuery
-	checkpointResult  *handoff.CheckpointResult
-	resumeResult      *handoff.ResumeSnapshot
-	tasks             []handoff.Task
-	checkpoints       []handoff.CheckpointRecord
-	checkpoint        *handoff.CheckpointRecord
-	err               error
-	calls             int
+	checkpointCommand    handoff.CheckpointCommand
+	resumeQuery          handoff.ResumeQuery
+	listTasksQuery       handoff.ListTasksQuery
+	listCheckpointsQuery handoff.ListCheckpointsQuery
+	checkpointResult     *handoff.CheckpointResult
+	resumeResult         *handoff.ResumeSnapshot
+	tasks                []handoff.Task
+	checkpoints          []handoff.CheckpointSummary
+	checkpoint           *handoff.CheckpointRecord
+	err                  error
+	calls                int
 }
 
 func (s *handoffServiceStub) Checkpoint(
@@ -68,9 +69,10 @@ func (s *handoffServiceStub) ListTasks(
 
 func (s *handoffServiceStub) ListCheckpoints(
 	_ context.Context,
-	_ handoff.ListCheckpointsQuery,
-) ([]handoff.CheckpointRecord, error) {
+	query handoff.ListCheckpointsQuery,
+) ([]handoff.CheckpointSummary, error) {
 	s.calls++
+	s.listCheckpointsQuery = query
 	return s.checkpoints, s.err
 }
 
@@ -298,6 +300,56 @@ func TestHandleListTasksPassesPathScopeAndPagination(t *testing.T) {
 		stub.listTasksQuery.Limit != 25 ||
 		len(stub.listTasksQuery.AllowedPaths) != 1 {
 		t.Fatalf("query = %+v", stub.listTasksQuery)
+	}
+}
+
+func TestHandleListCheckpointsReturnsBoundedSummary(t *testing.T) {
+	taskKey := "portable-agent-drive"
+	checkpointID := uuid.New()
+	stub := &handoffServiceStub{checkpoints: []handoff.CheckpointSummary{{
+		ID:              checkpointID,
+		TaskKey:         taskKey,
+		Sequence:        3,
+		CheckpointKind:  handoff.CheckpointKindHandoff,
+		Status:          handoff.TaskStatusReady,
+		ProgressExcerpt: "Bounded progress",
+		ProgressLength:  900,
+		CompletedCount:  2,
+		ReferenceCount:  4,
+		PayloadSHA256:   strings.Repeat("a", 64),
+		ProducerAgent:   "codex",
+		ProducerSession: "session-3",
+		CreatedAt:       time.Now().UTC(),
+	}}}
+	server := &Server{Handoff: stub}
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/tasks/"+taskKey+"/checkpoints?scope=/Work&limit=25&before=4",
+		nil,
+	)
+	req, _, _, workspaceID := withHandoffContext(req, taskKey, []string{"/Work"})
+	rec := httptest.NewRecorder()
+
+	server.handleListCheckpoints(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if stub.listCheckpointsQuery.WorkspaceID != workspaceID ||
+		stub.listCheckpointsQuery.TaskKey != taskKey ||
+		stub.listCheckpointsQuery.Scope != "/Work" ||
+		stub.listCheckpointsQuery.Limit != 25 ||
+		stub.listCheckpointsQuery.Before == nil ||
+		*stub.listCheckpointsQuery.Before != 4 ||
+		len(stub.listCheckpointsQuery.AllowedPaths) != 1 {
+		t.Fatalf("query = %+v", stub.listCheckpointsQuery)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"progress_excerpt":"Bounded progress"`) ||
+		!strings.Contains(body, `"reference_count":4`) ||
+		strings.Contains(body, `"handoff":`) ||
+		strings.Contains(body, `"references":`) {
+		t.Fatalf("unbounded checkpoint list response: %s", body)
 	}
 }
 

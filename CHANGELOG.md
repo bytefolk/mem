@@ -42,6 +42,8 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Changed
 
+- Checkpoint history lists now return bounded summaries; full handoff payloads
+  and evidence references require an explicit checkpoint get or resume.
 - Retired the built-in ask/chat path. mem now returns evidence while the
   calling Agent owns reasoning and answer generation.
 - `mem_context` now defaults to `source=all`, so evidence may identify a
@@ -86,3 +88,5 @@ The project is not yet publishing stable semantic-versioned releases.
   output and reject them in new virtual paths.
 - Return bounded feedback/lifecycle control projections so MCP mutations
   cannot echo full untrusted memory payloads into an Agent context.
+- Prevent checkpoint-list pages from amplifying up to 200 complete handoff
+  payloads and reference arrays into one Agent context.

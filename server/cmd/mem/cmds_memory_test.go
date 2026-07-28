@@ -85,18 +85,33 @@ func TestMemoryCommandGetsScopedDetailAndEscapesText(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{
 			"id":"`+commandLifecycleMemoryID+`",
+			"workspace_id":"11111111-1111-4111-8111-111111111111",
 			"kind":"decision",
 			"content":"Use immutable checkpoints\u001b]0;spoof\u0007\nnext",
-			"attributes":{},
+			"attributes":{"priority":"high"},
 			"path":"/Projects/mem",
 			"source_type":"agent",
 			"source_ref":"agent://codex/task-42",
-			"source_locator":{},
+			"source_file_id":"22222222-2222-4222-8222-222222222222",
+			"source_locator":{"line":"42\u001b]0;locator\u0007"},
+			"producer_agent":"codex",
+			"producer_session":"session-42",
 			"content_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			"lifecycle_status":"active",
 			"state_version":3,
 			"created_at":"2026-07-28T12:00:00Z",
-			"updated_at":"2026-07-28T12:00:00Z"
+			"updated_at":"2026-07-28T12:00:00Z",
+			"citation":"mem://memories/`+commandLifecycleMemoryID+`",
+			"provenance":{
+				"workspace_id":"11111111-1111-4111-8111-111111111111",
+				"created_by_user_id":"33333333-3333-4333-8333-333333333333",
+				"source_type":"agent",
+				"source_ref":"agent://codex/task-42",
+				"source_file_id":"22222222-2222-4222-8222-222222222222",
+				"source_locator":{"line":"42\u001b]0;locator\u0007"},
+				"producer_agent":"codex",
+				"producer_session":"session-42"
+			}
 		}`)
 	}))
 	defer server.Close()
@@ -120,6 +135,15 @@ func TestMemoryCommandGetsScopedDetailAndEscapesText(t *testing.T) {
 	for _, want := range []string{
 		"memory_id",
 		commandLifecycleMemoryID,
+		"citation",
+		"mem://memories/" + commandLifecycleMemoryID,
+		"workspace_id",
+		"11111111-1111-4111-8111-111111111111",
+		"source_file_id",
+		"22222222-2222-4222-8222-222222222222",
+		"producer_agent",
+		"codex",
+		`42\u001b]0;locator\u0007`,
 		"state_version",
 		"3",
 		`Use immutable checkpoints\x1b]0;spoof\x07\x0anext`,

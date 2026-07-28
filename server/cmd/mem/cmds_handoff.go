@@ -143,7 +143,7 @@ func newCheckpointsCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "checkpoints <task-key>",
-		Short: "List immutable checkpoints for one task",
+		Short: "List bounded checkpoint summaries for one task",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			format, err := rememberOutputFormat(cmd)
@@ -431,7 +431,7 @@ func printCheckpointsText(
 			checkpoint.ID,
 			checkpoint.Sequence,
 			terminalSafe(checkpoint.CheckpointKind),
-			terminalSafe(checkpoint.Handoff.State.Status),
+			terminalSafe(checkpoint.Status),
 			terminalSafe(checkpoint.ScopePath),
 			created,
 		)

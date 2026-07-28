@@ -27,12 +27,18 @@ const (
 	memoryContent      = "MCP reaches the canonical HTTP memory service"
 	memoryPath         = "/E2E/MCP"
 	mcpTaskKey         = "mcp-e2e-read-surfaces"
-	mcpCheckpointGoal  = "Verify MCP task and checkpoint inspection through memd"
-	mcpProgressSummary = "The real PostgreSQL-backed checkpoint is ready to inspect"
+	mcpPrivateSentinel = "mcp-private-handoff-state-must-not-enter-list"
+	mcpCheckpointGoal  = "Verify MCP inspection: " + mcpPrivateSentinel
+	mcpProgressRunes   = 600
+	mcpProgressExcerpt = 500
 )
 
-var uuidPattern = regexp.MustCompile(
-	`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
+var (
+	uuidPattern = regexp.MustCompile(
+		`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
+	)
+	sha256Pattern      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	mcpProgressSummary = strings.Repeat("界", mcpProgressRunes)
 )
 
 type rpcError struct {
@@ -161,6 +167,7 @@ type checkpointSummary struct {
 	ProgressLength  int    `json:"progress_length"`
 	CompletedCount  int    `json:"completed_count"`
 	ReferenceCount  int    `json:"reference_count"`
+	PayloadSHA256   string `json:"payload_sha256"`
 	ProducerAgent   string `json:"producer_agent"`
 	ProducerSession string `json:"producer_session"`
 }
@@ -217,7 +224,13 @@ func run(mcpBinary, logPath string) error {
 	if strings.TrimSpace(logPath) == "" {
 		return errors.New("--log is required")
 	}
-	for _, name := range []string{"MEM_SERVER", "MEM_TOKEN", "MEM_WORKSPACE"} {
+	for _, name := range []string{
+		"MEM_SERVER",
+		"MEM_TOKEN",
+		"MEM_WORKSPACE",
+		"MEM_OUTSIDE_TASK_KEY",
+		"MEM_OUTSIDE_CHECKPOINT_ID",
+	} {
 		if strings.TrimSpace(os.Getenv(name)) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
@@ -668,6 +681,21 @@ func requireMemoryGet(c *mcpClient, memoryID string) error {
 	if err != nil {
 		return err
 	}
+	if err := rejectJSONLeak(
+		raw,
+		"mem_memory_get",
+		[]string{
+			"created_by_token_id",
+			"forgotten_by_token_id",
+			"idempotency_key",
+			"idempotency_key_sha256",
+			"request_sha256",
+			"replay_principal_sha256",
+		},
+		"",
+	); err != nil {
+		return err
+	}
 	var detail memoryDetail
 	if err := json.Unmarshal(raw, &detail); err != nil {
 		return fmt.Errorf("decode mem_memory_get result: %w", err)
@@ -750,7 +778,7 @@ func requireHandoffReadSurfaces(c *mcpClient) (string, error) {
 	checkpointID := created.Checkpoint.ID
 
 	raw, err = c.callTool("mem_task_list", map[string]any{
-		"scope": "/E2E",
+		"scope": "/",
 		"limit": 100,
 	})
 	if err != nil {
@@ -762,6 +790,9 @@ func requireHandoffReadSurfaces(c *mcpClient) (string, error) {
 	}
 	taskFound := false
 	for _, task := range tasks.Tasks {
+		if task.TaskKey == os.Getenv("MEM_OUTSIDE_TASK_KEY") {
+			return "", errors.New("mem_task_list exposed an out-of-token-path task")
+		}
 		if task.TaskKey != mcpTaskKey {
 			continue
 		}
@@ -789,6 +820,21 @@ func requireHandoffReadSurfaces(c *mcpClient) (string, error) {
 		"limit":    100,
 	})
 	if err != nil {
+		return "", err
+	}
+	if err := rejectJSONLeak(
+		raw,
+		"mem_checkpoint_list",
+		[]string{
+			"handoff",
+			"references",
+			"created_by_user_id",
+			"created_by_token_id",
+			"idempotency_key",
+			"request_sha256",
+		},
+		mcpPrivateSentinel,
+	); err != nil {
 		return "", err
 	}
 	var checkpoints checkpointListResult
@@ -832,6 +878,34 @@ func requireHandoffReadSurfaces(c *mcpClient) (string, error) {
 	); err != nil {
 		return "", err
 	}
+
+	outsideTaskKey := os.Getenv("MEM_OUTSIDE_TASK_KEY")
+	outsideCheckpointID := os.Getenv("MEM_OUTSIDE_CHECKPOINT_ID")
+	raw, err = c.callTool("mem_checkpoint_list", map[string]any{
+		"task_key": outsideTaskKey,
+		"scope":    "/",
+		"limit":    100,
+	})
+	if err != nil {
+		return "", fmt.Errorf("list out-of-scope checkpoints: %w", err)
+	}
+	var outsideCheckpoints checkpointListResult
+	if err := json.Unmarshal(raw, &outsideCheckpoints); err != nil {
+		return "", fmt.Errorf("decode out-of-scope checkpoint list: %w", err)
+	}
+	if len(outsideCheckpoints.Checkpoints) != 0 {
+		return "", errors.New("mem_checkpoint_list exposed out-of-token-path checkpoints")
+	}
+	if _, err := c.callTool("mem_checkpoint_get", map[string]any{
+		"task_key":      outsideTaskKey,
+		"checkpoint_id": outsideCheckpointID,
+		"scope":         "/",
+	}); err == nil || !strings.Contains(err.Error(), "not_found") {
+		return "", fmt.Errorf(
+			"out-of-token-path mem_checkpoint_get error = %v, want not_found",
+			err,
+		)
+	}
 	return checkpointID, nil
 }
 
@@ -849,10 +923,11 @@ func requireCheckpointSummary(
 		checkpoint.SchemaVersion != 1 ||
 		checkpoint.ScopePath != memoryPath ||
 		checkpoint.Status != "ready" ||
-		checkpoint.ProgressExcerpt != mcpProgressSummary ||
-		checkpoint.ProgressLength != len([]rune(mcpProgressSummary)) ||
+		checkpoint.ProgressExcerpt != strings.Repeat("界", mcpProgressExcerpt) ||
+		checkpoint.ProgressLength != mcpProgressRunes ||
 		checkpoint.CompletedCount != 1 ||
 		checkpoint.ReferenceCount != 0 ||
+		!sha256Pattern.MatchString(checkpoint.PayloadSHA256) ||
 		checkpoint.ProducerAgent != "mcp-e2e" ||
 		checkpoint.ProducerSession != "mcp-e2e-read-session" {
 		return fmt.Errorf(
@@ -874,6 +949,48 @@ func requireCheckpointSummary(
 		)
 	}
 	return nil
+}
+
+func rejectJSONLeak(
+	raw json.RawMessage,
+	label string,
+	forbiddenKeys []string,
+	forbiddenText string,
+) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return fmt.Errorf("decode %s leak check: %w", label, err)
+	}
+	keys := make(map[string]struct{}, len(forbiddenKeys))
+	for _, key := range forbiddenKeys {
+		keys[key] = struct{}{}
+	}
+	var walk func(any) error
+	walk = func(current any) error {
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if _, forbidden := keys[key]; forbidden {
+					return fmt.Errorf("%s exposed forbidden key %q", label, key)
+				}
+				if err := walk(child); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if err := walk(child); err != nil {
+					return err
+				}
+			}
+		case string:
+			if forbiddenText != "" && strings.Contains(typed, forbiddenText) {
+				return fmt.Errorf("%s exposed forbidden private text", label)
+			}
+		}
+		return nil
+	}
+	return walk(value)
 }
 
 func requireCheckpointRecord(
