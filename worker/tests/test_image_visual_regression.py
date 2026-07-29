@@ -34,9 +34,13 @@ class FakeVLM:
 
 
 class FailingVLM(FakeVLM):
+    def __init__(self, error: Exception):
+        super().__init__()
+        self.error = error
+
     def caption(self, image: bytes, **_kwargs) -> str:
         self.calls.append(image)
-        raise RuntimeError("caption backend unavailable")
+        raise self.error
 
 
 class FakeVisualProvider:
@@ -131,15 +135,23 @@ def test_image_processor_sends_original_bytes_to_image_tower():
     assert visual.rows[0].metadata == {"source": "image"}
 
 
-def test_image_tower_remains_available_when_captioning_fails():
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(ProviderError("provider secret must not persist"), id="provider-error"),
+        pytest.param(NotImplementedError("vlm is not implemented"), id="not-implemented"),
+        pytest.param(RuntimeError("caption backend unavailable"), id="unexpected-error"),
+    ],
+)
+def test_image_tower_remains_available_when_captioning_fails(failure: Exception):
     raw = _png_bytes()
     provider = FakeVisualProvider()
 
-    result = ImageProcessor(vlm=FailingVLM(), embedder=provider).process(_file(raw))
+    result = ImageProcessor(vlm=FailingVLM(failure), embedder=provider).process(_file(raw))
 
     assert result.caption is None
     assert result.metadata["vlm_error"] == "provider_unavailable"
-    assert "caption backend unavailable" not in repr(result.metadata)
+    assert str(failure) not in repr(result.metadata)
     assert provider.image_calls == [[raw]]
     assert result.embeddings["visual"].rows[0].metadata == {"source": "image"}
 

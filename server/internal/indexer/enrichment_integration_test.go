@@ -371,7 +371,7 @@ func TestIndexerEnrichmentIntegration(t *testing.T) {
 	incompleteSet := []byte(`{
 		"annotations_complete":false,
 		"annotations":[
-			{"kind":"description","value":"A city photo","confidence":0.93,"source":"model","provider":"fake:vlm-v4","processor":"image","analysis_version":"file-enrichment-v2"},
+			{"kind":"description","value":"A newer partial city photo","confidence":0.93,"source":"model","provider":"fake:vlm-v4","processor":"image","analysis_version":"file-enrichment-v2"},
 			{"kind":"tag","value":"partial-only","confidence":0.61,"source":"model","provider":"fake:vlm-v4","processor":"image","analysis_version":"file-enrichment-v2"}
 		]
 	}`)
@@ -383,6 +383,21 @@ func TestIndexerEnrichmentIntegration(t *testing.T) {
 		t.Fatalf("persist incomplete suggestion set: %v", err)
 	}
 	assertRevivedStatus("pending", 3)
+	var incompleteCaption *string
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT caption FROM files WHERE id = $1
+	`, fileID).Scan(&incompleteCaption); err != nil {
+		t.Fatalf("load incomplete-set caption projection: %v", err)
+	}
+	if incompleteCaption == nil {
+		t.Fatal("incomplete-set caption is nil, want newest pending description")
+	}
+	if *incompleteCaption != "A newer partial city photo" {
+		t.Fatalf(
+			"incomplete-set caption = %q, want newest pending description",
+			*incompleteCaption,
+		)
+	}
 	var (
 		partialOnlyStatus  string
 		partialOnlyVersion int64

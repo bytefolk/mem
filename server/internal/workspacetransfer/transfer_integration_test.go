@@ -163,7 +163,7 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 	// Historical v1 archives remain importable into a live current-schema
 	// database. They promote legacy tags to user provenance, but never invent
 	// v2 source/review provenance or project an unreviewed legacy summary.
-	legacyBundle := historicalV1Bundle(t, bundle.Bytes())
+	legacyBundle := historicalV1Bundle(t, bundle.Bytes(), fixture.fileID)
 	legacyStore := newFakeObjectStore()
 	legacyService := New(database.Pool, legacyStore, Options{
 		Exporter:        "memd-test",
@@ -188,6 +188,7 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		legacyUserTags      []string
 		legacySource        []byte
 		legacySummary       *string
+		legacyCaption       *string
 		legacyIndexStatus   string
 		legacyAnnotations   int
 	)
@@ -199,13 +200,14 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		t.Fatalf("load historical v1 import ledger: %v", err)
 	}
 	if err := database.Pool.QueryRow(ctx, `
-		SELECT user_tags, source_metadata, summary, index_status
+		SELECT user_tags, source_metadata, summary, caption, index_status
 		  FROM files
 		 WHERE id = $1 AND user_id = $2
 	`, fixture.fileID, legacyUser).Scan(
 		&legacyUserTags,
 		&legacySource,
 		&legacySummary,
+		&legacyCaption,
 		&legacyIndexStatus,
 	); err != nil {
 		t.Fatalf("load historical v1 imported file: %v", err)
@@ -221,15 +223,18 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		!slices.Equal(legacyUserTags, []string{"agent", "reviewed"}) ||
 		string(legacySource) != "{}" ||
 		legacySummary != nil ||
+		legacyCaption == nil ||
+		*legacyCaption != "historical visual caption" ||
 		legacyIndexStatus != "pending" ||
 		legacyAnnotations != 0 ||
 		len(legacyStore.puts) != 2 {
 		t.Fatalf(
-			"historical v1 state schema=%d tags=%v source=%s summary=%v status=%s annotations=%d puts=%v",
+			"historical v1 state schema=%d tags=%v source=%s summary=%v caption=%v status=%s annotations=%d puts=%v",
 			legacySchemaVersion,
 			legacyUserTags,
 			legacySource,
 			legacySummary,
+			legacyCaption,
 			legacyIndexStatus,
 			legacyAnnotations,
 			legacyStore.puts,
@@ -462,7 +467,7 @@ type transferZIPEntry struct {
 	data   []byte
 }
 
-func historicalV1Bundle(t *testing.T, raw []byte) []byte {
+func historicalV1Bundle(t *testing.T, raw []byte, captionFileID uuid.UUID) []byte {
 	t.Helper()
 	reader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
@@ -516,6 +521,9 @@ func historicalV1Bundle(t *testing.T, raw []byte) []byte {
 				delete(record, "geo")
 				delete(record, "source_metadata")
 				delete(record, "annotations")
+				if record["id"] == captionFileID.String() {
+					record["caption"] = " \u00a0historical visual caption\u3000 "
+				}
 				lines[lineIndex], err = json.Marshal(record)
 				if err != nil {
 					t.Fatalf("encode historical v1 file record: %v", err)

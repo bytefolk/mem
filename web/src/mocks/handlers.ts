@@ -1121,7 +1121,19 @@ export const handlers = [
       .filter((candidate) => candidate.kind === 'description' && candidate.status === 'accepted')
       .sort((a, b) => (a.decided_at ?? a.updated_at).localeCompare(b.decided_at ?? b.updated_at))
       .at(-1);
-    if (acceptedDescription) file.summary = acceptedDescription.value_text;
+    if (acceptedDescription) {
+      file.summary = acceptedDescription.value_text;
+    } else if (
+      file.summary !== null &&
+      file.annotations.some(
+        (candidate) =>
+          candidate.kind === 'description' &&
+          (candidate.status === 'rejected' || candidate.status === 'superseded') &&
+          candidate.value_text === file.summary,
+      )
+    ) {
+      file.summary = null;
+    }
     const pendingDescription = file.annotations
       .filter((candidate) => candidate.kind === 'description' && candidate.status === 'pending')
       .sort((a, b) => a.updated_at.localeCompare(b.updated_at))

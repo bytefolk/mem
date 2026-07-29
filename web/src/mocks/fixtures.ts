@@ -407,6 +407,53 @@ function buildDataset(): MemFile[] {
   };
   files.unshift(hero);
 
+  const rejectedDescriptionValue = 'Legacy model description to reject.';
+  files.unshift({
+    id: 'reject-description-enrichment-e2e',
+    user_id: 'user-1',
+    name: 'legacy-description.txt',
+    path: '/legacy-description.txt',
+    size: 35,
+    sha256: 'b'.repeat(64),
+    mime: 'text/plain',
+    storage_key: 's3://mem/mock/reject-description',
+    summary: rejectedDescriptionValue,
+    caption: rejectedDescriptionValue,
+    tags: [],
+    user_tags: [],
+    timeline_at: '2026-07-29T08:00:00Z',
+    geo: null,
+    source_metadata: { source_kind: 'web' },
+    processor_metadata: { processor: 'text', status: 'ok' },
+    annotations: [
+      {
+        id: 'a7777777-7777-4777-8777-777777777777',
+        file_id: 'reject-description-enrichment-e2e',
+        stable_key: 'description:legacy-rejection',
+        kind: 'description',
+        value_text: rejectedDescriptionValue,
+        confidence: 0.8,
+        source: 'model',
+        provider: 'mock-llm',
+        processor: 'text',
+        analysis_version: 'text-enrichment-v1',
+        status: 'pending',
+        state_version: 1,
+        created_at: '2026-07-29T08:00:00Z',
+        updated_at: '2026-07-29T08:00:00Z',
+      },
+    ],
+    annotations_truncated: false,
+    index_status: 'done',
+    created_at: '2026-07-29T08:00:00Z',
+    updated_at: '2026-07-29T08:00:00Z',
+    kind: 'text',
+    preview_url: null,
+    thumbnail_url: null,
+    download_url: null,
+    entities: [],
+  });
+
   // Make root-level files have stable root paths (we wrote "" + "/x" above).
   for (const f of files) {
     if (f.path.startsWith('//')) f.path = f.path.slice(1);

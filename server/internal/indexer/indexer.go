@@ -601,6 +601,8 @@ func parseWorkerEnrichment(resp *workerpb.ProcessResponse) workerEnrichment {
 						2000,
 					); ok {
 						result.Caption = &caption
+						result.CaptionSet = true
+						result.CaptionFromReview = true
 					}
 					break
 				}

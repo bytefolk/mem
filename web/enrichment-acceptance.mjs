@@ -14,9 +14,14 @@ const fileID = 'hero-2012-yunnan-xiaoming';
 const descriptionID = 'a1111111-1111-4111-8111-111111111111';
 const rejectTagID = 'a2222222-2222-4222-8222-222222222222';
 const conflictTagID = 'a3333333-3333-4333-8333-333333333333';
+const rejectedDescriptionFileID = 'reject-description-enrichment-e2e';
+const rejectedDescriptionID = 'a7777777-7777-4777-8777-777777777777';
+const rejectedDescription = 'Legacy model description to reject.';
 const description = '朋友们在大理洱海边留下的一张夏日合影。';
 const rejectedTag = '洱海';
 const conflictTag = '人物合影';
+const offlineFileID = 'offline-enrichment-e2e';
+const offlineDetailAPIPath = `/v1/files/${offlineFileID}`;
 
 function startVite() {
   const vite = path.join(webRoot, 'node_modules', 'vite', 'bin', 'vite.js');
@@ -125,9 +130,21 @@ try {
   page.setDefaultNavigationTimeout(15_000);
   const pageErrors = [];
   const consoleErrors = [];
+  const offlineRequestFailures = [];
+  let browserPhase = 'normal';
   page.on('pageerror', (error) => pageErrors.push(error.message));
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
+    if (message.type() === 'error') {
+      consoleErrors.push({ message: message.text(), phase: browserPhase });
+    }
+  });
+  page.on('requestfailed', (request) => {
+    if (browserPhase === 'offline-detail') {
+      offlineRequestFailures.push({
+        error: request.failure()?.errorText ?? '',
+        url: request.url(),
+      });
+    }
   });
 
   await page.goto(`${baseURL}/files/${fileID}`, { waitUntil: 'domcontentloaded' });
@@ -188,9 +205,7 @@ try {
     'accepted description must render once in the effective projection',
   );
   assert.equal(
-    await page
-      .locator('[aria-label="Raw AI observation (unconfirmed)"]')
-      .count(),
+    await page.locator('[aria-label="Raw AI observation (unconfirmed)"]').count(),
     0,
     'accepted description must not also render as an unconfirmed caption',
   );
@@ -235,6 +250,30 @@ try {
   await page.getByTestId(`annotation-${conflictTagID}`).waitFor({ state: 'detached' });
   await effectiveValues.getByText(conflictTag, { exact: true }).waitFor();
   console.log('✓ 409 conflict refetches current state and shows a visible toast');
+
+  await page.goto(`${baseURL}/files/${rejectedDescriptionFileID}`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page
+    .getByRole('button', {
+      name: `Reject suggestion: ${rejectedDescription}`,
+      exact: true,
+    })
+    .click();
+  await page.getByTestId(`annotation-${rejectedDescriptionID}`).waitFor({ state: 'detached' });
+  const rejectedDescriptionDetail = await readJSON(page, `/v1/files/${rejectedDescriptionFileID}`);
+  assert.equal(rejectedDescriptionDetail.status, 200);
+  assert.equal(rejectedDescriptionDetail.body.summary, null);
+  assert.equal(rejectedDescriptionDetail.body.caption, null);
+  assert.equal(
+    rejectedDescriptionDetail.body.annotations.find(
+      (annotation) => annotation.id === rejectedDescriptionID,
+    )?.status,
+    'rejected',
+  );
+  assert.equal(await page.locator('[aria-label="Legacy AI summary (unreviewed)"]').count(), 0);
+  assert.equal(await page.locator('[aria-label="Raw AI observation (unconfirmed)"]').count(), 0);
+  console.log('✓ rejecting a legacy description removes every visible projection');
 
   await page.goto(`${baseURL}/drive`, { waitUntil: 'domcontentloaded' });
   await page.locator('input[type="file"]').setInputFiles({
@@ -327,7 +366,8 @@ try {
   assert.deepEqual(emptyDetail.body.annotations, []);
   console.log('✓ a completed empty enrichment is distinct from processing and failure');
 
-  await page.goto(`${baseURL}/files/offline-enrichment-e2e`, {
+  browserPhase = 'offline-detail';
+  await page.goto(`${baseURL}/files/${offlineFileID}`, {
     waitUntil: 'domcontentloaded',
   });
   await page.getByText('Could not load file', { exact: true }).waitFor();
@@ -339,17 +379,37 @@ try {
   assert.equal(await page.getByText('No suggestions awaiting review', { exact: true }).count(), 0);
   console.log('✓ an offline detail request is visible and never rendered as an empty result');
 
+  const expectedOfflineRequestFailures = offlineRequestFailures.filter(
+    (failure) => new URL(failure.url).pathname === offlineDetailAPIPath,
+  );
+  assert.ok(
+    expectedOfflineRequestFailures.length > 0,
+    `expected ${offlineDetailAPIPath} to fail while exercising the offline state`,
+  );
+  assert.deepEqual(
+    offlineRequestFailures.filter(
+      (failure) => new URL(failure.url).pathname !== offlineDetailAPIPath,
+    ),
+    [],
+    `unexpected offline-phase request failures: ${JSON.stringify(offlineRequestFailures)}`,
+  );
   const unexpectedConsoleErrors = consoleErrors.filter(
-    (message) =>
+    ({ message, phase }) =>
       !message.includes('server responded with a status of 409 (Conflict)') &&
       !message.includes('server responded with a status of 400 (Bad Request)') &&
-      !message.includes('net::ERR_FAILED'),
+      !(
+        phase === 'offline-detail' &&
+        expectedOfflineRequestFailures.length > 0 &&
+        message.includes('net::ERR_FAILED')
+      ),
   );
   assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('\n')}`);
   assert.deepEqual(
     unexpectedConsoleErrors,
     [],
-    `console errors: ${unexpectedConsoleErrors.join('\n')}`,
+    `console errors: ${unexpectedConsoleErrors
+      .map(({ message, phase }) => `[${phase}] ${message}`)
+      .join('\n')}`,
   );
   console.log(`✓ browser completed without errors; artifacts: ${artifactDir}`);
 } catch (error) {
