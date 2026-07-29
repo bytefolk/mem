@@ -106,9 +106,9 @@ The project is not yet publishing stable semantic-versioned releases.
 - Fail closed for SaaS entitlement readiness and prevent provider fallback,
   duplicate charging, or raw upstream error leakage after timeout and
   indeterminate outcomes.
-- Reject hidden-reasoning wrappers, nested JSON-like model values, raw
-  provider errors, and malformed processor facts at Worker, server, database,
-  and workspace-bundle boundaries.
+- Reject hidden-reasoning wrappers and nested JSON-like model values across
+  Worker, server, database, and workspace-bundle boundaries; keep raw provider
+  errors and malformed processor facts out of persistence, APIs, and bundles.
 - Remove accepted model tags from the legacy effective projection before an
   enrichment downgrade, preventing a later re-up from reclassifying them as
   user-authored tags.

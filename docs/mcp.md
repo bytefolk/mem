@@ -114,7 +114,7 @@ Agents use the single non-overlapping MCP mutation tool:
 
 Both adapters call the canonical
 `PUT /v1/files/{fileID}/annotations/{annotationID}` endpoint. The server
-enforces token write permission, workspace/path scope, and optimistic
+enforces token `read + write` permission, workspace/path scope, and optimistic
 concurrency. Repeating the same terminal decision succeeds with
 `replayed=true`; an opposite decision returns
 `409 annotation_decision_conflict`, while a stale pending version returns
@@ -412,6 +412,7 @@ Permission rules are enforced by memd, not by MCP arguments:
 
 - `mem_remember` requires `write`; linking `source_file_id` also requires `read`.
 - `mem_memory_list` and `mem_memory_get` require `read`.
+- `mem_file_annotation_decide` requires `read + write`.
 - `mem_feedback`, `mem_archive` and `mem_restore` require `read + write`.
 - `mem_forget` requires `delete` plus a workspace role that permits deletion.
 - `mem_checkpoint` requires `write`; referenced `mem://` evidence also requires
