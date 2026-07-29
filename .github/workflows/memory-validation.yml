@@ -79,7 +79,7 @@ jobs:
         run: make test-agent-certification
 
   web-acceptance:
-    name: Web memory and transfer acceptance
+    name: Web enrichment, memory and transfer acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
