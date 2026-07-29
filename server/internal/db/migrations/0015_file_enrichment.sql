@@ -67,6 +67,15 @@ UPDATE files
         )) LIKE 'reasoning:%'
    );
 
+-- Canonicalize safe legacy values before enforcing the persistence boundary.
+-- This keeps the stored value itself bounded, not only its trimmed projection.
+UPDATE files
+   SET caption = btrim(
+       caption,
+       U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+   )
+ WHERE caption IS NOT NULL;
+
 UPDATE files
    SET summary = NULL
  WHERE summary IS NOT NULL
@@ -107,6 +116,13 @@ UPDATE files
         )) LIKE 'reasoning:%'
    );
 
+UPDATE files
+   SET summary = btrim(
+       summary,
+       U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+   )
+ WHERE summary IS NOT NULL;
+
 ALTER TABLE files
     DROP CONSTRAINT IF EXISTS files_source_metadata_object,
     ADD CONSTRAINT files_source_metadata_object
@@ -119,10 +135,11 @@ ALTER TABLE files
         CHECK (
             caption IS NULL
             OR (
-                char_length(btrim(
+                caption = btrim(
                     caption,
                     U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
-                )) BETWEEN 1 AND 2000
+                )
+                AND char_length(caption) BETWEEN 1 AND 2000
                 AND caption !~ '[[:cntrl:]]'
                 AND NOT mem_model_text_has_non_display_character(caption)
                 AND left(ltrim(
@@ -156,10 +173,11 @@ ALTER TABLE files
         CHECK (
             summary IS NULL
             OR (
-                char_length(btrim(
+                summary = btrim(
                     summary,
                     U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
-                )) BETWEEN 1 AND 2000
+                )
+                AND char_length(summary) BETWEEN 1 AND 2000
                 AND summary !~ '[[:cntrl:]]'
                 AND NOT mem_model_text_has_non_display_character(summary)
                 AND left(ltrim(

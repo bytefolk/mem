@@ -278,12 +278,13 @@ SELECT summary, caption
 	); err != nil {
 		return fmt.Errorf("load trimmed-limit legacy text: %w", err)
 	}
-	if len([]rune(strings.TrimSpace(limitSummary))) != 2000 ||
-		len([]rune(strings.TrimSpace(limitCaption))) != 2000 {
+	wantSummary := strings.Repeat("s", 2000)
+	wantCaption := strings.Repeat("c", 2000)
+	if limitSummary != wantSummary || limitCaption != wantCaption {
 		return fmt.Errorf(
-			"trimmed-limit legacy text was not preserved: summary=%d caption=%d",
-			len([]rune(strings.TrimSpace(limitSummary))),
-			len([]rune(strings.TrimSpace(limitCaption))),
+			"trimmed-limit legacy text was not canonicalized: summary=%d caption=%d",
+			len([]rune(limitSummary)),
+			len([]rune(limitCaption)),
 		)
 	}
 
@@ -329,6 +330,16 @@ SELECT COALESCE(bool_or(mem_model_text_has_non_display_character(value)), false)
 		query string
 		args  []any
 	}{
+		{
+			name:  "caption non-canonical outer whitespace",
+			query: `UPDATE files SET caption = $1 WHERE id = $2`,
+			args:  []any{" caption ", migrationTrimmedLimitID},
+		},
+		{
+			name:  "summary non-canonical outer Unicode whitespace",
+			query: `UPDATE files SET summary = $1 WHERE id = $2`,
+			args:  []any{"\u3000summary\u00a0", migrationTrimmedLimitID},
+		},
 		{
 			name:  "caption reasoning opener",
 			query: `UPDATE files SET caption = $1 WHERE id = $2`,
