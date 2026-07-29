@@ -15,8 +15,9 @@ boot without Ollama running (gRPC HealthCheck still answers).
 from __future__ import annotations
 
 import io
+import math
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 from PIL import ExifTags, Image
 
@@ -28,6 +29,13 @@ from ..providers import (
     VLMProvider,
     get_embedding_provider,
     get_vlm_provider,
+)
+from .annotations import (
+    IMAGE_ANNOTATION_PROMPT,
+    description_value,
+    plain_description,
+    structured_annotations,
+    tag_values,
 )
 from .base import EmbeddingRow, EmbeddingSet, Entity, FileRef, ProcessResult
 
@@ -53,8 +61,8 @@ class ImageProcessor:
 
     def __init__(
         self,
-        vlm: Optional[VLMProvider] = None,
-        embedder: Optional[EmbeddingProvider] = None,
+        vlm: VLMProvider | None = None,
+        embedder: EmbeddingProvider | None = None,
     ):
         # Allow dependency injection (mostly for tests). In production
         # these are resolved lazily on first process() to avoid touching
@@ -71,9 +79,7 @@ class ImageProcessor:
 
     def _resolve_embedder(self) -> EmbeddingProvider:
         if self._embedder is None:
-            self._embedder = get_embedding_provider(
-                get_settings().default_visual_embedding
-            )
+            self._embedder = get_embedding_provider(get_settings().default_visual_embedding)
         return self._embedder
 
     # ---- main entrypoint ----
@@ -114,12 +120,33 @@ class ImageProcessor:
                     )
                 )
 
-        # 2. VLM caption (degrades to "" on provider error so we still
-        #    return *something*; the pipeline status will mark as PARTIAL).
+        # 2. VLM caption + annotation suggestions in one call. Legacy VLMs
+        # that return an ordinary caption instead of the requested JSON remain
+        # compatible; malformed JSON-like output is never persisted verbatim.
         caption = ""
         try:
             vlm = self._resolve_vlm()
-            caption = vlm.caption(file.data)
+            model_output = vlm.caption(file.data, prompt=IMAGE_ANNOTATION_PROMPT)
+            suggestions = structured_annotations(
+                model_output,
+                provider=getattr(vlm, "name", ""),
+            )
+            if suggestions is not None:
+                result.annotations = suggestions
+                result.annotations_complete = True
+                caption = description_value(suggestions) or ""
+                result.tags = tag_values(suggestions)
+            else:
+                fallback = plain_description(
+                    model_output,
+                    provider=getattr(vlm, "name", ""),
+                )
+                if fallback is not None:
+                    result.annotations = [fallback]
+                    result.annotations_complete = True
+                    caption = fallback.value
+                else:
+                    result.metadata["annotation_parse_error"] = "invalid structured model output"
         except (ProviderError, NotImplementedError) as exc:
             log.warning("image.vlm_failed", file_id=file.file_id, error=str(exc))
             result.metadata["vlm_error"] = str(exc)
@@ -140,7 +167,7 @@ class ImageProcessor:
         # encoding; otherwise fall back to caption-text-embedding (W1 path).
         try:
             embedder = self._resolve_embedder()
-            vec: Optional[list[float]] = None
+            vec: list[float] | None = None
             src = "image"
             embed_image = getattr(embedder, "embed_image", None)
             if callable(embed_image):
@@ -230,12 +257,14 @@ class ImageProcessor:
                 # Add one person entity per face — the indexer-side clusterer
                 # will reduce these to canonical clusters.
                 for d in detections:
-                    result.entities.append(Entity(
-                        type="person",
-                        name="",
-                        metadata={"bbox": d.bbox, "source": "insightface"},
-                        confidence=d.confidence,
-                    ))
+                    result.entities.append(
+                        Entity(
+                            type="person",
+                            name="",
+                            metadata={"bbox": d.bbox, "source": "insightface"},
+                            confidence=d.confidence,
+                        )
+                    )
         except RuntimeError as exc:
             # insightface missing or model load failed — log and continue.
             log.warning("image.face_skipped", file_id=file.file_id, error=str(exc))
@@ -250,6 +279,7 @@ class ImageProcessor:
 # EXIF helpers
 # ---------------------------------------------------------------------------
 
+
 def _extract_exif(img: Image.Image) -> dict[str, Any]:
     """Pull common EXIF fields into a JSON-safe dict."""
     out: dict[str, Any] = {}
@@ -260,21 +290,42 @@ def _extract_exif(img: Image.Image) -> dict[str, Any]:
     if not raw:
         return out
 
+    # Pillow exposes camera fields at the top level and capture fields in the
+    # EXIF sub-IFD depending on the image/encoder. Merge both views so a real
+    # DateTimeOriginal + OffsetTimeOriginal pair is not missed.
+    fields = dict(raw.items())
+    try:
+        fields.update(raw.get_ifd(ExifTags.IFD.Exif))
+    except (AttributeError, KeyError):
+        pass
+
     # Top-level EXIF tags
-    for tag_id, val in raw.items():
+    for tag_id, val in fields.items():
         name = ExifTags.TAGS.get(tag_id)
         if not name:
             continue
-        if name == "DateTimeOriginal" or name == "DateTime":
-            ts = _parse_exif_dt(val)
-            if ts:
-                out.setdefault("timeline_at", ts.isoformat())
-        elif name == "Make":
+        if name == "Make":
             out["camera_make"] = str(val).strip()
         elif name == "Model":
             out["camera_model"] = str(val).strip()
         elif name == "Orientation":
             out["orientation"] = int(val) if isinstance(val, int) else val
+
+    # Prefer the original capture instant, then digitized, then generic image
+    # datetime. When the matching offset tag is absent, retain the timestamp
+    # as naive; the Go indexer marks it timezone-unknown and never assumes UTC.
+    for datetime_name, offset_name in (
+        ("DateTimeOriginal", "OffsetTimeOriginal"),
+        ("DateTimeDigitized", "OffsetTimeDigitized"),
+        ("DateTime", "OffsetTime"),
+    ):
+        value = fields.get(_EXIF_NAMES.get(datetime_name))
+        if value is None:
+            continue
+        ts = _parse_exif_dt(value, fields.get(_EXIF_NAMES.get(offset_name)))
+        if ts:
+            out["timeline_at"] = ts.isoformat()
+            break
 
     # GPS sub-IFD
     try:
@@ -289,33 +340,73 @@ def _extract_exif(img: Image.Image) -> dict[str, Any]:
     return out
 
 
-def _parse_exif_dt(val: Any) -> Optional[datetime]:
-    """EXIF datetime: ``"YYYY:MM:DD HH:MM:SS"``."""
+def _parse_exif_dt(val: Any, offset: Any = None) -> datetime | None:
+    """Parse an EXIF datetime and its optional ``±HH:MM`` offset tag."""
     if not isinstance(val, str):
         return None
     try:
-        return datetime.strptime(val.strip(), "%Y:%m:%d %H:%M:%S")
+        naive = datetime.strptime(val.strip(), "%Y:%m:%d %H:%M:%S")
+    except ValueError:
+        return None
+    if offset is None:
+        return naive
+    if not isinstance(offset, str):
+        return None
+    try:
+        return datetime.strptime(
+            f"{val.strip()}{offset.strip()}",
+            "%Y:%m:%d %H:%M:%S%z",
+        )
     except ValueError:
         return None
 
 
-def _parse_gps(gps_ifd: dict) -> tuple[Optional[float], Optional[float]]:
-    def _to_deg(rationals) -> Optional[float]:
+def _parse_gps(gps_ifd: dict) -> tuple[float | None, float | None]:
+    def _to_deg(rationals: Any, max_degrees: float) -> float | None:
         try:
             d, m, s = rationals
-            return float(d) + float(m) / 60.0 + float(s) / 3600.0
-        except (TypeError, ValueError):
+            degrees, minutes, seconds = float(d), float(m), float(s)
+        except (TypeError, ValueError, ArithmeticError):
             return None
+        if not all(math.isfinite(value) for value in (degrees, minutes, seconds)):
+            return None
+        if (
+            degrees < 0
+            or degrees > max_degrees
+            or minutes < 0
+            or minutes >= 60
+            or seconds < 0
+            or seconds >= 60
+            or (degrees == max_degrees and (minutes != 0 or seconds != 0))
+        ):
+            return None
+        return degrees + minutes / 60.0 + seconds / 3600.0
 
-    lat_ref = gps_ifd.get(_GPS_NAMES.get("GPSLatitudeRef", 1), "N")
+    def _hemisphere(value: Any, allowed: set[str]) -> str | None:
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().upper()
+        return normalized if normalized in allowed else None
+
+    lat_ref = _hemisphere(
+        gps_ifd.get(_GPS_NAMES.get("GPSLatitudeRef", 1)),
+        {"N", "S"},
+    )
     lat_raw = gps_ifd.get(_GPS_NAMES.get("GPSLatitude", 2))
-    lng_ref = gps_ifd.get(_GPS_NAMES.get("GPSLongitudeRef", 3), "E")
+    lng_ref = _hemisphere(
+        gps_ifd.get(_GPS_NAMES.get("GPSLongitudeRef", 3)),
+        {"E", "W"},
+    )
     lng_raw = gps_ifd.get(_GPS_NAMES.get("GPSLongitude", 4))
+    if lat_ref is None or lng_ref is None:
+        return None, None
 
-    lat = _to_deg(lat_raw) if lat_raw else None
-    lng = _to_deg(lng_raw) if lng_raw else None
-    if lat is not None and isinstance(lat_ref, str) and lat_ref.upper() == "S":
+    lat = _to_deg(lat_raw, 90)
+    lng = _to_deg(lng_raw, 180)
+    if lat is None or lng is None:
+        return None, None
+    if lat_ref == "S":
         lat = -lat
-    if lng is not None and isinstance(lng_ref, str) and lng_ref.upper() == "W":
+    if lng_ref == "W":
         lng = -lng
     return lat, lng

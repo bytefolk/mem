@@ -72,7 +72,7 @@ make test-race
 - `go build ./...`, `go vet ./...` and uncached `go test ./...`;
 - Worker `pytest` through the locked `uv` environment;
 - Web typecheck, ESLint, production build;
-- the Memory and Workspace Transfer browser acceptance suites.
+- the File Enrichment, Memory, and Workspace Transfer browser acceptance suites.
 
 `make test-race` executes the high-risk Go file/folder path-locking, memory,
 handoff, transfer, API, client, tool, CLI, and MCP packages with the race
@@ -138,7 +138,8 @@ marker before it can drop anything. The control role therefore needs
 
 1. validates migrations on a fresh owned database and applies `0001` through
    the declared head;
-2. asserts the current privacy schema, performs the explicit `14 → 11 → 14`
+2. asserts the current privacy, enrichment and managed-entitlement schema,
+   performs the explicit `15 → 11 → 15`
    rollback round trip, and asserts both intermediate schema states;
 3. creates separate fresh databases for normal and race runs, then executes
    the real PostgreSQL memory, handoff, workspace-transfer, HTTP-router,
@@ -155,12 +156,14 @@ Required tests:
 - `TestMemoryPathLifecycleIntegration`
 - `TestWorkspacePathLockingIntegration`
 - `TestFilePathLockingIntegration`
+- `TestAnnotationDecisionIntegration`
+- `TestIndexerEnrichmentIntegration`
 - `TestRecomputePerson`
 - `TestManagedEmbeddingEntitlementPostgres`
 - `TestManagedSearchReplayPostgres`
 - `TestManagedEmbeddingHTTPAuthorizationPostgres`
 
-Expected result: migrations reach the declared current head (currently `14`),
+Expected result: migrations reach the declared current head (currently `15`),
 both rollback-state assertions pass, every named test prints `PASS`, all
 commands exit `0`, and the race run reports no data race.
 
@@ -277,10 +280,10 @@ Use this table in pull requests and add implementation-specific scenarios:
 | --- | --- | --- | --- |
 | V1 | Server, CLI and MCP build and preserve unit contracts | `make test-server` | Exit `0`; no skipped DB claim |
 | V2 | Worker processing regressions remain hermetic | `make test-worker` | Exit `0`; real-model gate explicitly skipped |
-| V3 | Memory, transfer and managed-embedding control surfaces work in a browser | `make test-web` | Typecheck/lint/build, both browser acceptance suites and managed status mapping pass |
+| V3 | Enrichment, memory, transfer and managed-embedding control surfaces work in a browser | `make test-web` | Typecheck/lint/build, all three browser acceptance suites and managed status mapping pass |
 | V4 | High-risk Go paths are race-free | `make test-race` | Exit `0`; no data-race warning |
-| V5 | Fresh schema, rollback and PostgreSQL semantics hold | `make test-integration` | Migration head and eleven named tests pass, none skipped |
-| V6 | DB concurrency paths are race-free | `make test-integration-race` | The same eleven tests pass under `-race` |
+| V5 | Fresh schema, rollback and PostgreSQL semantics hold | `make test-integration` | Migration head and thirteen named tests pass, none skipped |
+| V6 | DB concurrency paths are race-free | `make test-integration-race` | The same thirteen tests pass under `-race` |
 | V7 | Real service boundaries agree | `make test-acceptance` | HTTP, CLI and MCP share one isolated service; memory citation/provenance, bounded checkpoint listing, full checkpoint get, lifecycle and forget redaction pass |
 | V8 | Multilingual visual quality meets the chosen checkpoint | Opt-in command in section 6 | All fixed ranking assertions pass |
 | V9 | Offline recall math, determinism and source boundaries hold | `make test-recall` | Unit checks pass; two lexical artifacts differ only by timestamp; malicious fixture is rejected |
@@ -295,7 +298,8 @@ Use this table in pull requests and add implementation-specific scenarios:
   tests cover the contracts but not those host processes.
 - `web/acceptance.mjs` and `web/e2e-smoke.mjs` are legacy, environment-specific
   manual scripts. The standard portable Web gates are
-  `npm run test:memory` and `npm run test:transfer`.
+  `npm run test:enrichment`, `npm run test:memory`, and
+  `npm run test:transfer`.
 - Migration downgrade proves DDL behavior on disposable data. It is not a
   promise that privacy-redacted payloads or discarded identifiers can be
   reconstructed during a production rollback.

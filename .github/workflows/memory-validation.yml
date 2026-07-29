@@ -46,7 +46,7 @@ jobs:
         run: docker compose -f docker-compose.test.yml config >/dev/null
 
   web-acceptance:
-    name: Web memory and transfer acceptance
+    name: Web enrichment, memory and transfer acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -68,9 +68,10 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
-      - name: Run memory and workspace-transfer browser acceptance
+      - name: Run enrichment, memory and workspace-transfer browser acceptance
         working-directory: web
         run: |
+          npm run test:enrichment
           npm run test:memory
           npm run test:transfer
 

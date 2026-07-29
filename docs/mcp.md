@@ -60,6 +60,35 @@ No MCP-only storage or index is created.
 | `mem_mv` | Move file to a different folder, or rename in place |
 | `mem_folder_tree` | Full folder tree as nested structure |
 
+### File provenance with `mem_put`
+
+`mem_put.source_metadata` forwards the canonical upload provenance object to
+memd. It is not an arbitrary metadata bag:
+
+```json
+{
+  "name": "photo.jpg",
+  "content": "<base64>",
+  "encoding": "base64",
+  "source_metadata": {
+    "captured_at": "2026-07-29T08:00:00+08:00",
+    "location": {
+      "lat": 31.2304,
+      "lon": 121.4737,
+      "accuracy_m": 8,
+      "label": "Shanghai"
+    },
+    "source_kind": "mobile",
+    "source_name": "camera sync"
+  }
+}
+```
+
+If omitted, the adapter records `source_kind=mcp`. Unknown fields, invalid
+coordinates, timezone-free timestamps and control characters are rejected by
+the HTTP API. The metadata is persisted server-side and is not included in an
+enrichment-model prompt.
+
 ## Memory, recall and relation tools
 
 The canonical product surface is:

@@ -8,16 +8,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	memdb "github.com/PeterGuy326/mem/server/internal/db"
+	"github.com/PeterGuy326/mem/server/internal/enrichmentkey"
 	"github.com/PeterGuy326/mem/server/internal/handoff"
 	"github.com/PeterGuy326/mem/server/internal/memory"
 	"github.com/PeterGuy326/mem/server/internal/workspacebundle"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -131,6 +134,13 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 	var conflict *ConflictError
 	if !errors.As(err, &conflict) || len(conflict.Conflicts) == 0 {
 		t.Fatalf("global collision error = %v", err)
+	}
+	if !slices.ContainsFunc(conflict.Conflicts, func(value Conflict) bool {
+		return value.Kind == "global_id" &&
+			value.Resource == "file_annotation" &&
+			value.Value == fixture.acceptedAnnotation.String()
+	}) {
+		t.Fatalf("annotation UUID collision missing from preflight: %+v", conflict.Conflicts)
 	}
 	if len(store.puts) != 0 {
 		t.Fatalf("preflight conflict uploaded objects: %v", store.puts)
@@ -366,6 +376,9 @@ type transferFixture struct {
 	secondFolderID      uuid.UUID
 	fileID              uuid.UUID
 	secondFileID        uuid.UUID
+	acceptedAnnotation  uuid.UUID
+	acceptedDescription uuid.UUID
+	rejectedAnnotation  uuid.UUID
 	fileSHA             string
 	blob                []byte
 	memoryID            uuid.UUID
@@ -395,6 +408,9 @@ func seedTransferSource(
 	secondFolderID := uuid.New()
 	fileID := uuid.New()
 	secondFileID := uuid.New()
+	acceptedAnnotation := uuid.New()
+	acceptedDescription := uuid.New()
+	rejectedAnnotation := uuid.New()
 	blob := []byte("source object for a portable agent workspace\n")
 	fileSHA := digestBytes(blob)
 	storageKey := "users/" + userID.String() + "/" + fileID.String() + "/state.txt"
@@ -414,21 +430,51 @@ func seedTransferSource(
 	if _, err := database.Pool.Exec(ctx, `
 		INSERT INTO files (
 			id, user_id, name, path, folder_id, size, sha256, mime,
-			storage_key, summary, caption, tags, timeline_at, index_status,
-			created_at, updated_at
+			storage_key, summary, caption, tags, user_tags, timeline_at, geo,
+			source_metadata, processor_metadata, index_status, created_at, updated_at
 		)
 		VALUES
 			(
 				$1, $3, 'state.txt', '/Project', $4, $6, $7, 'text/plain',
-				$8, 'portable summary', NULL, ARRAY['agent'], $10, 'ready', $10, $10
+				$8, 'portable summary', NULL, ARRAY['agent','reviewed'], ARRAY['agent'],
+				$10, point(121.4737,31.2304),
+				'{"captured_at":"2026-07-28T17:00:00+08:00","location":{"accuracy_m":5,"label":"Shanghai","lat":31.2304,"lon":121.4737},"source_kind":"mobile","source_name":"camera sync"}'::jsonb,
+				'{"processor":"text"}'::jsonb, 'ready', $10, $10
 			),
 			(
 				$2, $3, 'state-copy.txt', '/Archive', $5, $6, $7, 'text/plain',
-				$9, 'portable copy', NULL, ARRAY['archive'], $10, 'ready', $10, $10
+				$9, 'portable copy', NULL, ARRAY['archive'], ARRAY['archive'],
+				$10, NULL, '{"source_kind":"import"}'::jsonb, '{}'::jsonb,
+				'ready', $10, $10
 			)
 	`, fileID, secondFileID, userID, folderID, secondFolderID, len(blob),
 		fileSHA, storageKey, secondStorageKey, now); err != nil {
 		t.Fatalf("insert source files with shared content: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO file_annotations (
+			id, file_id, stable_key, kind, value_text, confidence,
+			source, provider, processor, analysis_version, status,
+			state_version, decided_by_user_id, decided_at, created_at, updated_at
+		)
+		VALUES
+			($1,$4,$6,'tag','reviewed',0.91,'model','fixture:vlm','text',
+			 'file-enrichment-v1','accepted',2,$5,$8,$8,$8),
+			($2,$4,$7,'tag','discarded',0.42,'model','fixture:vlm','text',
+			 'file-enrichment-v1','rejected',2,$5,$8,$8,$8),
+			($3,$4,$9,'description','portable summary',0.84,'model',
+			 'fixture:vlm','text','file-enrichment-v1','accepted',2,$5,$8,$8,$8)
+	`, acceptedAnnotation, rejectedAnnotation, acceptedDescription, fileID, userID,
+		enrichmentkey.Stable("tag", "model", "file-enrichment-v1", "reviewed"),
+		enrichmentkey.Stable("tag", "model", "file-enrichment-v1", "discarded"),
+		now,
+		enrichmentkey.Stable(
+			"description",
+			"model",
+			"file-enrichment-v1",
+			"portable summary",
+		)); err != nil {
+		t.Fatalf("insert source file annotations: %v", err)
 	}
 
 	memoryService := memory.New(database.Pool)
@@ -540,6 +586,9 @@ func seedTransferSource(
 		secondFolderID:      secondFolderID,
 		fileID:              fileID,
 		secondFileID:        secondFileID,
+		acceptedAnnotation:  acceptedAnnotation,
+		acceptedDescription: acceptedDescription,
+		rejectedAnnotation:  rejectedAnnotation,
 		fileSHA:             fileSHA,
 		blob:                blob,
 		memoryID:            remembered.Memory.ID,
@@ -617,6 +666,92 @@ func assertImportedState(
 	if len(storageKeys) != 2 ||
 		storageKeys[fixture.fileID] == storageKeys[fixture.secondFileID] {
 		t.Fatalf("shared-content file storage keys are not independent: %v", storageKeys)
+	}
+	var (
+		effectiveTags     []string
+		userTags          []string
+		timelineAt        time.Time
+		geo               pgtype.Point
+		sourceMetadata    string
+		processorMetadata string
+		summary           *string
+	)
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT tags, user_tags, timeline_at, geo, summary,
+		       source_metadata::text, processor_metadata::text
+		  FROM files
+		 WHERE id = $1
+	`, fixture.fileID).Scan(
+		&effectiveTags,
+		&userTags,
+		&timelineAt,
+		&geo,
+		&summary,
+		&sourceMetadata,
+		&processorMetadata,
+	); err != nil {
+		t.Fatalf("load imported file enrichment: %v", err)
+	}
+	if !slices.Equal(effectiveTags, []string{"agent", "reviewed"}) ||
+		!slices.Equal(userTags, []string{"agent"}) ||
+		!timelineAt.Equal(fixture.eventAt) ||
+		!geo.Valid || geo.P.X != 121.4737 || geo.P.Y != 31.2304 ||
+		summary == nil || *summary != "portable summary" ||
+		!strings.Contains(sourceMetadata, `"source_kind": "mobile"`) ||
+		processorMetadata != "{}" {
+		t.Fatalf(
+			"file enrichment tags=%v user_tags=%v summary=%v timeline=%s geo=%+v source=%s processor=%s",
+			effectiveTags,
+			userTags,
+			summary,
+			timelineAt,
+			geo,
+			sourceMetadata,
+			processorMetadata,
+		)
+	}
+	annotationRows, err := database.Pool.Query(ctx, `
+		SELECT id, status, decided_by_user_id, decided_at
+		  FROM file_annotations
+		 WHERE file_id = $1
+		 ORDER BY id
+	`, fixture.fileID)
+	if err != nil {
+		t.Fatalf("load imported file annotations: %v", err)
+	}
+	importedDecisions := make(map[uuid.UUID]string)
+	for annotationRows.Next() {
+		var (
+			annotationID uuid.UUID
+			status       string
+			actorID      *uuid.UUID
+			decidedAt    *time.Time
+		)
+		if err := annotationRows.Scan(&annotationID, &status, &actorID, &decidedAt); err != nil {
+			annotationRows.Close()
+			t.Fatalf("scan imported file annotation: %v", err)
+		}
+		if actorID != nil || decidedAt == nil || !decidedAt.Equal(fixture.eventAt) {
+			annotationRows.Close()
+			t.Fatalf(
+				"annotation %s actor=%v decided_at=%v",
+				annotationID,
+				actorID,
+				decidedAt,
+			)
+		}
+		importedDecisions[annotationID] = status
+	}
+	if err := annotationRows.Err(); err != nil {
+		annotationRows.Close()
+		t.Fatalf("iterate imported file annotations: %v", err)
+	}
+	annotationRows.Close()
+	if importedDecisions[fixture.acceptedAnnotation] != "accepted" ||
+		importedDecisions[fixture.acceptedDescription] != "accepted" ||
+		importedDecisions[fixture.rejectedAnnotation] != "rejected" ||
+		len(importedDecisions) != 3 {
+		t.Fatalf("imported annotation decisions = %v", importedDecisions)
 	}
 	var (
 		memoryWorkspace uuid.UUID

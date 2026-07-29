@@ -21,6 +21,12 @@ The project is not yet publishing stable semantic-versioned releases.
 - A versioned, vendor-neutral local embedding catalog and `mem model
   list|recommend|install|activate` flow with hardware/runtime checks, explicit
   selection, pinned Ollama artifact integrity, and separate activation.
+- Provenance-aware asynchronous file enrichment: bounded phone/device capture
+  time and location, sanitized EXIF/media observations, reviewable AI
+  description/tag suggestions, API/Web accept/reject controls, portable
+  decisions, and provenance-aware CLI/MCP upload adapters.
+- Workspace bundle v2 enrichment provenance with strict stable-key/source
+  projection validation and read compatibility for historical v1 archives.
 - Versioned `mem.handoff` v1 checkpoints, optimistic head comparison,
   deterministic `resume`, and task/checkpoint list/get inspection across API,
   CLI and MCP.
@@ -96,6 +102,9 @@ The project is not yet publishing stable semantic-versioned releases.
 - Fail closed for SaaS entitlement readiness and prevent provider fallback,
   duplicate charging, or raw upstream error leakage after timeout and
   indeterminate outcomes.
+- Reject hidden-reasoning wrappers, nested JSON-like model values, raw
+  provider errors, and malformed processor facts at Worker, server, database,
+  and workspace-bundle boundaries.
 - Exclude credentials, tokens, provider secrets, runtime state and derived
   indexes from workspace bundles; carry only hashed memory idempotency keys.
 - Bound transfer time, archive bytes, expanded metadata/records and concurrent

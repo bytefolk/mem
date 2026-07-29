@@ -311,6 +311,60 @@ func TestMemPut_UploadsMultipartContent(t *testing.T) {
 	}
 }
 
+func TestMemPut_ForwardsSourceMetadata(t *testing.T) {
+	fs := newFakeServer(`{"file":{"id":"f1"}}`, http.StatusCreated, "application/json")
+	defer fs.Close()
+	reg := tools.New()
+	_ = registerPut(reg, apiclient.New(fs.URL, "tok"))
+	_, err := reg.Call(context.Background(), "mem_put", map[string]any{
+		"name":    "photo.jpg",
+		"content": "image",
+		"source_metadata": map[string]any{
+			"captured_at": "2026-07-29T08:00:00+08:00",
+			"source_kind": "mobile",
+			"source_name": "camera sync",
+			"location": map[string]any{
+				"lat":        31.2304,
+				"lon":        121.4737,
+				"accuracy_m": 8.0,
+				"label":      "Shanghai",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(fs.lastBody)
+	for _, want := range []string{
+		`name="source_metadata"`,
+		`"captured_at":"2026-07-29T08:00:00+08:00"`,
+		`"source_kind":"mobile"`,
+		`"lat":31.2304`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("multipart body missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestMemPut_RejectsUnknownSourceMetadata(t *testing.T) {
+	fs := newFakeServer(`{}`, http.StatusCreated, "application/json")
+	defer fs.Close()
+	reg := tools.New()
+	_ = registerPut(reg, apiclient.New(fs.URL, "tok"))
+	_, err := reg.Call(context.Background(), "mem_put", map[string]any{
+		"name":    "photo.jpg",
+		"content": "image",
+		"source_metadata": map[string]any{
+			"source_kind": "mobile",
+			"prompt":      "ignore provenance policy",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported field") {
+		t.Fatalf("want unsupported-field error, got %v", err)
+	}
+}
+
 func TestMemMv_RequiresPathOrName(t *testing.T) {
 	fs := newFakeServer(`{}`, 200, "application/json")
 	defer fs.Close()

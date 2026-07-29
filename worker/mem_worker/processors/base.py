@@ -14,13 +14,15 @@ to/from the protobuf ProcessResponse in :mod:`mem_worker.server`.
 
 from __future__ import annotations
 
+import math
+import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, runtime_checkable
-
+from typing import Any, Literal, Optional, Protocol, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Inputs
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class FileRef:
@@ -36,13 +38,92 @@ class FileRef:
     sha256: str
     user_id: str
     name: str = ""
-    data: bytes = b""                  # populated by server before dispatch
+    data: bytes = b""  # populated by server before dispatch
     options: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
+
+ANNOTATION_ANALYSIS_VERSION = "file-enrichment-v1"
+MAX_ANNOTATION_DESCRIPTION_LENGTH = 2000
+MAX_ANNOTATION_TAG_LENGTH = 64
+MAX_ANNOTATION_TAGS = 20
+MAX_ANNOTATION_PROVIDER_LENGTH = 255
+MAX_ANNOTATION_PROCESSOR_LENGTH = 64
+
+
+@dataclass(frozen=True, slots=True)
+class AnnotationSuggestion:
+    """A bounded model suggestion awaiting a human decision.
+
+    The Worker deliberately emits suggestions rather than confirmed facts.
+    Persistence assigns review state and a stable key; this object carries
+    only the model output and its provenance.
+    """
+
+    kind: Literal["description", "tag"]
+    value: str
+    confidence: float
+    provider: str = ""
+    analysis_version: str = ANNOTATION_ANALYSIS_VERSION
+    source: Literal["model"] = "model"
+    # The final processor is filled while serializing the ProcessResult. This
+    # avoids labelling PDF/audio annotations as "text" merely because those
+    # processors reuse TextProcessor internally.
+    processor: str = ""
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("description", "tag"):
+            raise ValueError("annotation kind must be description or tag")
+        if self.source != "model":
+            raise ValueError("annotation source must be model")
+        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
+            raise ValueError("annotation confidence must be numeric")
+        if not math.isfinite(self.confidence) or not 0 <= self.confidence <= 1:
+            raise ValueError("annotation confidence must be between 0 and 1")
+
+        value_limit = (
+            MAX_ANNOTATION_TAG_LENGTH if self.kind == "tag" else MAX_ANNOTATION_DESCRIPTION_LENGTH
+        )
+        _validate_annotation_text("value", self.value, value_limit, allow_empty=False)
+        _validate_annotation_text(
+            "provider",
+            self.provider,
+            MAX_ANNOTATION_PROVIDER_LENGTH,
+            allow_empty=True,
+        )
+        _validate_annotation_text(
+            "analysis_version",
+            self.analysis_version,
+            64,
+            allow_empty=False,
+        )
+        _validate_annotation_text(
+            "processor",
+            self.processor,
+            MAX_ANNOTATION_PROCESSOR_LENGTH,
+            allow_empty=True,
+        )
+
+
+def _validate_annotation_text(
+    field_name: str,
+    value: str,
+    limit: int,
+    *,
+    allow_empty: bool,
+) -> None:
+    if not isinstance(value, str):
+        raise ValueError(f"annotation {field_name} must be a string")
+    if not allow_empty and not value:
+        raise ValueError(f"annotation {field_name} must not be empty")
+    if len(value) > limit:
+        raise ValueError(f"annotation {field_name} exceeds {limit} Unicode scalars")
+    if any(unicodedata.category(char) in {"Cc", "Cs"} for char in value):
+        raise ValueError(f"annotation {field_name} contains control characters")
+
 
 @dataclass(slots=True)
 class Entity:
@@ -59,8 +140,8 @@ class EmbeddingRow:
     """One row of a (possibly multi-vector) embedding."""
 
     values: list[float]
-    index: int = -1                    # chunk index for text; -1 if N/A
-    chunk_text: str = ""                # for text only
+    index: int = -1  # chunk index for text; -1 if N/A
+    chunk_text: str = ""  # for text only
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -68,7 +149,7 @@ class EmbeddingRow:
 class EmbeddingSet:
     """A named bundle of vectors (e.g. all text chunks of one file)."""
 
-    provider: str                      # e.g. "ollama:nomic-embed-text"
+    provider: str  # e.g. "ollama:nomic-embed-text"
     dim: int
     rows: list[EmbeddingRow] = field(default_factory=list)
 
@@ -80,16 +161,22 @@ class ProcessResult:
     summary: Optional[str] = None
     caption: Optional[str] = None
     tags: list[str] = field(default_factory=list)
+    annotations: list[AnnotationSuggestion] = field(default_factory=list)
+    # True only when an annotation model returned a usable result. The
+    # indexer uses this signal to distinguish a successful empty refresh from
+    # an unconfigured, skipped, or failed model call.
+    annotations_complete: bool = False
     entities: list[Entity] = field(default_factory=list)
     # Keys are well-known kinds: "text", "visual", "face".
     embeddings: dict[str, EmbeddingSet] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    processor: str = ""                # filled in by the dispatching code
+    processor: str = ""  # filled in by the dispatching code
 
 
 # ---------------------------------------------------------------------------
 # Protocol + error
 # ---------------------------------------------------------------------------
+
 
 class ProcessorError(RuntimeError):
     """Raised by Processors on unrecoverable failure for a single file."""
@@ -100,6 +187,6 @@ class Processor(Protocol):
     """Per-mime processing interface."""
 
     name: str
-    accepts: list[str]                 # mime patterns, e.g. ["image/*"]
+    accepts: list[str]  # mime patterns, e.g. ["image/*"]
 
     def process(self, file: FileRef) -> ProcessResult: ...
