@@ -217,6 +217,7 @@ def _normalize_value(
     if (
         not normalized
         or normalized.startswith(("{", "[", '"', "```"))
+        or _contains_hidden_reasoning(normalized)
         or contains_non_display_character(normalized)
     ):
         return None

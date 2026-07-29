@@ -129,6 +129,13 @@ def test_strict_parser_rejects_unbounded_or_private_output():
     )
     assert (
         structured_annotations(
+            r'{"description":{"value":"\u003cthink\u003eprivate'
+            r'\u003c/think\u003e visible","confidence":0.5},"tags":[]}'
+        )
+        is None
+    )
+    assert (
+        structured_annotations(
             json.dumps(
                 {
                     "description": {
