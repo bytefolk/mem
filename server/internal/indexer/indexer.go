@@ -865,9 +865,9 @@ func parseAnnotationSuggestions(value any, defaultProcessor string) ([]annotatio
 		if processor == "" {
 			processor = defaultProcessor
 		}
-		if !validBoundedText(provider, 255, true) ||
-			!validBoundedText(processor, 64, true) ||
-			!validBoundedText(analysisVersion, 64, false) {
+		if !validAnnotationProvenance(provider, 255, true) ||
+			!validAnnotationProvenance(processor, 64, true) ||
+			!validAnnotationProvenance(analysisVersion, 64, false) {
 			return nil, false
 		}
 		stableKey := annotationStableKey(kind, source, analysisVersion, rawValue)
@@ -965,6 +965,11 @@ func validBoundedText(value string, maxRunes int, allowEmpty bool) bool {
 		return false
 	}
 	return strings.IndexFunc(value, unicode.IsControl) < 0
+}
+
+func validAnnotationProvenance(value string, maxRunes int, allowEmpty bool) bool {
+	return validBoundedText(value, maxRunes, allowEmpty) &&
+		!modeltext.ContainsNonDisplay(value)
 }
 
 func annotationStableKey(kind, source, analysisVersion, value string) string {

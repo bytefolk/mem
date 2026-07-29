@@ -334,6 +334,65 @@ func TestParseWorkerEnrichmentRejectsUnsafeAnnotationValuesWithoutRawLeak(t *tes
 	}
 }
 
+func TestParseWorkerEnrichmentRejectsNonDisplayAnnotationProvenance(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		value string
+	}{
+		{
+			name:  "provider word joiner",
+			field: "provider",
+			value: "test\u2060private-provider",
+		},
+		{
+			name:  "processor variation selector",
+			field: "processor",
+			value: "image\ufe0fprivate-processor",
+		},
+		{
+			name:  "analysis version combining grapheme joiner",
+			field: "analysis_version",
+			value: "file-enrichment-\u034fprivate-version",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			annotation := map[string]any{
+				"kind":             "tag",
+				"value":            "safe",
+				"confidence":       0.9,
+				"source":           "model",
+				"provider":         "test",
+				"processor":        "image",
+				"analysis_version": "file-enrichment-v1",
+			}
+			annotation[test.field] = test.value
+			metadata, err := json.Marshal(map[string]any{
+				"annotations": []map[string]any{annotation},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			enrichment := parseWorkerEnrichment(&workerpb.ProcessResponse{
+				Processor:    "image",
+				Status:       workerpb.ProcessStatus_STATUS_OK,
+				MetadataJson: metadata,
+			})
+			if len(enrichment.Annotations) != 0 || !enrichment.Partial {
+				t.Fatalf("enrichment = %#v", enrichment)
+			}
+			if strings.Contains(string(enrichment.ProcessorMetadata), "private") ||
+				!strings.Contains(
+					string(enrichment.ProcessorMetadata),
+					`"annotation_payload_invalid":true`,
+				) {
+				t.Fatalf("processor metadata = %s", enrichment.ProcessorMetadata)
+			}
+		})
+	}
+}
+
 func TestParseWorkerEnrichmentMarksInvalidAndDegradedMetadataPartial(t *testing.T) {
 	tests := []struct {
 		name     string

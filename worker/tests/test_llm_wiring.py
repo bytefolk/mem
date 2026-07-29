@@ -18,7 +18,12 @@ from mem_worker.server import _result_to_proto
 class _Embedder:
     name = "fake:embedder"
 
+    def __init__(self, *, error: Exception | None = None):
+        self.error = error
+
     def embed_text(self, texts):
+        if self.error is not None:
+            raise self.error
         return [[float(len(text)), 0.0] for text in texts]
 
     def embed_image(self, images):
@@ -127,10 +132,30 @@ def test_configured_default_llm_emits_annotations_lazily(monkeypatch, env):
     ]
 
 
-def test_unavailable_default_llm_is_partial_without_persisting_raw_error(monkeypatch, env):
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(
+            ProviderError("private upstream response and credentials"),
+            id="provider-error",
+        ),
+        pytest.param(
+            NotImplementedError("private unsupported-provider detail"),
+            id="not-implemented",
+        ),
+        pytest.param(
+            RuntimeError("private unexpected model response"),
+            id="unexpected-error",
+        ),
+    ],
+)
+def test_unavailable_default_llm_is_partial_without_persisting_raw_error(
+    monkeypatch,
+    env,
+    failure: Exception,
+):
     env(MEM_DEFAULT_LLM="test:offline")
-    secret_error = "private upstream response and credentials"
-    llm = _LLM(error=ProviderError(secret_error))
+    llm = _LLM(error=failure)
     text_module = importlib.import_module("mem_worker.processors.text")
     monkeypatch.setattr(text_module, "get_llm_provider", lambda spec: llm)
 
@@ -140,10 +165,49 @@ def test_unavailable_default_llm_is_partial_without_persisting_raw_error(monkeyp
     assert result.annotations == []
     assert result.annotations_complete is False
     assert result.metadata["summary_error"] == "provider_unavailable"
-    assert secret_error not in json.dumps(result.metadata)
+    assert str(failure) not in json.dumps(result.metadata)
 
     pb = importlib.import_module("mem_worker.proto.processor_pb2")
     response = _result_to_proto(result, pb)
     assert json.loads(response.metadata_json)["annotations_complete"] is False
     assert response.status == pb.STATUS_PARTIAL
-    assert secret_error not in response.metadata_json.decode()
+    assert str(failure) not in response.metadata_json.decode()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(
+            ProviderError("private embedding upstream response"),
+            id="provider-error",
+        ),
+        pytest.param(
+            NotImplementedError("private unsupported-embedding detail"),
+            id="not-implemented",
+        ),
+        pytest.param(
+            RuntimeError("private unexpected embedding response"),
+            id="unexpected-error",
+        ),
+    ],
+)
+def test_embedding_failure_is_partial_without_persisting_raw_error(failure: Exception):
+    result = TextProcessor(embedder=_Embedder(error=failure)).process(
+        FileRef(
+            file_id="embedding-failure",
+            storage_uri="file:///short.txt",
+            mime="text/plain",
+            sha256="",
+            user_id="u",
+            data=b"short document",
+        )
+    )
+
+    assert result.embeddings == {}
+    assert result.metadata["embed_error"] == "provider_unavailable"
+    assert str(failure) not in json.dumps(result.metadata)
+
+    pb = importlib.import_module("mem_worker.proto.processor_pb2")
+    response = _result_to_proto(result, pb)
+    assert response.status == pb.STATUS_PARTIAL
+    assert str(failure) not in response.metadata_json.decode()

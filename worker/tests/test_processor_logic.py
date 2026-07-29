@@ -18,7 +18,7 @@ from mem_worker.processors.image import (
     _parse_gps,
 )
 from mem_worker.processors.text import TextProcessor, _chunk_text, _decode_text
-from mem_worker.providers.base import Message
+from mem_worker.providers.base import Message, ProviderError
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -513,17 +513,21 @@ def test_pdf_processor_malformed_is_non_fatal():
 class FakeASR:
     name = "fake:asr"
 
-    def __init__(self, text="hello world", language="en", duration=1.5, boom=False):
+    def __init__(
+        self,
+        text="hello world",
+        language="en",
+        duration=1.5,
+        error: Exception | None = None,
+    ):
         from mem_worker.providers.base import Transcription
 
         self._t = Transcription(text=text, language=language, duration=duration)
-        self._boom = boom
+        self._error = error
 
     def transcribe(self, audio, **kw):
-        if self._boom:
-            from mem_worker.providers.base import ProviderError
-
-            raise ProviderError("asr down")
+        if self._error is not None:
+            raise self._error
         return self._t
 
 
@@ -561,10 +565,31 @@ def test_audio_processor_transcribes_and_runs_text_pipeline():
     assert "country" in emb.calls[0][0]
 
 
-def test_audio_processor_asr_failure_is_non_fatal():
+@pytest.mark.parametrize(
+    "failure",
+    [
+        pytest.param(
+            ProviderError("private ASR upstream response"),
+            id="provider-error",
+        ),
+        pytest.param(
+            NotImplementedError("private unsupported-ASR detail"),
+            id="not-implemented",
+        ),
+        pytest.param(
+            RuntimeError("private unexpected ASR response"),
+            id="unexpected-error",
+        ),
+    ],
+)
+def test_audio_processor_asr_failure_is_non_fatal(failure: Exception):
     from mem_worker.processors.audio import AudioProcessor
 
-    proc = AudioProcessor(asr=FakeASR(boom=True), embedder=FakeEmbedder(), llm=FakeLLM())
+    proc = AudioProcessor(
+        asr=FakeASR(error=failure),
+        embedder=FakeEmbedder(),
+        llm=FakeLLM(),
+    )
     fref = FileRef(
         file_id="aud2",
         storage_uri="file:///x.mp3",
@@ -575,7 +600,8 @@ def test_audio_processor_asr_failure_is_non_fatal():
     )
     r = proc.process(fref)
     assert r.processor == "audio"
-    assert "asr_error" in r.metadata
+    assert r.metadata["asr_error"] == "provider_unavailable"
+    assert str(failure) not in repr(r.metadata)
     assert "text" not in r.embeddings
 
 

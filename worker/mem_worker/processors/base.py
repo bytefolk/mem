@@ -52,6 +52,7 @@ MAX_ANNOTATION_TAG_LENGTH = 64
 MAX_ANNOTATION_TAGS = 20
 MAX_ANNOTATION_PROVIDER_LENGTH = 255
 MAX_ANNOTATION_PROCESSOR_LENGTH = 64
+PROVIDER_ERROR_MARKER = "provider_unavailable"
 
 # Unicode 15 Cf ∪ Default_Ignorable_Code_Point. Python 3.11 exposes Unicode
 # 14 data, so explicit ranges keep the last-line dataclass guard aligned with

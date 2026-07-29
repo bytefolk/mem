@@ -532,6 +532,54 @@ VALUES ($1, $2, 'tag', $3, 0.5, 'model', 'migration-guard-v1')
 				"visible\ufe0fprivate",
 			},
 		},
+		{
+			name: "annotation provider word-joiner value",
+			query: `
+INSERT INTO file_annotations (
+  file_id, stable_key, kind, value_text, confidence, source,
+  provider, processor, analysis_version
+)
+VALUES ($1, $2, 'tag', 'safe-provider-provenance', 0.5, 'model',
+        $3, 'text', 'migration-guard-v1')
+`,
+			args: []any{
+				migrationIgnorableFileID,
+				"migration-provider-word-joiner",
+				"test\u2060private-provider",
+			},
+		},
+		{
+			name: "annotation processor variation-selector value",
+			query: `
+INSERT INTO file_annotations (
+  file_id, stable_key, kind, value_text, confidence, source,
+  provider, processor, analysis_version
+)
+VALUES ($1, $2, 'tag', 'safe-processor-provenance', 0.5, 'model',
+        'migration:test', $3, 'migration-guard-v1')
+`,
+			args: []any{
+				migrationIgnorableFileID,
+				"migration-processor-variation-selector",
+				"text\ufe0fprivate-processor",
+			},
+		},
+		{
+			name: "annotation analysis-version grapheme-joiner value",
+			query: `
+INSERT INTO file_annotations (
+  file_id, stable_key, kind, value_text, confidence, source,
+  provider, processor, analysis_version
+)
+VALUES ($1, $2, 'tag', 'safe-version-provenance', 0.5, 'model',
+        'migration:test', 'text', $3)
+`,
+			args: []any{
+				migrationIgnorableFileID,
+				"migration-version-grapheme-joiner",
+				"migration-\u034fprivate-version",
+			},
+		},
 	}
 	for _, test := range constraintTests {
 		if _, err := conn.Exec(ctx, test.query, test.args...); err == nil {

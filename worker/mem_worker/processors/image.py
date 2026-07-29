@@ -37,7 +37,14 @@ from .annotations import (
     structured_annotations,
     tag_values,
 )
-from .base import EmbeddingRow, EmbeddingSet, Entity, FileRef, ProcessResult
+from .base import (
+    PROVIDER_ERROR_MARKER,
+    EmbeddingRow,
+    EmbeddingSet,
+    Entity,
+    FileRef,
+    ProcessResult,
+)
 
 log = get_logger(__name__)
 
@@ -147,12 +154,20 @@ class ImageProcessor:
                     caption = fallback.value
                 else:
                     result.metadata["annotation_parse_error"] = "invalid structured model output"
-        except (ProviderError, NotImplementedError) as exc:
-            log.warning("image.vlm_failed", file_id=file.file_id, error=str(exc))
-            result.metadata["vlm_error"] = "provider_unavailable"
-        except Exception as exc:  # noqa: BLE001 — last-line defense
-            log.exception("image.vlm_unexpected", file_id=file.file_id, error=str(exc))
-            result.metadata["vlm_error"] = "provider_unavailable"
+        except (ProviderError, NotImplementedError):
+            log.warning(
+                "image.vlm_failed",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["vlm_error"] = PROVIDER_ERROR_MARKER
+        except Exception:  # noqa: BLE001 — last-line defense must stay redacted
+            log.error(
+                "image.vlm_unexpected",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["vlm_error"] = PROVIDER_ERROR_MARKER
         result.caption = caption or None
 
         # Provider availability probes only need to prove that the selected
@@ -223,12 +238,20 @@ class ImageProcessor:
                         )
                     ],
                 )
-        except (ProviderError, NotImplementedError) as exc:
-            log.warning("image.embed_failed", file_id=file.file_id, error=str(exc))
-            result.metadata["embed_error"] = str(exc)
-        except Exception as exc:  # noqa: BLE001 — keep image metadata on provider bugs
-            log.exception("image.embed_unexpected", file_id=file.file_id)
-            result.metadata["embed_error"] = str(exc)
+        except (ProviderError, NotImplementedError):
+            log.warning(
+                "image.embed_failed",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["embed_error"] = PROVIDER_ERROR_MARKER
+        except Exception:  # noqa: BLE001 — keep image metadata on provider bugs
+            log.error(
+                "image.embed_unexpected",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["embed_error"] = PROVIDER_ERROR_MARKER
 
         # 4. Face detection (opt-in via `face` extra). Each detected face
         # becomes one row in result.embeddings["face"], with bbox in the row

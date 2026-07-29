@@ -945,6 +945,9 @@ func validateAnnotationText(field, value string, minimum, maximum int) error {
 	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
 		return fmt.Errorf("%w: %s contains a control character", ErrInvalidBundle, field)
 	}
+	if modeltext.ContainsNonDisplay(value) {
+		return fmt.Errorf("%w: %s contains a non-display character", ErrInvalidBundle, field)
+	}
 	return nil
 }
 

@@ -238,11 +238,23 @@ CREATE TABLE IF NOT EXISTS file_annotations (
     confidence          real NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
     source              text NOT NULL CHECK (source = 'model'),
     provider            text NOT NULL DEFAULT ''
-                            CHECK (char_length(provider) <= 255),
+                            CHECK (
+                                char_length(provider) <= 255
+                                AND provider !~ '[[:cntrl:]]'
+                                AND NOT mem_model_text_has_non_display_character(provider)
+                            ),
     processor           text NOT NULL DEFAULT ''
-                            CHECK (char_length(processor) <= 64),
+                            CHECK (
+                                char_length(processor) <= 64
+                                AND processor !~ '[[:cntrl:]]'
+                                AND NOT mem_model_text_has_non_display_character(processor)
+                            ),
     analysis_version    text NOT NULL
-                            CHECK (char_length(analysis_version) BETWEEN 1 AND 64),
+                            CHECK (
+                                char_length(analysis_version) BETWEEN 1 AND 64
+                                AND analysis_version !~ '[[:cntrl:]]'
+                                AND NOT mem_model_text_has_non_display_character(analysis_version)
+                            ),
     status              text NOT NULL DEFAULT 'pending'
                             CHECK (status IN ('pending', 'accepted', 'rejected', 'superseded')),
     state_version       bigint NOT NULL DEFAULT 1 CHECK (state_version > 0),

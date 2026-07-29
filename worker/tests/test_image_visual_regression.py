@@ -186,11 +186,19 @@ def test_wrong_dimension_visual_vector_is_rejected_before_persistence():
 @pytest.mark.parametrize(
     "failure",
     [
-        ProviderError("CLIP model unavailable"),
-        RuntimeError("unexpected image-tower failure"),
+        pytest.param(
+            ProviderError("private CLIP upstream response"),
+            id="provider-error",
+        ),
+        pytest.param(
+            RuntimeError("private unexpected image-tower response"),
+            id="unexpected-error",
+        ),
     ],
 )
-def test_visual_provider_failure_degrades_without_aborting_image_processing(failure):
+def test_visual_provider_failure_degrades_without_aborting_image_processing(
+    failure: Exception,
+):
     raw = _png_bytes()
     provider = FakeVisualProvider(error=failure)
 
@@ -201,4 +209,5 @@ def test_visual_provider_failure_degrades_without_aborting_image_processing(fail
     assert provider.image_calls == [[raw]]
     assert provider.text_calls == []
     assert "visual" not in result.embeddings
-    assert str(failure) in result.metadata["embed_error"]
+    assert result.metadata["embed_error"] == "provider_unavailable"
+    assert str(failure) not in repr(result.metadata)

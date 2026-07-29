@@ -33,7 +33,13 @@ from .annotations import (
     structured_annotations,
     tag_values,
 )
-from .base import EmbeddingRow, EmbeddingSet, FileRef, ProcessResult
+from .base import (
+    PROVIDER_ERROR_MARKER,
+    EmbeddingRow,
+    EmbeddingSet,
+    FileRef,
+    ProcessResult,
+)
 
 log = get_logger(__name__)
 
@@ -128,9 +134,20 @@ class TextProcessor:
                         for i, v in enumerate(vectors)
                     ],
                 )
-        except (ProviderError, NotImplementedError) as exc:
-            log.warning("text.embed_failed", file_id=file.file_id, error=str(exc))
-            result.metadata["embed_error"] = str(exc)
+        except (ProviderError, NotImplementedError):
+            log.warning(
+                "text.embed_failed",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["embed_error"] = PROVIDER_ERROR_MARKER
+        except Exception:  # noqa: BLE001 — provider bugs must stay partial and redacted
+            log.error(
+                "text.embed_unexpected",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["embed_error"] = PROVIDER_ERROR_MARKER
 
         # 2. Optional model annotation. Provider resolution happens here so
         # importing the registry and serving HealthCheck never require a model.
@@ -178,12 +195,20 @@ class TextProcessor:
                         result.metadata["annotation_parse_error"] = (
                             "invalid structured model output"
                         )
-            except (ProviderError, NotImplementedError) as exc:
-                log.warning("text.summary_failed", file_id=file.file_id, error=str(exc))
-                result.metadata["summary_error"] = "provider_unavailable"
-            except Exception as exc:  # noqa: BLE001 — model failure must stay partial
-                log.exception("text.summary_unexpected", file_id=file.file_id, error=str(exc))
-                result.metadata["summary_error"] = "provider_unavailable"
+            except (ProviderError, NotImplementedError):
+                log.warning(
+                    "text.summary_failed",
+                    file_id=file.file_id,
+                    error=PROVIDER_ERROR_MARKER,
+                )
+                result.metadata["summary_error"] = PROVIDER_ERROR_MARKER
+            except Exception:  # noqa: BLE001 — model failure must stay partial and redacted
+                log.error(
+                    "text.summary_unexpected",
+                    file_id=file.file_id,
+                    error=PROVIDER_ERROR_MARKER,
+                )
+                result.metadata["summary_error"] = PROVIDER_ERROR_MARKER
 
         return result
 

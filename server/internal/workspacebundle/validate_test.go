@@ -303,6 +303,56 @@ func TestValidateFileEnrichmentState(t *testing.T) {
 		})
 	}
 
+	for _, test := range []struct {
+		name  string
+		field string
+		value string
+	}{
+		{
+			name:  "provider word joiner",
+			field: "provider",
+			value: "test\u2060private-provider",
+		},
+		{
+			name:  "processor variation selector",
+			field: "processor",
+			value: "image\ufe0fprivate-processor",
+		},
+		{
+			name:  "analysis version combining grapheme joiner",
+			field: "analysis_version",
+			value: "file-enrichment-\u034fprivate-version",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			broken := validFixture(t)
+			annotation := &broken.Files[0].Annotations[0]
+			switch test.field {
+			case "provider":
+				annotation.Provider = test.value
+			case "processor":
+				annotation.Processor = test.value
+			case "analysis_version":
+				annotation.AnalysisVersion = test.value
+			}
+			annotation.StableKey = enrichmentkey.Stable(
+				annotation.Kind,
+				annotation.Source,
+				annotation.AnalysisVersion,
+				annotation.ValueText,
+			)
+			err := Validate(broken.BundleData, ValidationOptions{})
+			if !errors.Is(err, ErrInvalidBundle) ||
+				!strings.Contains(err.Error(), "."+test.field) {
+				t.Fatalf(
+					"Validate error = %v, want ErrInvalidBundle for %s",
+					err,
+					test.field,
+				)
+			}
+		})
+	}
+
 	t.Run("terminal decision missing timestamp", func(t *testing.T) {
 		broken := validFixture(t)
 		broken.Files[0].Annotations[0].DecidedAt = nil
