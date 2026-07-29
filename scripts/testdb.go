@@ -62,6 +62,7 @@ func run() error {
 			"usage: testdb <check|create|drop|version|assert-state|" +
 				"seed-file-enrichment|assert-file-preserved <down|up>|" +
 				"seed-v15-noncanonical-text|assert-v15-noncanonical-text|" +
+				"assert-canonical-model-text-values|" +
 				"assert-canonical-model-text|seed-unsafe-derived-text|" +
 				"assert-unsafe-derived-text-scrubbed>",
 		)
@@ -130,6 +131,13 @@ func run() error {
 			return errors.New("assert-v15-noncanonical-text takes no arguments")
 		}
 		return assertV15NonCanonicalText(ctx)
+	case "assert-canonical-model-text-values":
+		if len(os.Args) != 2 {
+			return errors.New(
+				"assert-canonical-model-text-values takes no arguments",
+			)
+		}
+		return assertCanonicalModelTextValues(ctx)
 	case "assert-canonical-model-text":
 		if len(os.Args) != 2 {
 			return errors.New("assert-canonical-model-text takes no arguments")
@@ -239,10 +247,16 @@ func assertCanonicalModelText(ctx context.Context) error {
 	return assertCanonicalModelTextWithConnection(ctx, conn)
 }
 
-func assertCanonicalModelTextWithConnection(
-	ctx context.Context,
-	conn *pgx.Conn,
-) error {
+func assertCanonicalModelTextValues(ctx context.Context) error {
+	conn, err := targetConnection(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+	return assertCanonicalModelTextValuesWithConnection(ctx, conn)
+}
+
+func assertCanonicalModelTextValuesWithConnection(ctx context.Context, conn *pgx.Conn) error {
 	var summary, caption string
 	if err := conn.QueryRow(ctx, `
 SELECT summary, caption
@@ -263,7 +277,13 @@ SELECT summary, caption
 			len([]rune(caption)),
 		)
 	}
+	return nil
+}
 
+func assertCanonicalModelTextWithConnection(ctx context.Context, conn *pgx.Conn) error {
+	if err := assertCanonicalModelTextValuesWithConnection(ctx, conn); err != nil {
+		return err
+	}
 	constraintTests := []struct {
 		name  string
 		query string
@@ -1461,10 +1481,12 @@ SELECT
   EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conname = 'files_caption_canonical_model_text'
+       AND conrelid = 'public.files'::regclass
   ),
   EXISTS (
     SELECT 1 FROM pg_constraint
      WHERE conname = 'files_summary_canonical_model_text'
+       AND conrelid = 'public.files'::regclass
   ),
   to_regprocedure('public.mem_model_text_has_non_display_character(text)') IS NOT NULL
 `).Scan(

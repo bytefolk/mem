@@ -200,6 +200,7 @@ run_migration_round_trip() {
       down-to "$MODEL_TEXT_CANONICAL_BASE"
   )
   assert_migration_version "$MODEL_TEXT_CANONICAL_BASE"
+  MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-canonical-model-text-values
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb seed-v15-noncanonical-text
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-v15-noncanonical-text
   (

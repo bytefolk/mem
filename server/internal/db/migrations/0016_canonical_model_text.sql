@@ -8,22 +8,24 @@ UPDATE files
    SET caption = btrim(
        caption,
        U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
-   )
- WHERE caption IS NOT NULL
-   AND caption IS DISTINCT FROM btrim(
-       caption,
-       U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
-   );
-
-UPDATE files
-   SET summary = btrim(
+   ),
+       summary = btrim(
        summary,
        U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
    )
- WHERE summary IS NOT NULL
-   AND summary IS DISTINCT FROM btrim(
-       summary,
-       U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+ WHERE (
+        caption IS NOT NULL
+        AND caption IS DISTINCT FROM btrim(
+            caption,
+            U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+        )
+   )
+    OR (
+        summary IS NOT NULL
+        AND summary IS DISTINCT FROM btrim(
+            summary,
+            U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+        )
    );
 
 ALTER TABLE files
