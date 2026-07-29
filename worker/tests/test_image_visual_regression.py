@@ -15,7 +15,6 @@ from mem_worker.processors.base import FileRef
 from mem_worker.processors.image import ImageProcessor
 from mem_worker.providers.base import ProviderError
 
-
 VISUAL_DIM = 512
 
 
@@ -139,7 +138,8 @@ def test_image_tower_remains_available_when_captioning_fails():
     result = ImageProcessor(vlm=FailingVLM(), embedder=provider).process(_file(raw))
 
     assert result.caption is None
-    assert "caption backend unavailable" in result.metadata["vlm_error"]
+    assert result.metadata["vlm_error"] == "provider_unavailable"
+    assert "caption backend unavailable" not in repr(result.metadata)
     assert provider.image_calls == [[raw]]
     assert result.embeddings["visual"].rows[0].metadata == {"source": "image"}
 

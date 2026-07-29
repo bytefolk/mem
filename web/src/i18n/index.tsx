@@ -251,6 +251,11 @@ const dict: Record<string, Partial<Record<Lang, string>>> = {
     zh: '可能已删除，或 file_id 错了。',
     en: 'It may have been deleted, or the id is wrong.',
   },
+  'detail.loadFailedTitle': { zh: '暂时无法加载文件', en: 'Could not load file' },
+  'detail.loadFailedDesc': {
+    zh: '这不是空结果。请检查网络或服务状态后重试。',
+    en: 'This is not an empty result. Check the network or service, then retry.',
+  },
   'detail.geo': { zh: '经纬', en: 'Geo' },
   'detail.autoTags': { zh: '生效标签', en: 'Effective tags' },
   'detail.entities': { zh: '识别到的实体', en: 'Detected entities' },

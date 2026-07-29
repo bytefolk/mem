@@ -191,7 +191,7 @@ run_migration_round_trip() {
   )
   assert_migration_version "$MIGRATION_ROLLBACK_TARGET"
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-state down
-  MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-file-preserved
+  MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-file-preserved down
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb seed-unsafe-derived-text
   (
     cd "${REPO_ROOT}/server"
@@ -200,7 +200,7 @@ run_migration_round_trip() {
   )
   assert_migration_version "$EXPECTED_MIGRATION_HEAD"
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-state up
-  MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-file-preserved
+  MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-file-preserved up
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-unsafe-derived-text-scrubbed
 }
 

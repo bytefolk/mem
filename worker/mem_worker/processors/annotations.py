@@ -14,6 +14,7 @@ from .base import (
     MAX_ANNOTATION_TAG_LENGTH,
     MAX_ANNOTATION_TAGS,
     AnnotationSuggestion,
+    contains_non_display_character,
 )
 
 PLAIN_DESCRIPTION_CONFIDENCE = 0.5
@@ -52,37 +53,6 @@ _HIDDEN_REASONING_MARKERS = (
     "</reasoning",
     "[analysis]",
     "[reasoning]",
-)
-
-# Unicode 15 Cf ∪ Default_Ignorable_Code_Point. Python 3.11 exposes Unicode
-# 14 data, so the explicit ranges keep Worker validation aligned with Go and
-# the PostgreSQL persistence guard.
-_NON_DISPLAY_RANGES = (
-    (0x00AD, 0x00AD),
-    (0x034F, 0x034F),
-    (0x0600, 0x0605),
-    (0x061C, 0x061C),
-    (0x06DD, 0x06DD),
-    (0x070F, 0x070F),
-    (0x0890, 0x0891),
-    (0x08E2, 0x08E2),
-    (0x115F, 0x1160),
-    (0x17B4, 0x17B5),
-    (0x180B, 0x180F),
-    (0x200B, 0x200F),
-    (0x202A, 0x202E),
-    (0x2060, 0x206F),
-    (0x3164, 0x3164),
-    (0xFE00, 0xFE0F),
-    (0xFEFF, 0xFEFF),
-    (0xFFA0, 0xFFA0),
-    (0xFFF0, 0xFFFB),
-    (0x110BD, 0x110BD),
-    (0x110CD, 0x110CD),
-    (0x13430, 0x1343F),
-    (0x1BCA0, 0x1BCA3),
-    (0x1D173, 0x1D17A),
-    (0xE0000, 0xE0FFF),
 )
 
 
@@ -247,7 +217,7 @@ def _normalize_value(
     if (
         not normalized
         or normalized.startswith(("{", "[", '"', "```"))
-        or _contains_non_display_character(normalized)
+        or contains_non_display_character(normalized)
     ):
         return None
     if len(normalized) > limit:
@@ -261,7 +231,7 @@ def _normalize_provider(provider: str) -> str:
     if not isinstance(provider, str):
         return ""
     normalized = unicodedata.normalize("NFC", provider).strip()
-    if _contains_non_display_character(normalized):
+    if contains_non_display_character(normalized):
         return ""
     return normalized[:MAX_ANNOTATION_PROVIDER_LENGTH]
 
@@ -280,14 +250,6 @@ def _contains_hidden_reasoning(value: str) -> bool:
     stripped = lowered.lstrip()
     return any(marker in lowered for marker in _HIDDEN_REASONING_MARKERS) or stripped.startswith(
         ("analysis:", "reasoning:")
-    )
-
-
-def _contains_non_display_character(value: str) -> bool:
-    return any(
-        unicodedata.category(char) in {"Cc", "Cf", "Cs"}
-        or any(start <= ord(char) <= end for start, end in _NON_DISPLAY_RANGES)
-        for char in value
     )
 
 

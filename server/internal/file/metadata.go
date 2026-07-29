@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/PeterGuy326/mem/server/internal/modeltext"
 )
 
 const (
@@ -117,8 +119,9 @@ func validateMetadataText(name, value string) error {
 	if utf8.RuneCountInString(value) > maxSourceMetadataTextRunes {
 		return fmt.Errorf("%s exceeds %d characters", name, maxSourceMetadataTextRunes)
 	}
-	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
-		return fmt.Errorf("%s must not contain control characters", name)
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 ||
+		modeltext.ContainsNonDisplay(value) {
+		return fmt.Errorf("%s must not contain control or non-display characters", name)
 	}
 	return nil
 }

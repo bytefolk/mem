@@ -41,10 +41,22 @@ File enrichment is separated into four layers:
 4. `files.summary`, `files.tags`, `files.timeline_at`, and `files.geo` remain
    compatibility projections. Effective tags are user tags plus accepted tag
    suggestions. An accepted description becomes the effective summary.
+   `files.caption` is only a reviewable preview: the newest accepted
+   description takes precedence, otherwise the newest pending description is
+   shown. Rejected and superseded descriptions are never projected into file
+   detail or visual-search snippets.
 
 `files.user_tags` stores upload/user tags separately. Existing tags are
 migrated into both `user_tags` and the effective `tags` projection so the
 change cannot silently remove legacy data.
+
+Downgrading below the enrichment migration is deliberately fail-closed for
+tag provenance. Before `user_tags` and `file_annotations` are removed, the
+down migration rewrites `files.tags` to the user-authored `user_tags` subset.
+Accepted model tags are reproducible derived data and are discarded because
+the legacy schema cannot represent their source or review state. A later
+re-up therefore cannot copy those model tags into `user_tags`; enrichment may
+regenerate them as pending suggestions for review.
 
 ### Asynchronous and optional models
 
@@ -91,6 +103,17 @@ model returns a usable result. A valid completed empty result supersedes all
 obsolete pending model suggestions and clears its stale derived caption.
 Absent or false completion preserves pending suggestions and captions, so a
 disabled, skipped, or failed model cannot erase review state during reindex.
+Accepting or rejecting a description recomputes the caption projection in the
+same transaction; a rejected value therefore cannot remain visible through
+file detail or visual search.
+
+The Phase 1 single-process indexer serializes runs per file so a slower earlier
+trigger cannot overwrite a newer run's pending suggestions or embeddings.
+Distributed deployments must replace this coordinator with persisted,
+monotonic index generations before running multiple indexer processes.
+A partial retry that produces no replacement text embedding preserves the last
+usable text index; a successful completed empty extraction still clears stale
+rows.
 
 The canonical mutation is:
 

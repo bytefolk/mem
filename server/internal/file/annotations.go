@@ -230,6 +230,11 @@ func (s *Service) DecideAnnotation(
 	if err := recomputeFileEnrichmentProjections(ctx, tx, fileID, userTags); err != nil {
 		return nil, err
 	}
+	if annotation.Kind == AnnotationKindDescription {
+		if err := RefreshReviewableDescriptionProjections(ctx, tx, fileID); err != nil {
+			return nil, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit annotation decision: %w", err)
 	}
@@ -328,6 +333,71 @@ func recomputeFileEnrichmentProjections(
 		}
 	default:
 		return fmt.Errorf("load accepted description: %w", descriptionErr)
+	}
+	return nil
+}
+
+// RefreshReviewableDescriptionProjections keeps legacy description columns
+// aligned with review state. Accepted descriptions take precedence over
+// pending captions; rejected and superseded values are removed from both
+// projections when they match the legacy summary.
+func RefreshReviewableDescriptionProjections(
+	ctx context.Context,
+	tx pgx.Tx,
+	fileID uuid.UUID,
+) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE files AS target
+		   SET summary = COALESCE(
+				(
+					SELECT value_text
+					  FROM file_annotations
+					 WHERE file_id = $1
+					   AND kind = 'description'
+					   AND status = 'accepted'
+					 ORDER BY COALESCE(decided_at, updated_at) DESC,
+					          confidence DESC,
+					          created_at DESC,
+					          id DESC
+					 LIMIT 1
+				),
+				CASE
+					WHEN target.summary IS NOT NULL
+					 AND EXISTS (
+						SELECT 1
+						  FROM file_annotations
+						 WHERE file_id = $1
+						   AND kind = 'description'
+						   AND status IN ('rejected', 'superseded')
+						   AND value_text = target.summary
+					 )
+					THEN NULL
+					ELSE target.summary
+				END
+		   ),
+		       caption = (
+				SELECT value_text
+				  FROM file_annotations
+				 WHERE file_id = $1
+				   AND kind = 'description'
+				   AND status IN ('accepted', 'pending')
+				 ORDER BY
+				       CASE WHEN status = 'accepted' THEN 0 ELSE 1 END,
+				       CASE WHEN status = 'accepted'
+				            THEN COALESCE(decided_at, updated_at) END DESC NULLS LAST,
+				       CASE WHEN status = 'accepted'
+				            THEN confidence END DESC NULLS LAST,
+				       CASE WHEN status = 'pending'
+				            THEN updated_at END DESC NULLS LAST,
+				       CASE WHEN status = 'pending'
+				            THEN confidence END DESC NULLS LAST,
+				       created_at DESC,
+				       id DESC
+				 LIMIT 1
+		   )
+		 WHERE id = $1
+	`, fileID); err != nil {
+		return fmt.Errorf("update reviewable description projections: %w", err)
 	}
 	return nil
 }

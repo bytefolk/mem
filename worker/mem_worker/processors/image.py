@@ -149,10 +149,10 @@ class ImageProcessor:
                     result.metadata["annotation_parse_error"] = "invalid structured model output"
         except (ProviderError, NotImplementedError) as exc:
             log.warning("image.vlm_failed", file_id=file.file_id, error=str(exc))
-            result.metadata["vlm_error"] = str(exc)
+            result.metadata["vlm_error"] = "provider_unavailable"
         except Exception as exc:  # noqa: BLE001 — last-line defense
-            log.exception("image.vlm_unexpected", file_id=file.file_id)
-            result.metadata["vlm_error"] = str(exc)
+            log.exception("image.vlm_unexpected", file_id=file.file_id, error=str(exc))
+            result.metadata["vlm_error"] = "provider_unavailable"
         result.caption = caption or None
 
         # Provider availability probes only need to prove that the selected

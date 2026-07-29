@@ -35,7 +35,10 @@ UPDATE files
             caption,
             U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
         )) = 0
-        OR char_length(caption) > 2000
+        OR char_length(btrim(
+            caption,
+            U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+        )) > 2000
         OR caption ~ '[[:cntrl:]]'
         OR mem_model_text_has_non_display_character(caption)
         OR left(ltrim(
@@ -72,7 +75,10 @@ UPDATE files
             summary,
             U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
         )) = 0
-        OR char_length(summary) > 2000
+        OR char_length(btrim(
+            summary,
+            U&'\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'
+        )) > 2000
         OR summary ~ '[[:cntrl:]]'
         OR mem_model_text_has_non_display_character(summary)
         OR left(ltrim(
@@ -260,10 +266,17 @@ CREATE INDEX IF NOT EXISTS idx_file_annotations_pending
 -- +goose StatementEnd
 
 -- +goose Down
--- Derived projections remain in the legacy files columns. Downgrade removes
--- enrichment provenance and review state but never deletes uploaded content.
+-- The legacy schema cannot represent tag provenance. Restore its tags
+-- projection to the user-authored subset before removing enrichment state so
+-- a later re-up cannot reinterpret accepted model tags as user tags. Accepted
+-- model tags are reproducible derived data; uploaded content and the remaining
+-- legacy projections are preserved.
 
 -- +goose StatementBegin
+UPDATE files
+   SET tags = user_tags
+ WHERE tags IS DISTINCT FROM user_tags;
+
 DROP TABLE IF EXISTS file_annotations;
 -- +goose StatementEnd
 

@@ -47,11 +47,11 @@ func TestAnnotationDecisionIntegration(t *testing.T) {
 	if _, err := database.Pool.Exec(ctx, `
 		INSERT INTO files (
 			id, user_id, name, path, size, sha256, mime, storage_key,
-			tags, user_tags, summary, index_status
+			tags, user_tags, summary, caption, index_status
 		)
 		VALUES (
 			$1, $2, 'photo.jpg', '/Photos', 1, $3, 'image/jpeg', $4,
-			$5, $5, 'legacy summary', 'done'
+			$5, $5, 'legacy summary', 'A summer trip', 'done'
 		)
 	`,
 		fileID,
@@ -67,6 +67,7 @@ func TestAnnotationDecisionIntegration(t *testing.T) {
 	descriptionID := uuid.New()
 	rejectedManualTagID := uuid.New()
 	concurrentTagID := uuid.New()
+	rejectedDescriptionID := uuid.New()
 	if _, err := database.Pool.Exec(ctx, `
 		INSERT INTO file_annotations (
 			id, file_id, stable_key, kind, value_text, confidence,
@@ -80,12 +81,145 @@ func TestAnnotationDecisionIntegration(t *testing.T) {
 			($3, $4, 'tag:manual', 'tag', 'manual', 0.51,
 			 'model', 'test-provider', 'image', 'v1'),
 			($5, $4, 'tag:concurrent', 'tag', 'concurrent', 0.73,
+			 'model', 'test-provider', 'image', 'v1'),
+			($6, $4, 'description:rejected', 'description', 'A rejected caption', 0.61,
 			 'model', 'test-provider', 'image', 'v1')
-	`, tagID, descriptionID, rejectedManualTagID, fileID, concurrentTagID); err != nil {
+	`, tagID, descriptionID, rejectedManualTagID, fileID, concurrentTagID, rejectedDescriptionID); err != nil {
 		t.Fatalf("insert annotations: %v", err)
 	}
 
 	service := &Service{pool: database.Pool}
+	tagOnlyFileID := uuid.New()
+	tagOnlyAnnotationID := uuid.New()
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO files (
+			id, user_id, name, path, size, sha256, mime, storage_key,
+			tags, user_tags, summary, caption, index_status
+		)
+		VALUES (
+			$1, $2, 'legacy.jpg', '/Photos', 1, $3, 'image/jpeg', $4,
+			$5, $5, 'legacy summary', 'legacy caption', 'done'
+		)
+	`,
+		tagOnlyFileID,
+		userID,
+		strings.Repeat("e", 64),
+		"annotation-test/"+tagOnlyFileID.String(),
+		[]string{"manual"},
+	); err != nil {
+		t.Fatalf("insert tag-only file fixture: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO file_annotations (
+			id, file_id, stable_key, kind, value_text, confidence,
+			source, provider, processor, analysis_version
+		)
+		VALUES (
+			$1, $2, 'tag:legacy', 'tag', 'reviewed', 0.8,
+			'model', 'test-provider', 'image', 'v1'
+		)
+	`,
+		tagOnlyAnnotationID,
+		tagOnlyFileID,
+	); err != nil {
+		t.Fatalf("insert tag-only annotation fixture: %v", err)
+	}
+	if _, err := service.DecideAnnotation(
+		ctx,
+		userID,
+		userID,
+		tagOnlyFileID,
+		tagOnlyAnnotationID,
+		AnnotationDecisionCommand{
+			Decision:        AnnotationStatusAccepted,
+			ExpectedVersion: 1,
+			AllowedPaths:    []string{"/Photos"},
+		},
+	); err != nil {
+		t.Fatalf("accept tag-only annotation: %v", err)
+	}
+	var tagOnlyCaption *string
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT caption FROM files WHERE id = $1
+	`, tagOnlyFileID).Scan(&tagOnlyCaption); err != nil {
+		t.Fatalf("load tag-only caption: %v", err)
+	}
+	if tagOnlyCaption == nil || *tagOnlyCaption != "legacy caption" {
+		t.Fatalf("tag-only caption = %v, want preserved legacy caption", tagOnlyCaption)
+	}
+
+	legacyRejectedFileID := uuid.New()
+	legacyRejectedAnnotationID := uuid.New()
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO files (
+			id, user_id, name, path, size, sha256, mime, storage_key,
+			tags, user_tags, summary, caption, index_status
+		)
+		VALUES (
+			$1, $2, 'legacy-rejected.jpg', '/Photos', 1, $3, 'image/jpeg', $4,
+			$5, $5, 'legacy rejected description', 'legacy rejected description', 'done'
+		)
+	`,
+		legacyRejectedFileID,
+		userID,
+		strings.Repeat("f", 64),
+		"annotation-test/"+legacyRejectedFileID.String(),
+		[]string{"manual"},
+	); err != nil {
+		t.Fatalf("insert legacy rejected file fixture: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO file_annotations (
+			id, file_id, stable_key, kind, value_text, confidence,
+			source, provider, processor, analysis_version
+		)
+		VALUES (
+			$1, $2, 'description:legacy-rejected', 'description',
+			'legacy rejected description', 0.8,
+			'model', 'test-provider', 'image', 'v1'
+		)
+	`,
+		legacyRejectedAnnotationID,
+		legacyRejectedFileID,
+	); err != nil {
+		t.Fatalf("insert legacy rejected description fixture: %v", err)
+	}
+	if _, err := service.DecideAnnotation(
+		ctx,
+		userID,
+		userID,
+		legacyRejectedFileID,
+		legacyRejectedAnnotationID,
+		AnnotationDecisionCommand{
+			Decision:        AnnotationStatusRejected,
+			ExpectedVersion: 1,
+			AllowedPaths:    []string{"/Photos"},
+		},
+	); err != nil {
+		t.Fatalf("reject legacy description: %v", err)
+	}
+	var (
+		legacyRejectedSummary *string
+		legacyRejectedCaption *string
+	)
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT summary, caption
+		  FROM files
+		 WHERE id = $1
+	`, legacyRejectedFileID).Scan(
+		&legacyRejectedSummary,
+		&legacyRejectedCaption,
+	); err != nil {
+		t.Fatalf("load rejected legacy projections: %v", err)
+	}
+	if legacyRejectedSummary != nil || legacyRejectedCaption != nil {
+		t.Fatalf(
+			"rejected legacy projections summary=%v caption=%v, want both nil",
+			legacyRejectedSummary,
+			legacyRejectedCaption,
+		)
+	}
+
 	tagResult, err := service.DecideAnnotation(
 		ctx,
 		userID,
@@ -191,6 +325,34 @@ func TestAnnotationDecisionIntegration(t *testing.T) {
 		[]string{"manual", "travel"},
 		"A summer trip",
 	)
+	if _, err := database.Pool.Exec(ctx, `
+		UPDATE files SET caption = 'A rejected caption' WHERE id = $1
+	`, fileID); err != nil {
+		t.Fatalf("seed rejected caption projection: %v", err)
+	}
+	if _, err := service.DecideAnnotation(
+		ctx,
+		userID,
+		userID,
+		fileID,
+		rejectedDescriptionID,
+		AnnotationDecisionCommand{
+			Decision:        AnnotationStatusRejected,
+			ExpectedVersion: 1,
+			AllowedPaths:    []string{"/Photos"},
+		},
+	); err != nil {
+		t.Fatalf("reject description: %v", err)
+	}
+	var caption *string
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT caption FROM files WHERE id = $1
+	`, fileID).Scan(&caption); err != nil {
+		t.Fatalf("load caption after rejection: %v", err)
+	}
+	if caption == nil || *caption != "A summer trip" {
+		t.Fatalf("caption after rejection = %v, want accepted description", caption)
+	}
 
 	if _, err := service.DecideAnnotation(
 		ctx,
@@ -298,8 +460,8 @@ func TestAnnotationDecisionIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get enriched file: %v", err)
 	}
-	if len(detail.Annotations) != 4 {
-		t.Fatalf("annotation count = %d, want 4", len(detail.Annotations))
+	if len(detail.Annotations) != 5 {
+		t.Fatalf("annotation count = %d, want 5", len(detail.Annotations))
 	}
 	if string(detail.SourceMetadata) != "{}" || string(detail.ProcessorMetadata) != "{}" {
 		t.Fatalf(

@@ -242,6 +242,16 @@ def test_strict_parser_rejects_unbounded_or_private_output():
     )
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["visible\u200btext", "visible\ufe0ftext", "visible\u034ftext"],
+    ids=["format", "variation-selector", "default-ignorable"],
+)
+def test_annotation_suggestion_last_line_rejects_non_display_text(value):
+    with pytest.raises(ValueError, match="non-display"):
+        AnnotationSuggestion(kind="tag", value=value, confidence=0.5)
+
+
 def test_plain_description_is_bounded_and_never_persists_reasoning():
     suggestion = plain_description("x" * 2100, provider="")
 

@@ -467,6 +467,120 @@ func TestIndexerEnrichmentIntegration(t *testing.T) {
 		)
 	}
 
+	rejectedFileID := uuid.New()
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO files (
+			id, user_id, name, path, size, sha256, mime, storage_key,
+			tags, user_tags, source_metadata, processor_metadata, index_status
+		)
+		VALUES (
+			$1,$2,'rejected.jpg','/',1,$3,'image/jpeg',$4,
+			'{}','{}','{}'::jsonb,'{}'::jsonb,'processing'
+		)
+	`,
+		rejectedFileID,
+		userID,
+		strings.Repeat("c", 64),
+		"indexer-test/"+rejectedFileID.String(),
+	); err != nil {
+		t.Fatalf("insert rejected-caption file: %v", err)
+	}
+	rejectedMetadata := []byte(`{
+		"annotations_complete":true,
+		"annotations":[
+			{"kind":"description","value":"Rejected observation","confidence":0.77,"source":"model","provider":"fake:vlm","processor":"image","analysis_version":"file-enrichment-v1"}
+		]
+	}`)
+	rejectedResponse := &workerpb.ProcessResponse{
+		MetadataJson: rejectedMetadata,
+		Processor:    "image",
+		Status:       workerpb.ProcessStatus_STATUS_OK,
+	}
+	if err := service.persist(ctx, rejectedFileID, rejectedResponse); err != nil {
+		t.Fatalf("persist reviewable caption: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		UPDATE file_annotations
+		   SET status = 'rejected',
+		       state_version = state_version + 1,
+		       decided_by_user_id = $2,
+		       decided_at = now(),
+		       updated_at = now()
+		 WHERE file_id = $1
+		   AND kind = 'description'
+	`, rejectedFileID, userID); err != nil {
+		t.Fatalf("seed rejected description: %v", err)
+	}
+	if err := service.persist(ctx, rejectedFileID, rejectedResponse); err != nil {
+		t.Fatalf("reindex rejected description: %v", err)
+	}
+	var (
+		rejectedStatus  string
+		rejectedCaption *string
+	)
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT annotation.status, files.caption
+		  FROM file_annotations AS annotation
+		  JOIN files ON files.id = annotation.file_id
+		 WHERE annotation.file_id = $1
+		   AND annotation.kind = 'description'
+	`, rejectedFileID).Scan(&rejectedStatus, &rejectedCaption); err != nil {
+		t.Fatalf("load rejected caption projection: %v", err)
+	}
+	if rejectedStatus != "rejected" || rejectedCaption != nil {
+		t.Fatalf(
+			"rejected reindex status=%q caption=%v, want rejected/null",
+			rejectedStatus,
+			rejectedCaption,
+		)
+	}
+
+	retryFileID := uuid.New()
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO files (
+			id, user_id, name, path, size, sha256, mime, storage_key,
+			tags, user_tags, source_metadata, processor_metadata, index_status
+		)
+		VALUES (
+			$1,$2,'retry.txt','/',1,$3,'text/plain',$4,
+			'{}','{}','{}'::jsonb,'{}'::jsonb,'done'
+		)
+	`,
+		retryFileID,
+		userID,
+		strings.Repeat("e", 64),
+		"indexer-test/"+retryFileID.String(),
+	); err != nil {
+		t.Fatalf("insert retry file: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO embeddings_text (
+			file_id, chunk_index, chunk_text, embedding, provider
+		)
+		VALUES ($1, 0, 'last usable text', $2::vector, 'fake:embed')
+	`, retryFileID, vectorLiteral(make([]float32, 768))); err != nil {
+		t.Fatalf("seed retry text embedding: %v", err)
+	}
+	if err := service.persist(ctx, retryFileID, &workerpb.ProcessResponse{
+		MetadataJson: []byte(`{"embed_error":"provider unavailable"}`),
+		Processor:    "text",
+		Status:       workerpb.ProcessStatus_STATUS_PARTIAL,
+	}); err != nil {
+		t.Fatalf("persist partial retry without embedding: %v", err)
+	}
+	var retryEmbeddingCount int
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM embeddings_text WHERE file_id = $1
+	`, retryFileID).Scan(&retryEmbeddingCount); err != nil {
+		t.Fatalf("count preserved retry embedding: %v", err)
+	}
+	if retryEmbeddingCount != 1 {
+		t.Fatalf(
+			"partial retry embeddings = %d, want previous row preserved",
+			retryEmbeddingCount,
+		)
+	}
+
 	derivedFileID := uuid.New()
 	if _, err := database.Pool.Exec(ctx, `
 		INSERT INTO files (

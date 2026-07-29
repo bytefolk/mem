@@ -56,10 +56,11 @@ func TestRegisterAll_RegistersExpectedToolNames(t *testing.T) {
 	want := []string{
 		"mem_archive", "mem_checkpoint", "mem_checkpoint_get",
 		"mem_checkpoint_list", "mem_context", "mem_face", "mem_feedback",
-		"mem_folder_tree", "mem_forget", "mem_get", "mem_info", "mem_list",
-		"mem_ls", "mem_memory_get", "mem_memory_list", "mem_mkdir", "mem_mv",
-		"mem_put", "mem_related", "mem_remember", "mem_restore", "mem_resume",
-		"mem_search", "mem_task_list",
+		"mem_file_annotation_decide", "mem_folder_tree", "mem_forget",
+		"mem_get", "mem_info", "mem_list", "mem_ls", "mem_memory_get",
+		"mem_memory_list", "mem_mkdir", "mem_mv", "mem_put", "mem_related",
+		"mem_remember", "mem_restore", "mem_resume", "mem_search",
+		"mem_task_list",
 	}
 	got := reg.List()
 	if len(got) != len(want) {

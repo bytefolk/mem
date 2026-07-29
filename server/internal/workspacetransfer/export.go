@@ -358,6 +358,7 @@ func loadFiles(
 		records[index].UserTags = projection.UserTags
 		records[index].Tags = projection.Tags
 		records[index].Summary = projection.Summary
+		records[index].Caption = projection.Caption
 	}
 	return records, blobs, nil
 }

@@ -37,6 +37,7 @@ const (
 	migrationFormatFileID     = "7f000000-0000-0000-0000-000000000006"
 	migrationFormatRangeID    = "7f000000-0000-0000-0000-000000000007"
 	migrationIgnorableFileID  = "7f000000-0000-0000-0000-000000000008"
+	migrationTrimmedLimitID   = "7f000000-0000-0000-0000-000000000009"
 )
 
 var (
@@ -59,7 +60,7 @@ func run() error {
 	if len(os.Args) < 2 {
 		return errors.New(
 			"usage: testdb <check|create|drop|version|assert-state|" +
-				"seed-file-enrichment|assert-file-preserved|" +
+				"seed-file-enrichment|assert-file-preserved <down|up>|" +
 				"seed-unsafe-derived-text|assert-unsafe-derived-text-scrubbed>",
 		)
 	}
@@ -118,10 +119,11 @@ func run() error {
 		}
 		return seedFileEnrichment(ctx)
 	case "assert-file-preserved":
-		if len(os.Args) != 2 {
-			return errors.New("assert-file-preserved takes no arguments")
+		if len(os.Args) != 3 ||
+			(os.Args[2] != "down" && os.Args[2] != "up") {
+			return errors.New("assert-file-preserved requires down or up")
 		}
-		return assertFilePreserved(ctx)
+		return assertFilePreserved(ctx, os.Args[2])
 	case "seed-unsafe-derived-text":
 		if len(os.Args) != 2 {
 			return errors.New("seed-unsafe-derived-text takes no arguments")
@@ -177,6 +179,11 @@ VALUES (
   'migration/default-ignorable-derived-text',
   U&'visible\FE0Fprivate',
   U&'visible\034Fprivate', ARRAY[]::text[], 'done'
+), (
+  $8, $2, 'trimmed-limit-legacy.txt', '/', 1, repeat('1', 64), 'text/plain',
+  'migration/trimmed-limit-derived-text',
+  ' ' || repeat('s', 2000) || ' ',
+  ' ' || repeat('c', 2000) || ' ', ARRAY[]::text[], 'done'
 )
 ON CONFLICT (id) DO UPDATE
    SET summary = EXCLUDED.summary,
@@ -189,6 +196,7 @@ ON CONFLICT (id) DO UPDATE
 		migrationFormatFileID,
 		migrationFormatRangeID,
 		migrationIgnorableFileID,
+		migrationTrimmedLimitID,
 	); err != nil {
 		return fmt.Errorf("seed unsafe legacy derived text: %w", err)
 	}
@@ -256,6 +264,26 @@ SELECT summary, caption
 			searchSummary,
 			timelineSummary,
 			timelineCaption,
+		)
+	}
+
+	var limitSummary, limitCaption string
+	if err := conn.QueryRow(ctx, `
+SELECT summary, caption
+  FROM files
+ WHERE id = $1 AND user_id = $2
+`, migrationTrimmedLimitID, migrationFileUserID).Scan(
+		&limitSummary,
+		&limitCaption,
+	); err != nil {
+		return fmt.Errorf("load trimmed-limit legacy text: %w", err)
+	}
+	if len([]rune(strings.TrimSpace(limitSummary))) != 2000 ||
+		len([]rune(strings.TrimSpace(limitCaption))) != 2000 {
+		return fmt.Errorf(
+			"trimmed-limit legacy text was not preserved: summary=%d caption=%d",
+			len([]rune(strings.TrimSpace(limitSummary))),
+			len([]rune(strings.TrimSpace(limitCaption))),
 		)
 	}
 
@@ -548,7 +576,7 @@ INSERT INTO files (
 VALUES (
   $2, $1, 'preserved.txt', '/', 17, repeat('a', 64), 'text/plain',
   'migration/preserved-object', 'accepted description',
-  ARRAY['manual','reviewed'], ARRAY['manual'],
+  ARRAY['manual','model-reviewed'], ARRAY['manual'],
   '{"source_kind":"import"}'::jsonb, '{"processor":"text"}'::jsonb, 'done'
 )
 ON CONFLICT (id) DO NOTHING
@@ -562,7 +590,7 @@ INSERT INTO file_annotations (
   decided_by_user_id, decided_at
 )
 VALUES (
-  $2, 'migration-review', 'tag', 'reviewed', 0.9, 'model',
+  $2, 'migration-review', 'tag', 'model-reviewed', 0.9, 'model',
   'migration:test', 'text', 'migration-v1', 'accepted', 2, $1, now()
 )
 ON CONFLICT (file_id, stable_key) DO NOTHING
@@ -575,7 +603,7 @@ ON CONFLICT (file_id, stable_key) DO NOTHING
 	return nil
 }
 
-func assertFilePreserved(ctx context.Context) error {
+func assertFilePreserved(ctx context.Context, state string) error {
 	conn, err := targetConnection(ctx)
 	if err != nil {
 		return err
@@ -611,11 +639,10 @@ SELECT name, size, sha256, mime, storage_key, summary, tags
 		mime != "text/plain" ||
 		storageKey != "migration/preserved-object" ||
 		summary != "accepted description" ||
-		len(tags) != 2 ||
-		tags[0] != "manual" ||
-		tags[1] != "reviewed" {
+		len(tags) != 1 ||
+		tags[0] != "manual" {
 		return fmt.Errorf(
-			"migration file changed: name=%q size=%d sha=%q mime=%q key=%q summary=%q tags=%v",
+			"migration file or trust projection changed: name=%q size=%d sha=%q mime=%q key=%q summary=%q tags=%v",
 			name,
 			size,
 			sha256,
@@ -624,6 +651,57 @@ SELECT name, size, sha256, mime, storage_key, summary, tags
 			summary,
 			tags,
 		)
+	}
+	var enrichmentSchema bool
+	if err := conn.QueryRow(ctx, `
+SELECT
+  EXISTS (
+    SELECT 1
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'files'
+       AND column_name = 'user_tags'
+  )
+  AND to_regclass('public.file_annotations') IS NOT NULL
+`).Scan(&enrichmentSchema); err != nil {
+		return fmt.Errorf("inspect %s enrichment schema: %w", state, err)
+	}
+	if enrichmentSchema != (state == "up") {
+		return fmt.Errorf(
+			"unexpected %s enrichment schema while checking trust projection: present=%t",
+			state,
+			enrichmentSchema,
+		)
+	}
+	if state == "up" {
+		var userTags []string
+		if err := conn.QueryRow(ctx, `
+SELECT user_tags
+  FROM files
+ WHERE id = $1 AND user_id = $2
+`, migrationFileID, migrationFileUserID).Scan(&userTags); err != nil {
+			return fmt.Errorf("load re-up user tags: %w", err)
+		}
+		if len(userTags) != 1 || userTags[0] != "manual" {
+			return fmt.Errorf(
+				"accepted model tag was laundered into user_tags on re-up: %v",
+				userTags,
+			)
+		}
+		var annotationCount int
+		if err := conn.QueryRow(ctx, `
+SELECT count(*)
+  FROM file_annotations
+ WHERE file_id = $1
+`, migrationFileID).Scan(&annotationCount); err != nil {
+			return fmt.Errorf("count re-up annotations: %w", err)
+		}
+		if annotationCount != 0 {
+			return fmt.Errorf(
+				"discarded downgrade annotations reappeared on re-up: %d",
+				annotationCount,
+			)
+		}
 	}
 	return nil
 }

@@ -512,6 +512,13 @@ func validateFiles(
 				label,
 			)
 		}
+		if !projection.Legacy && !equalOptionalText(record.Caption, projection.Caption) {
+			return fmt.Errorf(
+				"%w: %s.caption does not match an accepted or pending description",
+				ErrIntegrity,
+				label,
+			)
+		}
 		if err := validateTimestamp(label+".created_at", record.CreatedAt); err != nil {
 			return err
 		}
@@ -752,7 +759,8 @@ func validatePortableLocation(label string, raw json.RawMessage) error {
 
 func validMetadataText(value string, maxRunes int) bool {
 	return len([]rune(value)) <= maxRunes &&
-		strings.IndexFunc(value, unicode.IsControl) < 0
+		strings.IndexFunc(value, unicode.IsControl) < 0 &&
+		!modeltext.ContainsNonDisplay(value)
 }
 
 func validateFileAnnotations(

@@ -40,6 +40,14 @@ func TestSourceMetadataValidate(t *testing.T) {
 			metadata: SourceMetadata{SourceName: "phone\nsync"},
 		},
 		{
+			name:     "source name format character",
+			metadata: SourceMetadata{SourceName: "phone\u200bsync"},
+		},
+		{
+			name:     "source name default ignorable",
+			metadata: SourceMetadata{SourceName: "phone\u034fsync"},
+		},
+		{
 			name:     "source name too long",
 			metadata: SourceMetadata{SourceName: strings.Repeat("a", maxSourceMetadataTextRunes+1)},
 		},
@@ -85,6 +93,12 @@ func TestSourceMetadataValidate(t *testing.T) {
 			name: "location label control character",
 			metadata: SourceMetadata{
 				Location: &SourceLocation{Lat: 0, Lon: 0, Label: "home\u007f"},
+			},
+		},
+		{
+			name: "location label variation selector",
+			metadata: SourceMetadata{
+				Location: &SourceLocation{Lat: 0, Lon: 0, Label: "home\ufe0f"},
 			},
 		},
 	}

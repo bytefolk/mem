@@ -603,8 +603,8 @@ func insertPortableState(
 			}
 		}
 		var caption *string
-		if record.Caption != nil {
-			if safeCaption, ok := modeltext.NormalizePlain(*record.Caption, 2000); ok {
+		if projection.Caption != nil {
+			if safeCaption, ok := modeltext.NormalizePlain(*projection.Caption, 2000); ok {
 				caption = &safeCaption
 			}
 		}

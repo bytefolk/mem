@@ -39,12 +39,21 @@ func ContainsHiddenReasoning(value string) bool {
 func Valid(value string, maxRunes int, allowEmpty bool) bool {
 	if maxRunes < 0 ||
 		!utf8.ValidString(value) ||
-		utf8.RuneCountInString(value) > maxRunes ||
 		ContainsHiddenReasoning(value) ||
-		strings.IndexFunc(value, isNonDisplayRune) >= 0 {
+		ContainsNonDisplay(value) {
 		return false
 	}
-	return allowEmpty || value != ""
+	candidate := strings.TrimSpace(value)
+	if utf8.RuneCountInString(candidate) > maxRunes {
+		return false
+	}
+	return allowEmpty || candidate != ""
+}
+
+// ContainsNonDisplay reports whether value contains a control, format, or
+// default-ignorable rune that must not cross a display-text boundary.
+func ContainsNonDisplay(value string) bool {
+	return strings.IndexFunc(value, isNonDisplayRune) >= 0
 }
 
 func isNonDisplayRune(value rune) bool {
@@ -58,6 +67,9 @@ func isNonDisplayRune(value rune) bool {
 // JSON-like or fenced output is rejected because it may be a malformed
 // structured response containing fields that must never become display text.
 func NormalizePlain(value string, maxRunes int) (string, bool) {
+	// Length applies to the normalized value that persistence receives. Raw
+	// controls, default-ignorables, and reasoning markers still fail closed
+	// even when TrimSpace would otherwise remove or obscure them.
 	if !Valid(value, maxRunes, true) {
 		return "", false
 	}

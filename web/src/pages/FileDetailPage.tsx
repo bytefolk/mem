@@ -56,6 +56,7 @@ export function FileDetailPage() {
   if (isLoading) return <DetailSkeleton />;
 
   if (error || !file) {
+    const notFound = !error || (error instanceof ApiException && error.status === 404);
     return (
       <div className="mx-auto max-w-5xl px-8 py-12">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-6">
@@ -64,8 +65,8 @@ export function FileDetailPage() {
         </Button>
         <EmptyState
           icon={<FileQuestion />}
-          title={t('detail.notFoundTitle')}
-          description={t('detail.notFoundDesc')}
+          title={t(notFound ? 'detail.notFoundTitle' : 'detail.loadFailedTitle')}
+          description={t(notFound ? 'detail.notFoundDesc' : 'detail.loadFailedDesc')}
           action={
             <Link to="/">
               <Button variant="secondary" size="sm">{t('action.home')}</Button>
@@ -350,7 +351,7 @@ function AIInsightsCard({ file }: { file: MemFile }) {
           </section>
         )}
 
-        {file.caption && (
+        {file.caption && file.caption !== file.summary && (
           <section
             aria-label={t('detail.captionVlm')}
             className="rounded-md border border-dashed border-warn/30 bg-warn/5 p-3"

@@ -90,7 +90,10 @@ func TestParseSourceMetadataJSONRejectsInvalidInput(t *testing.T) {
 		{"negative accuracy", `{"location":{"lat":0,"lon":0,"accuracy_m":-1}}`},
 		{"source kind unsupported", `{"source_kind":"camera"}`},
 		{"source name control character", `{"source_name":"phone\nsync"}`},
+		{"source name format character", `{"source_name":"phone\u200bsync"}`},
+		{"source name default ignorable", `{"source_name":"phone\u034fsync"}`},
 		{"location label control character", `{"location":{"lat":0,"lon":0,"label":"home\u007f"}}`},
+		{"location label variation selector", `{"location":{"lat":0,"lon":0,"label":"home\ufe0f"}}`},
 		{"multiple json values", `{} {}`},
 	}
 

@@ -33,6 +33,36 @@ import {
 import { WORKSPACE_BUNDLE_MEDIA_TYPE } from '@/lib/workspace-transfer';
 
 const BASE = '/v1';
+const EMPTY_ENRICHMENT_FILE_ID = 'empty-enrichment-e2e';
+const OFFLINE_ENRICHMENT_FILE_ID = 'offline-enrichment-e2e';
+const EMPTY_ENRICHMENT_FILE: MemFile = {
+  id: EMPTY_ENRICHMENT_FILE_ID,
+  user_id: 'user-1',
+  name: 'empty-enrichment.txt',
+  path: '/empty-enrichment.txt',
+  size: 20,
+  sha256: 'e'.repeat(64),
+  mime: 'text/plain',
+  storage_key: 's3://mem/mock/empty-enrichment',
+  summary: null,
+  caption: null,
+  tags: [],
+  user_tags: [],
+  timeline_at: '2026-07-29T08:00:00Z',
+  geo: null,
+  source_metadata: { source_kind: 'web' },
+  processor_metadata: { processor: 'text', status: 'ok' },
+  annotations: [],
+  annotations_truncated: false,
+  index_status: 'done',
+  created_at: '2026-07-29T08:00:00Z',
+  updated_at: '2026-07-29T08:00:00Z',
+  kind: 'text',
+  preview_url: null,
+  thumbnail_url: null,
+  download_url: null,
+  entities: [],
+};
 
 function jitter(min = 120, max = 320) {
   return delay(min + Math.random() * (max - min));
@@ -184,7 +214,11 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function validMockMetadataText(value: unknown): value is string {
-  return typeof value === 'string' && Array.from(value).length <= 512 && !/\p{Cc}/u.test(value);
+  return (
+    typeof value === 'string' &&
+    Array.from(value).length <= 512 &&
+    !/[\p{Cc}\p{Cf}\p{Cs}\p{Default_Ignorable_Code_Point}]/u.test(value)
+  );
 }
 
 function listByPath(path: string): MemFile[] {
@@ -964,6 +998,11 @@ export const handlers = [
   // ----- Authenticated file bytes (used by thumbnails and detail previews) -----
   http.get(`${BASE}/files/:id/content`, async ({ params }) => {
     await jitter(30, 80);
+    if (String(params.id) === EMPTY_ENRICHMENT_FILE_ID) {
+      return new HttpResponse('No AI suggestions were produced.', {
+        headers: { 'Content-Type': 'text/plain' },
+      });
+    }
     const file = findFile(String(params.id));
     if (!file) {
       return HttpResponse.json({ error: 'not_found', hint: 'no such file' }, { status: 404 });
@@ -990,6 +1029,12 @@ export const handlers = [
   // ----- Files: detail -----
   http.get(`${BASE}/files/:id`, async ({ params }) => {
     await jitter();
+    if (String(params.id) === OFFLINE_ENRICHMENT_FILE_ID) {
+      return HttpResponse.error();
+    }
+    if (String(params.id) === EMPTY_ENRICHMENT_FILE_ID) {
+      return HttpResponse.json(EMPTY_ENRICHMENT_FILE);
+    }
     const file = findFile(String(params.id));
     if (!file) {
       return HttpResponse.json(
@@ -1077,6 +1122,12 @@ export const handlers = [
       .sort((a, b) => (a.decided_at ?? a.updated_at).localeCompare(b.decided_at ?? b.updated_at))
       .at(-1);
     if (acceptedDescription) file.summary = acceptedDescription.value_text;
+    const pendingDescription = file.annotations
+      .filter((candidate) => candidate.kind === 'description' && candidate.status === 'pending')
+      .sort((a, b) => a.updated_at.localeCompare(b.updated_at))
+      .at(-1);
+    file.caption =
+      acceptedDescription?.value_text ?? pendingDescription?.value_text ?? null;
     file.updated_at = now;
 
     return HttpResponse.json({ annotation, replayed: false });

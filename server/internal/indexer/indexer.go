@@ -123,6 +123,13 @@ func (s *Service) IndexFile(ctx context.Context, f *file.File) {
 			"file_id", f.ID, "reason", "worker_disabled")
 		return
 	}
+	isLatest, unlockFile := indexmeta.LockFileIndexing(f.ID)
+	defer unlockFile()
+	if !isLatest {
+		s.log.Info("indexer.skipped",
+			"file_id", f.ID, "reason", "superseded_index_trigger")
+		return
+	}
 	unlockIndexing := indexmeta.LockIndexing(f.UserID)
 	defer unlockIndexing()
 
@@ -241,7 +248,7 @@ func (s *Service) persist(ctx context.Context, fileID uuid.UUID, resp *workerpb.
 		       index_status = $6,
 		       updated_at = now()
 		 WHERE id = $7`,
-		enrichment.CaptionSet,
+		enrichment.CaptionSet && !enrichment.CaptionFromReview,
 		enrichment.Caption,
 		enrichment.ProcessorMetadata,
 		enrichment.Timeline,
@@ -261,18 +268,28 @@ func (s *Service) persist(ctx context.Context, fileID uuid.UUID, resp *workerpb.
 	); err != nil {
 		return err
 	}
+	if enrichment.CaptionSet && enrichment.CaptionFromReview {
+		if err := file.RefreshReviewableDescriptionProjections(ctx, tx, fileID); err != nil {
+			return err
+		}
+	}
 
 	text := resp.Embeddings["text"]
 	if text != nil && len(text.Rows) > 0 && strings.TrimSpace(text.Provider) == "" {
 		return fmt.Errorf("text embedding provider identity is empty")
 	}
 
-	// Wipe previous embeddings for idempotency (re-index replays).
-	if _, err := tx.Exec(ctx, `DELETE FROM embeddings_text WHERE file_id = $1`, fileID); err != nil {
-		return fmt.Errorf("delete old text embeddings: %w", err)
+	hasReplacementText := text != nil && len(text.Rows) > 0
+	// A partial retry that did not produce text embeddings must not erase the
+	// last usable index. Successful empty extraction still clears stale rows,
+	// while an actual replacement remains idempotent.
+	if status != "partial" || hasReplacementText {
+		if _, err := tx.Exec(ctx, `DELETE FROM embeddings_text WHERE file_id = $1`, fileID); err != nil {
+			return fmt.Errorf("delete old text embeddings: %w", err)
+		}
 	}
 
-	if text != nil && len(text.Rows) > 0 {
+	if hasReplacementText {
 		batch := &pgx.Batch{}
 		for _, row := range text.Rows {
 			batch.Queue(
@@ -481,6 +498,7 @@ type workerEnrichment struct {
 	ReconcileAnnotations bool
 	Caption              *string
 	CaptionSet           bool
+	CaptionFromReview    bool
 	Partial              bool
 }
 
@@ -568,6 +586,7 @@ func parseWorkerEnrichment(resp *workerpb.ProcessResponse) workerEnrichment {
 			result.ReconcileAnnotations = (!annotationsCompletePresent &&
 				len(annotations) > 0) || result.AnnotationsComplete
 			result.CaptionSet = result.ReconcileAnnotations
+			result.CaptionFromReview = result.ReconcileAnnotations
 			if annotationsCompletePresent &&
 				annotationsCompleteValid &&
 				!annotationsComplete &&
@@ -615,18 +634,24 @@ func parseWorkerEnrichment(resp *workerpb.ProcessResponse) workerEnrichment {
 			result.Partial = true
 		}
 	} else if metadataValid {
+		if _, ok := boundedWorkerCaption(resp.Caption); !ok {
+			sanitized["caption_payload_invalid"] = true
+			result.Partial = true
+		}
 		var legacyValid bool
 		result.Annotations, legacyValid = legacyAnnotationSuggestions(resp)
 		if !legacyValid {
 			sanitized["legacy_annotation_payload_invalid"] = true
 			result.Partial = true
 		}
-		if caption, ok := boundedWorkerCaption(resp.Caption); !ok {
-			sanitized["caption_payload_invalid"] = true
-			result.Partial = true
-		} else if caption != "" {
-			result.Caption = &caption
-			result.CaptionSet = true
+		for index := range result.Annotations {
+			if result.Annotations[index].Kind == file.AnnotationKindDescription {
+				caption := result.Annotations[index].Value
+				result.Caption = &caption
+				result.CaptionSet = true
+				result.CaptionFromReview = true
+				break
+			}
 		}
 	} else if resp.Caption != "" || resp.Summary != "" || len(resp.Tags) > 0 {
 		sanitized["legacy_fields_suppressed"] = true
@@ -883,8 +908,12 @@ func legacyAnnotationSuggestions(
 	}
 	valid := true
 	items := make([]map[string]any, 0, 1+len(resp.Tags))
-	if resp.Summary != "" {
-		if value, ok := modeltext.NormalizePlain(resp.Summary, 2000); ok {
+	description := resp.Caption
+	if description == "" {
+		description = resp.Summary
+	}
+	if description != "" {
+		if value, ok := modeltext.NormalizePlain(description, 2000); ok {
 			items = append(items, map[string]any{
 				"kind": "description", "value": value, "confidence": 0.5,
 				"source": "model", "provider": "", "processor": resp.Processor,

@@ -15,6 +15,7 @@ func TestDeriveFileEnrichmentProjectionUsesOnlyPortableProvenance(t *testing.T) 
 		Tags:     []string{"untrusted redundant value"},
 		UserTags: []string{"manual", "duplicate", "manual"},
 		Summary:  stringPointer("untrusted redundant summary"),
+		Caption:  stringPointer("untrusted redundant caption"),
 		Annotations: []FileAnnotationRecord{
 			{
 				ID:   uuid.MustParse("10000000-0000-0000-0000-000000000001"),
@@ -58,12 +59,16 @@ func TestDeriveFileEnrichmentProjectionUsesOnlyPortableProvenance(t *testing.T) 
 	if projection.Summary == nil || *projection.Summary != "newer" {
 		t.Fatalf("summary = %v", projection.Summary)
 	}
+	if projection.Caption == nil || *projection.Caption != "newer" {
+		t.Fatalf("caption = %v", projection.Caption)
+	}
 }
 
 func TestDeriveLegacyFileEnrichmentPromotesTagsAndDropsSummary(t *testing.T) {
 	record := FileRecord{
 		Tags:    []string{"legacy", "legacy"},
 		Summary: stringPointer("unreviewed legacy processor summary"),
+		Caption: stringPointer("legacy visual caption"),
 	}
 
 	projection := DeriveFileEnrichmentProjection(record)
@@ -77,6 +82,36 @@ func TestDeriveLegacyFileEnrichmentPromotesTagsAndDropsSummary(t *testing.T) {
 	}
 	if projection.Summary != nil {
 		t.Fatalf("legacy summary was trusted: %q", *projection.Summary)
+	}
+	if projection.Caption == nil || *projection.Caption != "legacy visual caption" {
+		t.Fatalf("legacy caption = %v", projection.Caption)
+	}
+}
+
+func TestDeriveFileEnrichmentCaptionExcludesRejectedDescriptions(t *testing.T) {
+	early := time.Date(2026, time.July, 29, 8, 0, 0, 0, time.UTC)
+	late := early.Add(time.Hour)
+	record := FileRecord{
+		UserTags: []string{},
+		Caption:  stringPointer("rejected redundant caption"),
+		Annotations: []FileAnnotationRecord{
+			{
+				ID:   uuid.MustParse("10000000-0000-0000-0000-000000000010"),
+				Kind: "description", ValueText: "rejected", Confidence: 0.99,
+				Status: "rejected", UpdatedAt: late, CreatedAt: late,
+			},
+			{
+				ID:   uuid.MustParse("10000000-0000-0000-0000-000000000011"),
+				Kind: "description", ValueText: "pending", Confidence: 0.4,
+				Status: "pending", UpdatedAt: early, CreatedAt: early,
+			},
+		},
+	}
+
+	projection := DeriveFileEnrichmentProjection(record)
+
+	if projection.Caption == nil || *projection.Caption != "pending" {
+		t.Fatalf("caption = %v, want pending description", projection.Caption)
 	}
 }
 

@@ -611,6 +611,8 @@ mem cat <file_id>                         # 输出文本内容到 stdout
 mem ls [path]                             # 列虚拟路径
 mem ls --tag <tag>
 mem info <file_id>                        # 详情（含 AI 摘要）
+mem annotation accept <file_id> <annotation_id> --expected-version <n>
+mem annotation reject <file_id> <annotation_id> --expected-version <n>
 
 # 搜
 mem search <query> [--type ...] [--since ...] [--until ...] [--face <name>] [--limit N] \
@@ -702,6 +704,17 @@ CLI 的 `--idempotency-key` 由适配器转换为 HTTP `Idempotency-Key` Header�
             enum: [api, web, cli, mcp, mobile, ai_device, import, other]
           source_name: { type: string }
     required: [content, name]
+
+- name: mem_file_annotation_decide
+  description: 接受或拒绝一条待确认的文件 AI 注释
+  input_schema:
+    type: object
+    properties:
+      file_id:         { type: string, format: uuid }
+      annotation_id:   { type: string, format: uuid }
+      decision:        { type: string, enum: [accepted, rejected] }
+      expected_version: { type: integer, minimum: 1 }
+    required: [file_id, annotation_id, decision, expected_version]
 
 - name: mem_remember
   description: 幂等写入一条带来源和 producer 的结构化记忆

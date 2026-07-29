@@ -45,6 +45,7 @@ func RegisterAll(reg *tools.Registry, client *apiclient.Client) error {
 		registerResume,
 		registerGet,
 		registerInfo,
+		registerFileAnnotationDecision,
 		registerList,
 		registerLs,
 		registerMkdir,

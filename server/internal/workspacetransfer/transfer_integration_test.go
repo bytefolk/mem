@@ -1,6 +1,7 @@
 package workspacetransfer
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +78,12 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		database,
 		"transfer-failure-target",
 	)
+	legacyUser, legacyWorkspace := createTransferTenant(
+		t,
+		ctx,
+		database,
+		"transfer-v1-target",
+	)
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(
 			context.Background(),
@@ -83,8 +91,8 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		)
 		defer cleanupCancel()
 		if _, err := database.Pool.Exec(cleanupCtx, `
-			DELETE FROM users WHERE id = $1 OR id = $2 OR id = $3
-		`, sourceUser, targetUser, failureUser); err != nil {
+			DELETE FROM users WHERE id = $1 OR id = $2 OR id = $3 OR id = $4
+		`, sourceUser, targetUser, failureUser, legacyUser); err != nil {
 			t.Errorf("cleanup transfer tenants: %v", err)
 		}
 	})
@@ -150,6 +158,85 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 	// while the exported archive and source object remain available.
 	if _, err := database.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, sourceUser); err != nil {
 		t.Fatalf("remove source tenant: %v", err)
+	}
+
+	// Historical v1 archives remain importable into a live current-schema
+	// database. They promote legacy tags to user provenance, but never invent
+	// v2 source/review provenance or project an unreviewed legacy summary.
+	legacyBundle := historicalV1Bundle(t, bundle.Bytes())
+	legacyStore := newFakeObjectStore()
+	legacyService := New(database.Pool, legacyStore, Options{
+		Exporter:        "memd-test",
+		ExporterVersion: "v1",
+		Now:             func() time.Time { return fixedNow },
+	})
+	legacyReader := bytes.NewReader(legacyBundle)
+	legacyImported, err := legacyService.Import(ctx, ImportRequest{
+		WorkspaceID: legacyWorkspace,
+		Mode:        RestoreModeFresh,
+		Reader:      legacyReader,
+		Size:        int64(legacyReader.Len()),
+	})
+	if err != nil {
+		t.Fatalf("import historical v1 workspace: %v", err)
+	}
+	if legacyImported.Replayed || legacyImported.BundleID != fixture.bundleID {
+		t.Fatalf("historical v1 import result = %+v", legacyImported)
+	}
+	var (
+		legacySchemaVersion int
+		legacyUserTags      []string
+		legacySource        []byte
+		legacySummary       *string
+		legacyIndexStatus   string
+		legacyAnnotations   int
+	)
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT schema_version
+		  FROM workspace_imports
+		 WHERE target_workspace_id = $1 AND bundle_id = $2
+	`, legacyWorkspace, fixture.bundleID).Scan(&legacySchemaVersion); err != nil {
+		t.Fatalf("load historical v1 import ledger: %v", err)
+	}
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT user_tags, source_metadata, summary, index_status
+		  FROM files
+		 WHERE id = $1 AND user_id = $2
+	`, fixture.fileID, legacyUser).Scan(
+		&legacyUserTags,
+		&legacySource,
+		&legacySummary,
+		&legacyIndexStatus,
+	); err != nil {
+		t.Fatalf("load historical v1 imported file: %v", err)
+	}
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT count(*)
+		  FROM file_annotations
+		 WHERE file_id = $1
+	`, fixture.fileID).Scan(&legacyAnnotations); err != nil {
+		t.Fatalf("count historical v1 annotations: %v", err)
+	}
+	if legacySchemaVersion != workspacebundle.SchemaVersionV1 ||
+		!slices.Equal(legacyUserTags, []string{"agent", "reviewed"}) ||
+		string(legacySource) != "{}" ||
+		legacySummary != nil ||
+		legacyIndexStatus != "pending" ||
+		legacyAnnotations != 0 ||
+		len(legacyStore.puts) != 2 {
+		t.Fatalf(
+			"historical v1 state schema=%d tags=%v source=%s summary=%v status=%s annotations=%d puts=%v",
+			legacySchemaVersion,
+			legacyUserTags,
+			legacySource,
+			legacySummary,
+			legacyIndexStatus,
+			legacyAnnotations,
+			legacyStore.puts,
+		)
+	}
+	if _, err := database.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, legacyUser); err != nil {
+		t.Fatalf("remove historical v1 target tenant: %v", err)
 	}
 
 	// If PostgreSQL fails after the blob has been accepted, the transaction
@@ -368,6 +455,117 @@ func TestWorkspaceTransferPostgres(t *testing.T) {
 		failureUser,
 		failureWorkspace,
 	)
+}
+
+type transferZIPEntry struct {
+	header zip.FileHeader
+	data   []byte
+}
+
+func historicalV1Bundle(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatalf("open current bundle for v1 downgrade: %v", err)
+	}
+	entries := make([]transferZIPEntry, 0, len(reader.File))
+	for _, archiveFile := range reader.File {
+		stream, err := archiveFile.Open()
+		if err != nil {
+			t.Fatalf("open bundle entry %s: %v", archiveFile.Name, err)
+		}
+		data, err := io.ReadAll(stream)
+		closeErr := stream.Close()
+		if err != nil {
+			t.Fatalf("read bundle entry %s: %v", archiveFile.Name, err)
+		}
+		if closeErr != nil {
+			t.Fatalf("close bundle entry %s: %v", archiveFile.Name, closeErr)
+		}
+		header := archiveFile.FileHeader
+		header.CompressedSize64 = 0
+		header.UncompressedSize64 = 0
+		header.CRC32 = 0
+		entries = append(entries, transferZIPEntry{header: header, data: data})
+	}
+
+	for index := range entries {
+		switch entries[index].header.Name {
+		case workspacebundle.ManifestPath:
+			var manifest map[string]any
+			if err := json.Unmarshal(entries[index].data, &manifest); err != nil {
+				t.Fatalf("decode current manifest: %v", err)
+			}
+			manifest["schema_version"] = float64(workspacebundle.SchemaVersionV1)
+			manifest["exclusions"] = workspacebundle.ExclusionsV1()
+			entries[index].data, err = json.Marshal(manifest)
+			if err != nil {
+				t.Fatalf("encode historical v1 manifest: %v", err)
+			}
+		case workspacebundle.FilesIndexPath:
+			lines := bytes.Split(
+				bytes.TrimSuffix(entries[index].data, []byte("\n")),
+				[]byte("\n"),
+			)
+			for lineIndex := range lines {
+				var record map[string]any
+				if err := json.Unmarshal(lines[lineIndex], &record); err != nil {
+					t.Fatalf("decode current file record: %v", err)
+				}
+				delete(record, "user_tags")
+				delete(record, "geo")
+				delete(record, "source_metadata")
+				delete(record, "annotations")
+				lines[lineIndex], err = json.Marshal(record)
+				if err != nil {
+					t.Fatalf("encode historical v1 file record: %v", err)
+				}
+			}
+			entries[index].data = append(bytes.Join(lines, []byte("\n")), '\n')
+		}
+	}
+
+	checksumEntries := make([]transferZIPEntry, 0, len(entries)-1)
+	for _, entry := range entries {
+		if entry.header.Name == workspacebundle.ChecksumsPath {
+			continue
+		}
+		checksumEntries = append(checksumEntries, entry)
+	}
+	sort.Slice(checksumEntries, func(left, right int) bool {
+		return checksumEntries[left].header.Name < checksumEntries[right].header.Name
+	})
+	var checksumLines strings.Builder
+	for _, entry := range checksumEntries {
+		fmt.Fprintf(
+			&checksumLines,
+			"%s\t%d\t%s\n",
+			digestBytes(entry.data),
+			len(entry.data),
+			entry.header.Name,
+		)
+	}
+	for index := range entries {
+		if entries[index].header.Name == workspacebundle.ChecksumsPath {
+			entries[index].data = []byte(checksumLines.String())
+		}
+	}
+
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	for _, entry := range entries {
+		stream, err := writer.CreateHeader(&entry.header)
+		if err != nil {
+			t.Fatalf("create historical v1 entry %s: %v", entry.header.Name, err)
+		}
+		if _, err := stream.Write(entry.data); err != nil {
+			t.Fatalf("write historical v1 entry %s: %v", entry.header.Name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close historical v1 bundle: %v", err)
+	}
+	return output.Bytes()
 }
 
 type transferFixture struct {

@@ -27,8 +27,8 @@ The project is not yet publishing stable semantic-versioned releases.
   selection, pinned Ollama artifact integrity, and separate activation.
 - Provenance-aware asynchronous file enrichment: bounded phone/device capture
   time and location, sanitized EXIF/media observations, reviewable AI
-  description/tag suggestions, API/Web accept/reject controls, portable
-  decisions, and provenance-aware CLI/MCP upload adapters.
+  description/tag suggestions, API/Web/CLI/MCP accept/reject controls,
+  portable decisions, and provenance-aware CLI/MCP upload adapters.
 - Workspace bundle v2 enrichment provenance with strict stable-key/source
   projection validation and read compatibility for historical v1 archives.
 - Versioned `mem.handoff` v1 checkpoints, optimistic head comparison,
@@ -109,6 +109,9 @@ The project is not yet publishing stable semantic-versioned releases.
 - Reject hidden-reasoning wrappers, nested JSON-like model values, raw
   provider errors, and malformed processor facts at Worker, server, database,
   and workspace-bundle boundaries.
+- Remove accepted model tags from the legacy effective projection before an
+  enrichment downgrade, preventing a later re-up from reclassifying them as
+  user-authored tags.
 - Exclude credentials, tokens, provider secrets, runtime state and derived
   indexes from workspace bundles; carry only hashed memory idempotency keys.
 - Bound transfer time, archive bytes, expanded metadata/records and concurrent
@@ -136,6 +139,10 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Fixed
 
+- Keep rejected/superseded AI descriptions out of file detail, visual-search
+  snippets, and workspace bundle projections; serialize same-file index runs
+  and preserve the last usable text embedding when a partial retry produces no
+  replacement.
 - Preserve uploaded workspace objects after an indeterminate database commit
   and expose a stable `503` recovery contract requiring the exact same bundle.
 - Serialized folder prefix mutations with folder, file, memory and checkpoint

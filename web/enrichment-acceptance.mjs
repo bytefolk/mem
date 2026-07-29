@@ -182,6 +182,18 @@ try {
   const effectiveValues = page.locator('[aria-labelledby="effective-values-heading"]');
   await effectiveValues.getByText(description, { exact: true }).waitFor();
   await page.getByTestId(`annotation-${descriptionID}`).waitFor({ state: 'detached' });
+  assert.equal(
+    await effectiveValues.getByText(description, { exact: true }).count(),
+    1,
+    'accepted description must render once in the effective projection',
+  );
+  assert.equal(
+    await page
+      .locator('[aria-label="Raw AI observation (unconfirmed)"]')
+      .count(),
+    0,
+    'accepted description must not also render as an unconfirmed caption',
+  );
   console.log('✓ accepting a description updates the effective projection');
 
   await page
@@ -278,12 +290,60 @@ try {
     );
   });
   assert.deepEqual(nullSourceMetadataStatuses, Array(8).fill(400));
+  const invisibleSourceMetadataStatuses = await page.evaluate(async () => {
+    const candidates = [
+      { source_name: 'phone\u200bsync' },
+      { source_name: 'phone\u034fsync' },
+      { location: { lat: 31, lon: 121, label: 'home\ufe0f' } },
+    ];
+    return Promise.all(
+      candidates.map(async (sourceMetadata, index) => {
+        const form = new FormData();
+        form.append(
+          'file',
+          new File(['invisible metadata'], `invisible-source-${index}.txt`, {
+            type: 'text/plain',
+          }),
+        );
+        form.append('name', `invisible-source-${index}.txt`);
+        form.append('path', '/');
+        form.append('source_metadata', JSON.stringify(sourceMetadata));
+        const response = await fetch('/v1/files', { method: 'POST', body: form });
+        return response.status;
+      }),
+    );
+  });
+  assert.deepEqual(invisibleSourceMetadataStatuses, Array(3).fill(400));
   console.log('✓ browser upload and strict source metadata contract match the API');
+
+  await page.goto(`${baseURL}/files/empty-enrichment-e2e`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.getByText('No suggestions awaiting review', { exact: true }).waitFor();
+  assert.equal(await page.locator('[data-testid^="annotation-"]').count(), 0);
+  const emptyDetail = await readJSON(page, '/v1/files/empty-enrichment-e2e');
+  assert.equal(emptyDetail.status, 200);
+  assert.equal(emptyDetail.body.index_status, 'done');
+  assert.deepEqual(emptyDetail.body.annotations, []);
+  console.log('✓ a completed empty enrichment is distinct from processing and failure');
+
+  await page.goto(`${baseURL}/files/offline-enrichment-e2e`, {
+    waitUntil: 'domcontentloaded',
+  });
+  await page.getByText('Could not load file', { exact: true }).waitFor();
+  await page
+    .getByText('This is not an empty result. Check the network or service, then retry.', {
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(await page.getByText('No suggestions awaiting review', { exact: true }).count(), 0);
+  console.log('✓ an offline detail request is visible and never rendered as an empty result');
 
   const unexpectedConsoleErrors = consoleErrors.filter(
     (message) =>
       !message.includes('server responded with a status of 409 (Conflict)') &&
-      !message.includes('server responded with a status of 400 (Bad Request)'),
+      !message.includes('server responded with a status of 400 (Bad Request)') &&
+      !message.includes('net::ERR_FAILED'),
   );
   assert.deepEqual(pageErrors, [], `page errors: ${pageErrors.join('\n')}`);
   assert.deepEqual(

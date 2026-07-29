@@ -140,7 +140,9 @@ marker before it can drop anything. The control role therefore needs
    the declared head;
 2. asserts the current privacy, enrichment and managed-entitlement schema,
    performs the explicit `15 → 11 → 15`
-   rollback round trip, and asserts both intermediate schema states;
+   rollback round trip, asserts both intermediate schema states, and proves
+   accepted model tags are removed before provenance disappears rather than
+   being copied into `user_tags` on re-up;
 3. creates separate fresh databases for normal and race runs, then executes
    the real PostgreSQL memory, handoff, workspace-transfer, HTTP-router,
    folder/file path-locking, folder-lifecycle, relator, managed-entitlement,
@@ -337,6 +339,7 @@ Use this table in pull requests and add implementation-specific scenarios:
 | V8 | Five config shapes and the real adapter preserve the host-neutral MCP contract | `MEM_MCP_CERT_BINARY=... make test-agent-certification` | All fixtures and current-adapter scenarios pass with no skip |
 | V9 | Multilingual visual quality meets the chosen checkpoint | Opt-in command in section 7 | All fixed ranking assertions pass |
 | V10 | Offline recall math, determinism and source boundaries hold | `make test-recall` | Unit checks pass; two lexical artifacts differ only by timestamp; malicious fixture is rejected |
+| V11 | CLI and MCP file-annotation review delegate to the canonical typed HTTP client | `(cd server && go test ./internal/apiclient ./internal/tools/builtin ./cmd/mem)` | Accept/reject request shapes, auth/workspace forwarding, local validation and conflict propagation pass |
 
 ## 10. Known limitations
 

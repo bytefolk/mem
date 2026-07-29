@@ -1,6 +1,7 @@
 package workspacebundle
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -129,6 +130,48 @@ func TestValidateFileEnrichmentState(t *testing.T) {
 		})
 	}
 
+	for _, test := range []struct {
+		name     string
+		metadata map[string]any
+		path     string
+	}{
+		{
+			"source name format character",
+			map[string]any{"source_name": "phone\u200bsync"},
+			"source_metadata.source_name",
+		},
+		{
+			"source name default ignorable",
+			map[string]any{"source_name": "phone\u034fsync"},
+			"source_metadata.source_name",
+		},
+		{
+			"location label variation selector",
+			map[string]any{
+				"location": map[string]any{
+					"label": "home\ufe0f",
+					"lat":   31.2304,
+					"lon":   121.4737,
+				},
+			},
+			"source_metadata.location.label",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			broken := validFixture(t)
+			raw, err := json.Marshal(test.metadata)
+			if err != nil {
+				t.Fatalf("marshal source metadata fixture: %v", err)
+			}
+			broken.Files[0].SourceMetadata = raw
+			err = Validate(broken.BundleData, ValidationOptions{})
+			if !errors.Is(err, ErrInvalidBundle) ||
+				!strings.Contains(err.Error(), test.path+" is invalid") {
+				t.Fatalf("Validate error = %v, want ErrInvalidBundle for %s", err, test.path)
+			}
+		})
+	}
+
 	t.Run("effective tag injected without provenance", func(t *testing.T) {
 		broken := validFixture(t)
 		broken.Files[0].Tags = append(broken.Files[0].Tags, "injected")
@@ -151,6 +194,16 @@ func TestValidateFileEnrichmentState(t *testing.T) {
 		broken := validFixture(t)
 		value := "unreviewed injected summary"
 		broken.Files[0].Summary = &value
+		err := Validate(broken.BundleData, ValidationOptions{})
+		if !errors.Is(err, ErrIntegrity) {
+			t.Fatalf("Validate error = %v, want ErrIntegrity", err)
+		}
+	})
+
+	t.Run("caption injected without reviewable description", func(t *testing.T) {
+		broken := validFixture(t)
+		value := "unreviewed injected caption"
+		broken.Files[0].Caption = &value
 		err := Validate(broken.BundleData, ValidationOptions{})
 		if !errors.Is(err, ErrIntegrity) {
 			t.Fatalf("Validate error = %v, want ErrIntegrity", err)

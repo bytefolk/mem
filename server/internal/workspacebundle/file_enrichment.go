@@ -13,6 +13,7 @@ type FileEnrichmentProjection struct {
 	UserTags []string
 	Tags     []string
 	Summary  *string
+	Caption  *string
 	Legacy   bool
 }
 
@@ -26,6 +27,7 @@ func DeriveFileEnrichmentProjection(record FileRecord) FileEnrichmentProjection 
 		return FileEnrichmentProjection{
 			UserTags: legacyTags,
 			Tags:     append([]string{}, legacyTags...),
+			Caption:  record.Caption,
 			Legacy:   true,
 		}
 	}
@@ -77,10 +79,37 @@ func DeriveFileEnrichmentProjection(record FileRecord) FileEnrichmentProjection 
 		value := acceptedDescriptions[0].ValueText
 		summary = &value
 	}
+	caption := summary
+	if caption == nil {
+		pendingDescriptions := make([]FileAnnotationRecord, 0)
+		for _, annotation := range record.Annotations {
+			if annotation.Kind == "description" && annotation.Status == "pending" {
+				pendingDescriptions = append(pendingDescriptions, annotation)
+			}
+		}
+		sort.Slice(pendingDescriptions, func(i, j int) bool {
+			left, right := pendingDescriptions[i], pendingDescriptions[j]
+			if comparison := left.UpdatedAt.Compare(right.UpdatedAt); comparison != 0 {
+				return comparison > 0
+			}
+			if left.Confidence != right.Confidence {
+				return left.Confidence > right.Confidence
+			}
+			if comparison := left.CreatedAt.Compare(right.CreatedAt); comparison != 0 {
+				return comparison > 0
+			}
+			return left.ID.String() > right.ID.String()
+		})
+		if len(pendingDescriptions) > 0 {
+			value := pendingDescriptions[0].ValueText
+			caption = &value
+		}
+	}
 	return FileEnrichmentProjection{
 		UserTags: userTags,
 		Tags:     effectiveTags,
 		Summary:  summary,
+		Caption:  caption,
 		Legacy:   false,
 	}
 }

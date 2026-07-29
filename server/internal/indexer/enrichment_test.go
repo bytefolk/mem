@@ -420,6 +420,7 @@ func TestParseWorkerEnrichmentTreatsUnknownWorkerStatusAsPartial(t *testing.T) {
 func TestParseWorkerEnrichmentConvertsLegacyWorkerOutputToPendingSuggestions(t *testing.T) {
 	response := &workerpb.ProcessResponse{
 		Summary:   "Short description",
+		Caption:   "Short description",
 		Tags:      []string{"Travel", "Travel", "Shanghai"},
 		Processor: "text",
 		Status:    workerpb.ProcessStatus_STATUS_OK,
@@ -427,6 +428,12 @@ func TestParseWorkerEnrichmentConvertsLegacyWorkerOutputToPendingSuggestions(t *
 	enrichment := parseWorkerEnrichment(response)
 	if len(enrichment.Annotations) != 3 {
 		t.Fatalf("legacy annotations = %#v", enrichment.Annotations)
+	}
+	if !enrichment.CaptionSet ||
+		!enrichment.CaptionFromReview ||
+		enrichment.Caption == nil ||
+		*enrichment.Caption != "Short description" {
+		t.Fatalf("legacy caption projection = %#v", enrichment)
 	}
 	for _, annotation := range enrichment.Annotations {
 		if annotation.Source != "model" ||
@@ -454,6 +461,7 @@ func TestParseWorkerEnrichmentDerivesBoundedCaptionFromStructuredDescription(t *
 	}
 	enrichment := parseWorkerEnrichment(response)
 	if !enrichment.CaptionSet ||
+		!enrichment.CaptionFromReview ||
 		enrichment.Caption == nil ||
 		*enrichment.Caption != "A reviewed-size description" ||
 		!enrichment.Partial {

@@ -34,6 +34,21 @@ func TestNormalizePlainRejectsUnsafeModelOutput(t *testing.T) {
 		normalized != "A plain observation." {
 		t.Fatalf("NormalizePlain safe = %q, %t", normalized, ok)
 	}
+
+	boundary := strings.Repeat("x", 2000)
+	if !Valid(" \u00a0"+boundary+"\u3000 ", 2000, false) {
+		t.Fatal("Valid rejected a trimmed value at the persistence boundary")
+	}
+	if normalized, ok := NormalizePlain(" \u00a0"+boundary+"\u3000 ", 2000); !ok ||
+		normalized != boundary {
+		t.Fatalf("NormalizePlain trimmed boundary length = %d, %t", len([]rune(normalized)), ok)
+	}
+	if normalized, ok := NormalizePlain(" "+boundary+"x ", 2000); ok {
+		t.Fatalf("NormalizePlain overlong trimmed candidate = %q, want rejection", normalized)
+	}
+	if normalized, ok := NormalizePlain("\n"+boundary, 2000); ok {
+		t.Fatalf("NormalizePlain raw control prefix = %q, want rejection", normalized)
+	}
 }
 
 func TestValidRejectsReasoningAndFormatCharactersButAllowsStructuredLookingValues(t *testing.T) {
