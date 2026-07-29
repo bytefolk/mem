@@ -288,12 +288,20 @@ class ImageProcessor:
                             confidence=d.confidence,
                         )
                     )
-        except RuntimeError as exc:
+        except RuntimeError:
             # insightface missing or model load failed — log and continue.
-            log.warning("image.face_skipped", file_id=file.file_id, error=str(exc))
-        except Exception as exc:  # noqa: BLE001 — last-line defense
-            log.exception("image.face_unexpected", file_id=file.file_id)
-            result.metadata["face_error"] = str(exc)
+            log.warning(
+                "image.face_skipped",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+        except Exception:  # noqa: BLE001 — last-line defense must stay redacted
+            log.error(
+                "image.face_unexpected",
+                file_id=file.file_id,
+                error=PROVIDER_ERROR_MARKER,
+            )
+            result.metadata["face_error"] = PROVIDER_ERROR_MARKER
 
         return result
 

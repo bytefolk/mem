@@ -10,6 +10,7 @@ import io
 
 import pytest
 from PIL import Image
+from structlog.testing import capture_logs
 
 from mem_worker.processors.base import FileRef
 from mem_worker.processors.image import ImageProcessor
@@ -84,6 +85,14 @@ class CaptionOnlyProvider:
     def embed_text(self, texts: list[str]) -> list[list[float]]:
         self.text_calls.append(list(texts))
         return [list(self.vector) for _ in texts]
+
+
+class FailingFaceAnalyzer:
+    def __init__(self, error: Exception):
+        self.error = error
+
+    def detect(self, _image: bytes):
+        raise self.error
 
 
 @pytest.fixture(autouse=True)
@@ -211,3 +220,42 @@ def test_visual_provider_failure_degrades_without_aborting_image_processing(
     assert "visual" not in result.embeddings
     assert result.metadata["embed_error"] == "provider_unavailable"
     assert str(failure) not in repr(result.metadata)
+
+
+@pytest.mark.parametrize(
+    ("failure", "want_metadata"),
+    [
+        pytest.param(
+            RuntimeError("private face model path"),
+            False,
+            id="optional-provider-unavailable",
+        ),
+        pytest.param(
+            ValueError("private face provider response"),
+            True,
+            id="unexpected-provider-error",
+        ),
+    ],
+)
+def test_face_provider_failure_never_leaks_raw_error(
+    monkeypatch,
+    failure: Exception,
+    want_metadata: bool,
+):
+    monkeypatch.setattr(
+        "mem_worker.providers.face.default_analyzer",
+        lambda: FailingFaceAnalyzer(failure),
+    )
+
+    with capture_logs() as logs:
+        result = ImageProcessor(
+            vlm=FakeVLM(),
+            embedder=FakeVisualProvider(),
+        ).process(_file(_png_bytes()))
+
+    assert str(failure) not in repr(logs)
+    assert str(failure) not in repr(result.metadata)
+    if want_metadata:
+        assert result.metadata["face_error"] == "provider_unavailable"
+    else:
+        assert "face_error" not in result.metadata
