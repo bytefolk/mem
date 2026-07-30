@@ -1,10 +1,12 @@
 name: mem
 
+x-database-url: &database-url postgres://mem:${MEM_POSTGRES_PASSWORD:?set MEM_POSTGRES_PASSWORD}@postgres:5432/mem?sslmode=disable
+
 x-server-environment: &server-environment
   MEM_RUNTIME_PROFILE: production
   MEM_HTTP_ADDR: :8080
   MEM_AUTO_MIGRATE: "false"
-  MEM_DB_URL: postgres://mem:${MEM_POSTGRES_PASSWORD:?set MEM_POSTGRES_PASSWORD}@postgres:5432/mem?sslmode=disable
+  MEM_DB_URL: *database-url
   MEM_REDIS_URL: redis://:${MEM_REDIS_PASSWORD:?set MEM_REDIS_PASSWORD}@redis:6379/0
   MEM_S3_ENDPOINT: http://minio:9000
   MEM_S3_REGION: us-east-1
@@ -137,7 +139,7 @@ services:
         condition: service_healthy
     entrypoint: ["/usr/local/bin/mem-migrate"]
     environment:
-      MEM_DB_URL: postgres://mem:${MEM_POSTGRES_PASSWORD:?set MEM_POSTGRES_PASSWORD}@postgres:5432/mem?sslmode=disable
+      MEM_DB_URL: *database-url
     networks:
       - backend
 

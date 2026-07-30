@@ -25,9 +25,10 @@ provider or any API key. The Web acceptance tests use MSW fixtures. Worker
 tests use fakes except for the explicitly opt-in visual-model evaluation.
 
 The two checked-in workflows have distinct responsibilities. `ci.yml` owns
-component build, lint, unit/race, generated-protobuf, coverage, and release
-artifact checks. `memory-validation.yml` owns repository metadata, browser
-acceptance, owned-database migrations, and process-level HTTP/CLI/MCP
+component build, lint, unit/race, generated-protobuf, coverage, release
+artifact checks, and production Compose/Helm/image validation.
+`memory-validation.yml` owns repository metadata, deployment-script lint,
+browser acceptance, owned-database migrations, and process-level HTTP/CLI/MCP
 acceptance. Their shared toolchain and service versions must stay aligned.
 Database tests intentionally overlap where artifact production and the
 Agent-memory contract need independent evidence.
@@ -72,7 +73,7 @@ make test-race
 - `go build ./...`, `go vet ./...` and uncached `go test ./...`;
 - Worker `pytest` through the locked `uv` environment;
 - Web typecheck, ESLint, production build;
-- the File Enrichment, Memory, and Workspace Transfer browser acceptance suites.
+- the Localization, File Enrichment, Memory, and Workspace Transfer browser acceptance suites.
 
 `make test-race` executes the high-risk Go file/folder path-locking, memory,
 handoff, transfer, API, client, tool, CLI, and MCP packages with the race
@@ -122,7 +123,9 @@ make test-deploy-build
 Expected result: the images build successfully and the final line is
 `PASS: production Compose and Helm deployment validation`. These checks render
 configuration only; they do not create a Kubernetes cluster or mutate a
-production environment.
+production environment. The `Deployment profiles` CI job runs
+`make test-deploy-build` on every pull request and `main` push so Compose,
+Helm, and all three production Dockerfiles remain continuously enforced.
 
 ## 4. Disposable PostgreSQL environment
 
@@ -374,7 +377,7 @@ Use this table in pull requests and add implementation-specific scenarios:
 | --- | --- | --- | --- |
 | V1 | Server, CLI and MCP build and preserve unit contracts | `make test-server` | Exit `0`; no skipped DB claim |
 | V2 | Worker processing regressions remain hermetic | `make test-worker` | Exit `0`; real-model gate explicitly skipped |
-| V3 | Enrichment, memory, transfer and managed-embedding control surfaces work in a browser | `make test-web` | Typecheck/lint/build, all three browser acceptance suites and managed status mapping pass |
+| V3 | Localization, enrichment, memory, transfer and managed-embedding control surfaces work in a browser | `make test-web` | Typecheck/lint/build, all four browser acceptance suites, the localization audit and managed status mapping pass |
 | V4 | High-risk Go paths are race-free | `make test-race` | Exit `0`; no data-race warning |
 | V5 | Fresh schema, rollback and PostgreSQL semantics hold | `make test-integration` | Migration head and sixteen named tests pass, none skipped |
 | V6 | DB concurrency paths are race-free | `make test-integration-race` | The same sixteen tests pass under `-race` |
@@ -396,7 +399,7 @@ Use this table in pull requests and add implementation-specific scenarios:
   cleanup is `NOT VERIFIED`.
 - `web/acceptance.mjs` and `web/e2e-smoke.mjs` are legacy, environment-specific
   manual scripts. The standard portable Web gates are
-  `npm run test:enrichment`, `npm run test:memory`, and
+  `npm run test:i18n`, `npm run test:enrichment`, `npm run test:memory`, and
   `npm run test:transfer`.
 - Migration downgrade proves DDL behavior on disposable data. It is not a
   promise that privacy-redacted payloads or discarded identifiers can be

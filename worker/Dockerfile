@@ -35,20 +35,14 @@ RUN set -eu; set -f; extra_args=""; old_ifs="${IFS}"; IFS=,; \
       esac; \
     done; \
     IFS="${old_ifs}"; \
+    printf '%s\n' "${extra_args}" >/tmp/worker-extra-args; \
     uv sync --frozen --no-dev --no-install-project ${extra_args}
 
 # Copy the actual source + proto and install the project without re-resolving.
 COPY proto/ ./proto/
 COPY mem_worker/ ./mem_worker/
 COPY Makefile README.md ./
-RUN set -eu; set -f; extra_args=""; old_ifs="${IFS}"; IFS=,; \
-    for extra in ${WORKER_EXTRAS}; do \
-      case "${extra}" in \
-        asr|clip|face) extra_args="${extra_args} --extra ${extra}" ;; \
-        *) echo "WORKER_EXTRAS accepts only comma-separated asr, clip, and face" >&2; exit 2 ;; \
-      esac; \
-    done; \
-    IFS="${old_ifs}"; \
+RUN extra_args=$(cat /tmp/worker-extra-args); \
     uv sync --frozen --no-dev ${extra_args}
 
 # Generate gRPC stubs (output lives inside mem_worker/proto/).

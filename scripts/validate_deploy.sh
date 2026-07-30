@@ -34,11 +34,12 @@ if not backend.get("internal"):
     raise SystemExit("the single-node backend network must be internal")
 PY
 
-if rg -n '(^|[[:space:]])(FROM|image:|--from=)[^#]*:latest([[:space:]]|$)' \
+if grep -En '(^|[[:space:]])(FROM|image:|--from=)[^#]*:latest([[:space:]]|$)' \
   "$repo_root/server/Dockerfile" \
   "$repo_root/worker/Dockerfile" \
-  "$repo_root/web/Dockerfile" \
-  "$repo_root/deploy"; then
+  "$repo_root/web/Dockerfile" ||
+  grep -REn '(^|[[:space:]])(FROM|image:|--from=)[^#]*:latest([[:space:]]|$)' \
+    "$repo_root/deploy"; then
   echo "mutable latest image tag found in production deployment files" >&2
   exit 1
 fi
