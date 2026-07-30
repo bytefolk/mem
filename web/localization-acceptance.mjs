@@ -159,6 +159,19 @@ try {
   });
   console.log('✓ runtime switch updates all provider chrome and persists Chinese');
 
+  await page.evaluate(() => localStorage.setItem('mem.token', 'mock-managed-embedding-500'));
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  const entitlementError = page.getByTestId('managed-embedding-entitlement-error');
+  await entitlementError.waitFor();
+  const entitlementErrorText = await entitlementError.textContent();
+  assert.match(
+    entitlementErrorText ?? '',
+    /无法加载 Embedding 状态: 请重试，或使用本地 \/ BYOM Provider。/,
+  );
+  assert.doesNotMatch(entitlementErrorText ?? '', /Try again or use a local\/BYOM provider\./);
+  await page.evaluate(() => localStorage.setItem('mem.token', 'mock-e2e-token'));
+  console.log('✓ unknown managed-embedding errors use the selected locale');
+
   await page.goto(`${baseURL}/search`, { waitUntil: 'domcontentloaded' });
   await page.getByRole('heading', { name: '搜索' }).waitFor();
   await page.getByRole('button', { name: '草地上的金毛' }).waitFor();

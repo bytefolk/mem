@@ -1546,8 +1546,11 @@ export const handlers = [
       ],
     });
   }),
-  http.get(`${BASE}/entitlements/current`, async () => {
+  http.get(`${BASE}/entitlements/current`, async ({ request }) => {
     await jitter(60, 120);
+    if (mockToken(request) === 'mock-managed-embedding-500') {
+      return HttpResponse.json({ error: 'managed_embedding_unavailable' }, { status: 500 });
+    }
     return HttpResponse.json({
       deployment_mode: 'saas',
       commercial_gate: true,

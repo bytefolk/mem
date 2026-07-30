@@ -344,8 +344,8 @@ function localizedManagedError(
   const presentation = presentManagedEmbeddingError(error);
   const title = t(`providers.error.${presentation.kind}.title`);
   const message =
-    presentation.kind === 'unknown' && error instanceof Error
-      ? presentation.message
+    presentation.kind === 'unknown' && presentation.hint
+      ? presentation.hint
       : t(`providers.error.${presentation.kind}.message`);
   return `${title}: ${message}`;
 }
