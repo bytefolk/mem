@@ -9,6 +9,12 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Added
 
+- Production deployment profiles: a secret-generated, loopback-only
+  single-node Compose stack for Web, memd, Worker, PostgreSQL, Redis and MinIO;
+  a multi-node Helm chart with external state services, single-run migration,
+  probes, disruption/topology controls, optional HPA/Ingress, NetworkPolicy and
+  existing-Secret integration; model-free Worker images with ASR/CLIP/face
+  extras opt-in; plus backup/restore and operations guidance.
 - Server-owned, workspace-scoped AI profiles: an offline-first
   `local-fast-v2` fixed to Ollama Qwen3 Embedding 0.6B at 768 dimensions, and
   a SaaS-only `idealab-quality-v2` fixed to an explicitly bound Idealab
@@ -121,6 +127,10 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Security
 
+- Fail closed in production on development state-service credentials,
+  automatic per-replica migrations, open registration, wildcard CORS or an
+  unauthenticated Worker; serve the production Web bundle without a
+  third-party font request.
 - Make profile IDs the only client-selectable AI-routing input: reject model,
   endpoint, credential, and stale-profile injection; validate 768-dimensional
   embedding responses; reserve managed usage before a declared paid stage; and

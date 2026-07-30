@@ -94,6 +94,36 @@ make test-worker
 make test-web
 ```
 
+## 3.1 Production deployment assets
+
+Validate the single-node Compose graph and the default, production and
+Worker-disabled Helm renders:
+
+```bash
+make test-deploy
+```
+
+This fails when a stateful/internal service publishes a host port, the Compose
+backend is not isolated, a production deployment file uses a mutable `latest`
+tag, the Helm schema accepts `latest`, the Helm chart fails
+schema/lint/template validation, disabling Worker still renders Worker
+resources, or the production render omits its deployment, migration,
+disruption, network, ingress or autoscaling resources. When a local `helm`
+binary is unavailable, the script uses the pinned `alpine/helm:3.17.1`
+container.
+
+Build all three first-party production images as an additional clean-checkout
+gate:
+
+```bash
+make test-deploy-build
+```
+
+Expected result: the images build successfully and the final line is
+`PASS: production Compose and Helm deployment validation`. These checks render
+configuration only; they do not create a Kubernetes cluster or mutate a
+production environment.
+
 ## 4. Disposable PostgreSQL environment
 
 Start the isolated test database:

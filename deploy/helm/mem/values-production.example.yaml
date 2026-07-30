@@ -1,0 +1,53 @@
+# Example only. Use immutable tags or digests from your own registry.
+images:
+  server:
+    repository: registry.example.internal/mem/server
+    tag: "0.1.0"
+  worker:
+    repository: registry.example.internal/mem/worker
+    tag: "0.1.0"
+  web:
+    repository: registry.example.internal/mem/web
+    tag: "0.1.0"
+
+existingSecret: mem-runtime
+
+runtime:
+  deploymentMode: private
+  registrationMode: first_user
+  aiProfiles: local-fast-v2
+
+ingress:
+  enabled: true
+  className: nginx
+  host: mem.example.com
+  tls:
+    enabled: true
+    secretName: mem-tls
+
+# NetworkPolicy cannot select a DNS name. Replace these documentation ranges
+# with the exact routable CIDRs for PostgreSQL, Redis, S3, and optional model
+# endpoints before production use.
+networkPolicy:
+  externalEgressCIDRs:
+    - 192.0.2.10/32
+    - 198.51.100.0/24
+
+# HPA needs metrics-server. Keep at least two replicas and preserve the PDB.
+memd:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+
+worker:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 16
+
+web:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
