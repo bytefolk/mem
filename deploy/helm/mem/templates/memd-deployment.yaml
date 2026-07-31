@@ -10,11 +10,10 @@ spec:
   replicas: {{ .Values.memd.replicaCount }}
   {{- end }}
   revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  # memd uses process-local indexing coordination until issue #55. Recreate
+  # prevents old and new pods from overlapping during a rollout.
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   selector:
     matchLabels:
       {{- include "mem.componentLabels" (dict "root" . "component" "memd") | nindent 6 }}

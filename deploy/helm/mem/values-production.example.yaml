@@ -33,13 +33,15 @@ networkPolicy:
     - 192.0.2.10/32
     - 198.51.100.0/24
 
-# HPA needs metrics-server. Keep at least two replicas and preserve the PDB.
+# memd coordinates indexing and embedding-provider switches in process. Keep
+# one replica and autoscaling disabled until issue #55 is complete.
 memd:
+  replicaCount: 1
   autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 8
+    enabled: false
 
+# HPA needs metrics-server. Keep at least two Web and Worker replicas and
+# preserve their PDBs.
 worker:
   autoscaling:
     enabled: true

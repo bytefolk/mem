@@ -14,5 +14,7 @@ For a local smoke check:
 
 The database migration runs once as a Helm pre-install/pre-upgrade hook.
 Runtime secrets are read from the existing Secret {{ .Values.existingSecret | quote }}.
+Keep memd at one replica with autoscaling disabled until the cross-replica
+index-generation work tracked by issue #55 is complete.
 Do not expose this deployment to the public Internet until the hosted auth
 requirements tracked by issue #65 are implemented.

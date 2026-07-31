@@ -11,11 +11,12 @@ The project is not yet publishing stable semantic-versioned releases.
 
 - Production deployment profiles: a secret-generated, loopback-only
   single-node Compose stack for Web, memd, Worker, PostgreSQL, Redis and MinIO;
-  a multi-node Helm chart with external state services, single-run migration,
-  probes, disruption/topology controls, optional HPA/Ingress, NetworkPolicy and
-  existing-Secret integration; model-free Worker images with ASR/CLIP/face
-  extras opt-in; plus backup/restore, operations guidance and continuous
-  Compose/Helm/production-image validation in CI.
+  a multi-node Helm chart with horizontally scalable Web/Worker, single-replica
+  non-overlapping memd rollouts, external state services, single-run migration,
+  probes, disruption/topology controls, optional Web/Worker HPA and Ingress,
+  NetworkPolicy and existing-Secret integration; model-free Worker images with
+  ASR/CLIP/face extras opt-in; plus backup/restore, operations guidance and
+  continuous Compose/Helm/production-image validation in CI.
 - Complete Web Chinese/English localization with a persisted runtime selector,
   locale-aware metadata and display formatting, dictionary parity and
   hard-coded-prose auditing, and bilingual browser acceptance coverage.

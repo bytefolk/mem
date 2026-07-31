@@ -2,7 +2,7 @@
 
 This document defines the supported production deployment shapes for `mem`.
 Both profiles use the same first-party images and runtime contract; they differ
-only in where stateful dependencies run and how stateless workloads scale.
+only in where stateful dependencies run and which workloads can scale.
 
 > [!IMPORTANT]
 > The deployment assets are suitable for private self-hosting. Do not expose a
@@ -18,7 +18,7 @@ only in where stateful dependencies run and how stateless workloads scale.
 | Profile | Application workloads | PostgreSQL / Redis / objects | Use when |
 | --- | --- | --- | --- |
 | Single-node Compose | Web, memd, Worker and one-shot migration on one Linux host | Local containers with named volumes | A personal, team, edge or evaluation installation where simple recovery matters more than node HA |
-| Multi-node Helm | Replicated Web, memd and Worker on Kubernetes | External PostgreSQL, Redis and S3-compatible storage | A private platform or future hosted service that needs independent scaling and node-failure tolerance |
+| Multi-node Helm | Replicated Web and Worker plus one memd on Kubernetes | External PostgreSQL, Redis and S3-compatible storage | A private platform or future hosted service that needs Web/Worker scaling and node-failure tolerance |
 
 The Helm chart intentionally does not install PostgreSQL, Redis, MinIO or their
 operators. Stateful HA has a different failure, upgrade and backup lifecycle;
@@ -47,7 +47,7 @@ The production runtime fails closed when it sees development defaults:
 - `MEM_REGISTRATION_MODE=first_user` or `disabled`, never `open`;
 - a 32-byte HMAC key when a Worker is enabled;
 - no wildcard CORS origin;
-- `MEM_AUTO_MIGRATE=false` on every long-running memd replica.
+- `MEM_AUTO_MIGRATE=false` on the long-running memd instance.
 
 Only the Web edge is exposed. PostgreSQL, Redis, object storage, memd and the
 Worker stay on private networks. Web proxies `/v1/` to memd on the same origin,
@@ -342,12 +342,13 @@ helm upgrade --install mem deploy/helm/mem \
 
 The chart creates:
 
-- two replicas each of Web, memd and Worker by default;
+- two replicas each of Web and Worker, plus one memd, by default;
 - ClusterIP services only;
 - a pre-install/pre-upgrade migration Job;
 - liveness/readiness probes and non-root, read-only containers;
-- topology-spread constraints, PDBs and rolling-update safeguards;
-- optional HPA resources;
+- topology-spread constraints, PDBs, rolling updates for Web/Worker and
+  non-overlapping memd replacement;
+- optional HPA resources for Web and Worker;
 - an optional TLS Ingress;
 - default-deny NetworkPolicies with explicit workload paths.
 
@@ -388,8 +389,15 @@ CNI because provider-specific policy semantics can differ.
 
 ### Scaling and availability
 
-Web and memd are stateless and can scale horizontally. Worker replicas share
-the Redis replay boundary and object store. The migration stays single-run.
+Web and Worker can scale horizontally. Worker replicas share the Redis replay
+boundary and object store. memd must stay at one replica and uses a `Recreate`
+rollout so old and new pods never overlap: its indexing and embedding-provider
+switch coordination is process-local. Keep `memd.replicaCount=1` and
+`memd.autoscaling.enabled=false` until
+[issue #55](https://github.com/fullstack-ai-infra/mem/issues/55) provides
+cross-replica index generations. `Recreate` trades availability for correctness:
+plan a brief memd API interruption during upgrades. The migration stays
+single-run.
 
 Default topology spread is soft (`ScheduleAnyway`) so a small cluster can still
 start. For a strict multi-zone production cluster, add zone-aware affinity or
@@ -430,7 +438,9 @@ workloads so environment variables are refreshed.
 The hosted service should reuse the multi-node topology, not the single-node
 Compose profile:
 
-- replicated Web/memd/Worker across failure domains;
+- replicated Web and Worker across failure domains; keep one memd until
+  [issue #55](https://github.com/fullstack-ai-infra/mem/issues/55) enables
+  safe cross-replica indexing;
 - external HA PostgreSQL, Redis and S3;
 - managed secrets and immutable images;
 - TLS ingress, rate limiting, WAF/abuse controls and tenant-aware observability;

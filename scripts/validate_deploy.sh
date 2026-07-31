@@ -64,7 +64,6 @@ run_helm template mem deploy/helm/mem \
   --kube-version 1.28.0 \
   --values deploy/helm/mem/values-production.example.yaml \
   --set ingress.enabled=true \
-  --set memd.autoscaling.enabled=true \
   --set worker.autoscaling.enabled=true \
   --set web.autoscaling.enabled=true >"$tmp_dir/production.yaml"
 run_helm template mem deploy/helm/mem \
@@ -83,6 +82,58 @@ if run_helm template mem deploy/helm/mem \
   echo "Helm schema accepted the mutable latest image tag" >&2
   exit 1
 fi
+
+python3 - "$tmp_dir/default.yaml" "$tmp_dir/production.yaml" <<'PY'
+import re
+import sys
+
+
+def documents(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read().split("\n---\n")
+
+
+def component_document(items, kind, component):
+    matches = [
+        item
+        for item in items
+        if re.search(rf"(?m)^kind: {re.escape(kind)}$", item)
+        and re.search(
+            rf"(?m)^[ \t]+app\.kubernetes\.io/component: {re.escape(component)}$",
+            item,
+        )
+    ]
+    if len(matches) != 1:
+        raise SystemExit(
+            f"expected one {component} {kind}, rendered {len(matches)}"
+        )
+    return matches[0]
+
+
+default_documents = documents(sys.argv[1])
+production_documents = documents(sys.argv[2])
+for profile, items in (
+    ("default", default_documents),
+    ("production", production_documents),
+):
+    memd = component_document(items, "Deployment", "memd")
+    if not re.search(r"(?m)^  replicas: 1$", memd):
+        raise SystemExit(
+            f"{profile} memd Deployment must render exactly one replica"
+        )
+    if not re.search(r"(?m)^  strategy:\n    type: Recreate$", memd):
+        raise SystemExit(
+            f"{profile} memd Deployment must use a non-overlapping Recreate rollout"
+        )
+if any(
+    re.search(r"(?m)^kind: HorizontalPodAutoscaler$", item)
+    and re.search(r"(?m)^[ \t]+app\.kubernetes\.io/component: memd$", item)
+    for item in production_documents
+):
+    raise SystemExit("production example must not render a memd HPA")
+component_document(production_documents, "HorizontalPodAutoscaler", "worker")
+component_document(production_documents, "HorizontalPodAutoscaler", "web")
+PY
 
 for kind in Deployment Service Job PodDisruptionBudget NetworkPolicy Ingress HorizontalPodAutoscaler; do
   if ! grep -q "^kind: $kind$" "$tmp_dir/production.yaml"; then

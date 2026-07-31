@@ -109,9 +109,10 @@ backend is not isolated, a production deployment file uses a mutable `latest`
 tag, the Helm schema accepts `latest`, the Helm chart fails
 schema/lint/template validation, disabling Worker still renders Worker
 resources, or the production render omits its deployment, migration,
-disruption, network, ingress or autoscaling resources. When a local `helm`
-binary is unavailable, the script uses the pinned `alpine/helm:3.17.1`
-container.
+disruption, network, ingress or autoscaling resources. It also enforces a
+single-replica, non-overlapping memd rollout and verifies that the production
+example does not enable a memd HPA. When a local `helm` binary is unavailable,
+the script uses the pinned `alpine/helm:3.17.1` container.
 
 Build all three first-party production images as an additional clean-checkout
 gate:
