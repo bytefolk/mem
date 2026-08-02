@@ -209,12 +209,16 @@ func (s *Service) Create(
 		if _, err := tx.Exec(ctx, `
 			UPDATE index_generation_builds
 			   SET state = 'ready', ready_at = $2, updated_at = $2
-			 WHERE id = $1;
+			 WHERE id = $1
+		`, buildID, now); err != nil {
+			return nil, fmt.Errorf("%w: mark empty build ready: %v", ErrUnavailable, err)
+		}
+		if _, err := tx.Exec(ctx, `
 			UPDATE index_generations
 			   SET state = 'ready', updated_at = $2
 			 WHERE build_id = $1
 		`, buildID, now); err != nil {
-			return nil, fmt.Errorf("%w: mark empty build ready: %v", ErrUnavailable, err)
+			return nil, fmt.Errorf("%w: mark empty generations ready: %v", ErrUnavailable, err)
 		}
 	}
 	if err := insertEvent(ctx, tx, buildID, workspaceID, &actorID,
@@ -350,12 +354,16 @@ func (s *Service) Resume(
 		UPDATE index_generation_builds
 		   SET state = 'building', failed_targets = 0, failure_code = NULL,
 		       failed_at = NULL, cancelled_at = NULL, updated_at = $2
-		 WHERE id = $1 AND workspace_id = $3;
+		 WHERE id = $1 AND workspace_id = $3
+	`, buildID, now, workspaceID); err != nil {
+		return nil, fmt.Errorf("%w: resume build: %v", ErrUnavailable, err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE index_generations
 		   SET state = 'building', updated_at = $2
 		 WHERE build_id = $1 AND workspace_id = $3
 	`, buildID, now, workspaceID); err != nil {
-		return nil, fmt.Errorf("%w: resume build: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: resume generations: %v", ErrUnavailable, err)
 	}
 	if err := insertEvent(ctx, tx, buildID, workspaceID, &actorID,
 		"resumed", &from, stringPointer(StateBuilding), nil); err != nil {
@@ -542,12 +550,16 @@ func (s *Service) Discard(
 	if _, err := tx.Exec(ctx, `
 		UPDATE index_generation_builds
 		   SET state = 'discarded', retention_until = $1, updated_at = $2
-		 WHERE id = $3 AND workspace_id = $4;
+		 WHERE id = $3 AND workspace_id = $4
+	`, retentionUntil, now, buildID, workspaceID); err != nil {
+		return nil, fmt.Errorf("%w: discard build: %v", ErrUnavailable, err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE index_generations
 		   SET state = 'discarded', updated_at = $2
 		 WHERE build_id = $3 AND workspace_id = $4
 	`, retentionUntil, now, buildID, workspaceID); err != nil {
-		return nil, fmt.Errorf("%w: discard build: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: discard generations: %v", ErrUnavailable, err)
 	}
 	if err := insertEvent(ctx, tx, buildID, workspaceID, &actorID,
 		"discarded", &from, stringPointer(StateDiscarded), map[string]any{

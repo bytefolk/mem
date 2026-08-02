@@ -165,12 +165,16 @@ func (s *Service) transition(
 		UPDATE index_generation_builds
 		   SET state = $1, updated_at = $2,
 		       cancelled_at = CASE WHEN $1 = 'cancelled' THEN $2 ELSE cancelled_at END
-		 WHERE id = $3 AND workspace_id = $4;
+		 WHERE id = $3 AND workspace_id = $4
+	`, to, now, buildID, workspaceID); err != nil {
+		return nil, fmt.Errorf("%w: transition build: %v", ErrUnavailable, err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE index_generations
 		   SET state = $1, updated_at = $2
 		 WHERE build_id = $3 AND workspace_id = $4
 	`, to, now, buildID, workspaceID); err != nil {
-		return nil, fmt.Errorf("%w: transition build: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: transition generations: %v", ErrUnavailable, err)
 	}
 	if err := insertEvent(ctx, tx, buildID, workspaceID, &actorID,
 		eventType, &from, &to, nil); err != nil {
@@ -334,12 +338,16 @@ func (s *Service) completeTarget(
 			if _, err := tx.Exec(ctx, `
 				UPDATE index_generation_builds
 				   SET state = 'ready', ready_at = $2, updated_at = $2
-				 WHERE id = $1 AND state = 'building';
+				 WHERE id = $1 AND state = 'building'
+			`, buildID, now); err != nil {
+				return nil, fmt.Errorf("%w: mark build ready: %v", ErrUnavailable, err)
+			}
+			if _, err := tx.Exec(ctx, `
 				UPDATE index_generations
 				   SET state = 'ready', updated_at = $2
 				 WHERE build_id = $1 AND state = 'building'
 			`, buildID, now); err != nil {
-				return nil, fmt.Errorf("%w: mark ready: %v", ErrUnavailable, err)
+				return nil, fmt.Errorf("%w: mark generations ready: %v", ErrUnavailable, err)
 			}
 			if err := insertEvent(ctx, tx, buildID, target.WorkspaceID, nil,
 				"ready", stringPointer(StateBuilding), stringPointer(StateReady),
@@ -351,12 +359,16 @@ func (s *Service) completeTarget(
 				UPDATE index_generation_builds
 				   SET state = 'failed', failure_code = 'target_failures',
 				       failed_at = $2, updated_at = $2
-				 WHERE id = $1 AND state = 'building';
+				 WHERE id = $1 AND state = 'building'
+			`, buildID, now); err != nil {
+				return nil, fmt.Errorf("%w: mark build failed: %v", ErrUnavailable, err)
+			}
+			if _, err := tx.Exec(ctx, `
 				UPDATE index_generations
 				   SET state = 'failed', updated_at = $2
 				 WHERE build_id = $1 AND state = 'building'
 			`, buildID, now); err != nil {
-				return nil, fmt.Errorf("%w: mark failed: %v", ErrUnavailable, err)
+				return nil, fmt.Errorf("%w: mark generations failed: %v", ErrUnavailable, err)
 			}
 			if err := insertEvent(ctx, tx, buildID, target.WorkspaceID, nil,
 				"failed", stringPointer(StateBuilding), stringPointer(StateFailed),
@@ -489,12 +501,16 @@ func (s *Service) activate(
 		if _, err := tx.Exec(ctx, `
 			UPDATE index_generation_builds
 			   SET state = 'inactive', updated_at = $2
-			 WHERE id = $1 AND workspace_id = $3 AND state = 'active';
+			 WHERE id = $1 AND workspace_id = $3 AND state = 'active'
+		`, *previousID, now, workspaceID); err != nil {
+			return nil, fmt.Errorf("%w: deactivate current build: %v", ErrUnavailable, err)
+		}
+		if _, err := tx.Exec(ctx, `
 			UPDATE index_generations
 			   SET state = 'inactive', updated_at = $2
 			 WHERE build_id = $1 AND workspace_id = $3 AND state = 'active'
 		`, *previousID, now, workspaceID); err != nil {
-			return nil, fmt.Errorf("%w: deactivate current build: %v", ErrUnavailable, err)
+			return nil, fmt.Errorf("%w: deactivate current generations: %v", ErrUnavailable, err)
 		}
 		if err := insertEvent(ctx, tx, *previousID, workspaceID, &actorID,
 			"deactivated", stringPointer(StateActive), stringPointer(StateInactive),
@@ -505,12 +521,16 @@ func (s *Service) activate(
 	if _, err := tx.Exec(ctx, `
 		UPDATE index_generation_builds
 		   SET state = 'active', activated_at = $2, updated_at = $2
-		 WHERE id = $1 AND workspace_id = $3;
+		 WHERE id = $1 AND workspace_id = $3
+	`, buildID, now, workspaceID); err != nil {
+		return nil, fmt.Errorf("%w: activate build: %v", ErrUnavailable, err)
+	}
+	if _, err := tx.Exec(ctx, `
 		UPDATE index_generations
 		   SET state = 'active', updated_at = $2
 		 WHERE build_id = $1 AND workspace_id = $3
 	`, buildID, now, workspaceID); err != nil {
-		return nil, fmt.Errorf("%w: activate build: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: activate generations: %v", ErrUnavailable, err)
 	}
 	if err := saveActiveProfile(ctx, tx, workspaceID, actorID, build.ProfileSnapshot, now); err != nil {
 		return nil, err
