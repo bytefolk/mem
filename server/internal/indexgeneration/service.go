@@ -556,9 +556,9 @@ func (s *Service) Discard(
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE index_generations
-		   SET state = 'discarded', updated_at = $2
-		 WHERE build_id = $3 AND workspace_id = $4
-	`, retentionUntil, now, buildID, workspaceID); err != nil {
+		   SET state = 'discarded', updated_at = $1
+		 WHERE build_id = $2 AND workspace_id = $3
+	`, now, buildID, workspaceID); err != nil {
 		return nil, fmt.Errorf("%w: discard generations: %v", ErrUnavailable, err)
 	}
 	if err := insertEvent(ctx, tx, buildID, workspaceID, &actorID,
