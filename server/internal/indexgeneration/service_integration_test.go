@@ -75,6 +75,37 @@ func TestIndexGenerationPostgres(t *testing.T) {
 	writerBackend := pglockwait.NewBackend(t, ctx, dsn, "generation-writer")
 	service := New(createBackend.Pool, aiprofile.LocalFastV2, aiprofile.IdealabQualityV2)
 
+	// Account deletion must not depend on PostgreSQL's ordering of the file,
+	// workspace and optional creator FK actions.
+	deletingOwner, err := authService.CreateUser(
+		ctx,
+		fmt.Sprintf("index-generation-delete-%s@example.test", uuid.NewString()),
+		"secret-password",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletingWorkspace, err := workspace.New(database.Pool).Resolve(ctx, deletingOwner.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertGenerationTestFile(t, ctx, database.Pool, deletingOwner.ID, 99)
+	deletingBuild, err := service.Create(
+		ctx, deletingWorkspace.ID, deletingOwner.ID, aiprofile.LocalFastV2,
+	)
+	if err != nil {
+		t.Fatalf("create account-deletion generation: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, deletingOwner.ID); err != nil {
+		t.Fatalf("delete generation owner: %v", err)
+	}
+	var deletingBuildPresent bool
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM index_generation_builds WHERE id = $1)
+	`, deletingBuild.ID).Scan(&deletingBuildPresent); err != nil || deletingBuildPresent {
+		t.Fatalf("account-deletion build present = %t, err = %v", deletingBuildPresent, err)
+	}
+
 	// A content writer that acquired the canonical KEY SHARE lock before the
 	// build must commit before Create can take its exclusive corpus snapshot.
 	writer, err := writerBackend.Pool.Begin(ctx)

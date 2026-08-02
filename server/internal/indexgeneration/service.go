@@ -415,7 +415,11 @@ func (s *Service) ClaimTarget(
 			   AND t.source_present
 			   AND (t.state = 'pending' OR
 			        (t.state = 'processing' AND t.lease_expires_at <= $3))
-			 ORDER BY t.updated_at, t.file_id, t.stage
+			 -- Reclaim expired work before leasing untouched targets. This keeps
+			 -- retries bounded and prevents an abandoned attempt from waiting
+			 -- behind the rest of a large corpus.
+			 ORDER BY CASE WHEN t.state = 'processing' THEN 0 ELSE 1 END,
+			          t.updated_at, t.file_id, t.stage
 			 FOR UPDATE OF t SKIP LOCKED LIMIT 1
 		)
 		UPDATE index_generation_targets t

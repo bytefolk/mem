@@ -94,6 +94,28 @@ FOR EACH ROW EXECUTE FUNCTION mem_keep_index_generation_build_identity_immutable
 -- +goose StatementEnd
 
 -- +goose StatementBegin
+-- Account deletion cascades through files and workspaces. PostgreSQL does not
+-- guarantee the order of those referential actions, so scrub optional actor
+-- references first: a file-delete tombstone may otherwise update a build while
+-- its creator FK still points at the user currently being deleted.
+CREATE OR REPLACE FUNCTION mem_scrub_index_generation_actors_on_user_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    UPDATE index_generation_builds
+       SET created_by_user_id = NULL
+     WHERE created_by_user_id = OLD.id;
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER scrub_index_generation_actors_on_user_delete
+BEFORE DELETE ON users
+FOR EACH ROW EXECUTE FUNCTION mem_scrub_index_generation_actors_on_user_delete();
+-- +goose StatementEnd
+
+-- +goose StatementBegin
 CREATE TABLE index_generations (
     id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     build_id                uuid NOT NULL,
@@ -464,6 +486,8 @@ DROP TABLE IF EXISTS index_generation_targets;
 DROP FUNCTION IF EXISTS mem_validate_index_generation_target();
 DROP TABLE IF EXISTS index_generations;
 DROP FUNCTION IF EXISTS mem_keep_index_generation_identity_immutable();
+DROP TRIGGER IF EXISTS scrub_index_generation_actors_on_user_delete ON users;
+DROP FUNCTION IF EXISTS mem_scrub_index_generation_actors_on_user_delete();
 DROP TABLE IF EXISTS index_generation_builds;
 DROP FUNCTION IF EXISTS mem_keep_index_generation_build_identity_immutable();
 -- +goose StatementEnd
