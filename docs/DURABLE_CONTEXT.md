@@ -80,6 +80,10 @@ Cross-principal and cross-workspace probes are indistinguishable from absent
 objects (404). `403 context_scope_denied` means the principal has no active
 grants in this workspace at all; an approved principal whose granted items are
 all superseded or forgotten receives an empty `hits` list instead.
+`410 memory_forgotten` surfaces when the tombstone is still inside the
+caller's token path scope; a forgotten item outside that scope is reported as
+absent (404) per F5A.5 — both outcomes were observed in the manual AC-001
+smoke and are compliant (forgotten context is never resumed either way).
 
 ## Grants lifecycle
 
