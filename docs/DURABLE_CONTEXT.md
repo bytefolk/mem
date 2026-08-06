@@ -77,7 +77,9 @@ newer state instead of silently continuing with stale context.
 | Service disabled | 503 | `durable_context_disabled` |
 
 Cross-principal and cross-workspace probes are indistinguishable from absent
-objects (404), except the explicit no-grant denial (403).
+objects (404). `403 context_scope_denied` means the principal has no active
+grants in this workspace at all; an approved principal whose granted items are
+all superseded or forgotten receives an empty `hits` list instead.
 
 ## Grants lifecycle
 

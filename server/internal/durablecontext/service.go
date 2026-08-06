@@ -233,10 +233,9 @@ func (s *Service) Recall(ctx context.Context, q RecallQuery) (*RecallResult, err
 		 WHERE g.workspace_id = $1
 		   AND g.principal = $2
 		   AND g.revoked_at IS NULL
-		   AND m.lifecycle_status = $3
 		 ORDER BY m.created_at DESC, m.id DESC
-		 LIMIT $4`,
-		q.WorkspaceID, principal, memory.StatusActive, clampLimit(q.Limit),
+		 LIMIT $3`,
+		q.WorkspaceID, principal, clampLimit(q.Limit),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("recall durable context: %w", err)
