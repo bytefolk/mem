@@ -225,6 +225,27 @@ func (s *Service) Recall(ctx context.Context, q RecallQuery) (*RecallResult, err
 		return nil, invalid("session_ref is too long")
 	}
 
+	var hasGrants bool
+	err = s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			  FROM durable_context_grants
+			 WHERE workspace_id = $1
+			   AND principal = $2
+			   AND revoked_at IS NULL
+		)`,
+		q.WorkspaceID, principal,
+	).Scan(&hasGrants)
+	if err != nil {
+		return nil, fmt.Errorf("recall durable context: %w", err)
+	}
+	if !hasGrants {
+		return nil, ErrScopeDenied
+	}
+
+	// Lifecycle filters inside the query so LIMIT counts only resumable rows;
+	// otherwise newer grants pointing at archived or forgotten memories would
+	// silently crowd approved active context out of the window.
 	rows, err := s.pool.Query(ctx, `
 		SELECT g.memory_id
 		  FROM durable_context_grants g
@@ -233,9 +254,10 @@ func (s *Service) Recall(ctx context.Context, q RecallQuery) (*RecallResult, err
 		 WHERE g.workspace_id = $1
 		   AND g.principal = $2
 		   AND g.revoked_at IS NULL
+		   AND m.lifecycle_status = $4
 		 ORDER BY m.created_at DESC, m.id DESC
 		 LIMIT $3`,
-		q.WorkspaceID, principal, clampLimit(q.Limit),
+		q.WorkspaceID, principal, clampLimit(q.Limit), memory.StatusActive,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("recall durable context: %w", err)
@@ -253,10 +275,6 @@ func (s *Service) Recall(ctx context.Context, q RecallQuery) (*RecallResult, err
 		return nil, fmt.Errorf("recall durable context: %w", err)
 	}
 	rows.Close()
-
-	if len(ids) == 0 {
-		return nil, ErrScopeDenied
-	}
 
 	hits := make([]RecallHit, 0, len(ids))
 	for _, id := range ids {

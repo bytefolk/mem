@@ -369,6 +369,81 @@ func TestDurableContextPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("recall limit counts only active memories", func(t *testing.T) {
+		olderActive := []memory.Memory{
+			remember(workspaceA, userA, "carol-active-1-"+uuid.NewString(),
+				"older active context that must stay resumable"),
+			remember(workspaceA, userA, "carol-active-2-"+uuid.NewString(),
+				"second older active context that must stay resumable"),
+		}
+		newerArchived := []memory.Memory{
+			remember(workspaceA, userA, "carol-archived-1-"+uuid.NewString(),
+				"newer roadmap that gets archived"),
+			remember(workspaceA, userA, "carol-archived-2-"+uuid.NewString(),
+				"second newer roadmap that gets archived"),
+		}
+		for _, item := range olderActive {
+			grant(workspaceA, "carol", item.ID)
+		}
+		for _, item := range newerArchived {
+			grant(workspaceA, "carol", item.ID)
+			if _, err := memories.Archive(ctx, memory.LifecycleCommand{
+				WorkspaceID:     workspaceA,
+				MemoryID:        item.ID,
+				ActorUserID:     &userA,
+				IdempotencyKey:  "archive-" + item.ID.String(),
+				ExpectedVersion: item.StateVersion,
+			}); err != nil {
+				t.Fatalf("archive %s: %v", item.ID, err)
+			}
+		}
+
+		result, err := service.Recall(ctx, RecallQuery{
+			WorkspaceID: workspaceA,
+			Principal:   "carol",
+			Limit:       2,
+		})
+		if err != nil {
+			t.Fatalf("recall with limit: %v", err)
+		}
+		if len(result.Hits) != 2 {
+			t.Fatalf("expected the 2 active memories inside the limit window, got %d hits",
+				len(result.Hits))
+		}
+		for _, hit := range result.Hits {
+			if hit.Memory.LifecycleStatus != memory.StatusActive {
+				t.Fatalf("recalled non-active memory %s (%s)",
+					hit.Memory.ID, hit.Memory.LifecycleStatus)
+			}
+		}
+	})
+
+	t.Run("principal with only inactive grants gets empty hits, not denial", func(t *testing.T) {
+		archivedOnly := remember(workspaceA, userA, "dave-archived-"+uuid.NewString(),
+			"context that is archived before dave ever resumes")
+		grant(workspaceA, "dave", archivedOnly.ID)
+		if _, err := memories.Archive(ctx, memory.LifecycleCommand{
+			WorkspaceID:     workspaceA,
+			MemoryID:        archivedOnly.ID,
+			ActorUserID:     &userA,
+			IdempotencyKey:  "archive-" + archivedOnly.ID.String(),
+			ExpectedVersion: archivedOnly.StateVersion,
+		}); err != nil {
+			t.Fatalf("archive: %v", err)
+		}
+
+		result, err := service.Recall(ctx, RecallQuery{
+			WorkspaceID: workspaceA,
+			Principal:   "dave",
+		})
+		if err != nil {
+			t.Fatalf("recall with inactive-only grants: %v", err)
+		}
+		if len(result.Hits) != 0 {
+			t.Fatalf("expected empty hits, got %d", len(result.Hits))
+		}
+	})
+
 	t.Run("validation rejects malformed commands", func(t *testing.T) {
 		_, err := service.Recall(ctx, RecallQuery{WorkspaceID: workspaceA})
 		if !errors.Is(err, ErrInvalidCommand) {
