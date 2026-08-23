@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -35,6 +37,17 @@ type workspaceImportResponse struct {
 	ImportedAt        time.Time                     `json:"imported_at"`
 	Counts            workspaceObjectCountsResponse `json:"counts"`
 	Replayed          bool                          `json:"replayed"`
+	Mode              string                        `json:"mode"`
+	Merge             *workspaceMergeResponse       `json:"merge,omitempty"`
+}
+
+type workspaceMergeResponse struct {
+	Inserted           map[string]int64                  `json:"inserted"`
+	Skipped            map[string]int64                  `json:"skipped"`
+	SkippedByReason    map[string]int64                  `json:"skipped_by_reason"`
+	Conflicts          []workspaceImportConflictResource `json:"conflicts"`
+	ConflictTotal      int                               `json:"conflict_total"`
+	ConflictsTruncated bool                              `json:"conflicts_truncated,omitempty"`
 }
 
 type workspaceImportConflictResponse struct {
@@ -154,12 +167,15 @@ func (s *Server) handleWorkspaceImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modes, present := r.URL.Query()["mode"]
-	if !present || len(modes) != 1 || modes[0] != workspacetransfer.RestoreModeFresh {
+	if !present || len(modes) != 1 ||
+		(modes[0] != workspacetransfer.RestoreModeFresh &&
+			modes[0] != workspacetransfer.RestoreModeMergeConservative) {
 		writeError(
 			w,
 			http.StatusUnprocessableEntity,
 			"unsupported_restore_mode",
-			"mode must be "+workspacetransfer.RestoreModeFresh,
+			"mode must be "+workspacetransfer.RestoreModeFresh+
+				" or "+workspacetransfer.RestoreModeMergeConservative,
 		)
 		return
 	}
@@ -253,7 +269,119 @@ func (s *Server) handleWorkspaceImport(w http.ResponseWriter, r *http.Request) {
 		ImportedAt:        result.ImportedAt,
 		Counts:            workspaceCountsResponse(result.Counts),
 		Replayed:          result.Replayed,
+		Mode:              result.Mode,
+		Merge:             mergeResponse(result.Merge),
 	})
+}
+
+func mergeResponse(merge *workspacetransfer.MergeSummary) *workspaceMergeResponse {
+	if merge == nil {
+		return nil
+	}
+	conflicts := make(
+		[]workspaceImportConflictResource,
+		0,
+		len(merge.Conflicts),
+	)
+	for _, conflict := range merge.Conflicts {
+		conflicts = append(conflicts, workspaceImportConflictResource{
+			Kind:     conflict.Kind,
+			Resource: conflict.Resource,
+			Value:    conflict.Value,
+		})
+	}
+	return &workspaceMergeResponse{
+		Inserted:           merge.Inserted,
+		Skipped:            merge.Skipped,
+		SkippedByReason:    merge.SkippedByReason,
+		Conflicts:          conflicts,
+		ConflictTotal:      merge.ConflictTotal,
+		ConflictsTruncated: merge.ConflictsTruncated,
+	}
+}
+
+// handleWorkspaceImportHistory lists committed bundle imports for the current
+// workspace from the workspace_imports idempotency ledger, newest first. It is
+// a read-only projection of committed import rows; failed or aborted imports
+// leave no ledger row by design.
+func (s *Server) handleWorkspaceImportHistory(w http.ResponseWriter, r *http.Request) {
+	if s.WorkspaceTransfer == nil {
+		writeError(
+			w,
+			http.StatusServiceUnavailable,
+			"workspace_transfer_unavailable",
+			"workspace transfer is not configured",
+		)
+		return
+	}
+	limit := workspacetransfer.DefaultImportHistoryLimit
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > workspacetransfer.MaxImportHistoryLimit {
+			writeError(
+				w,
+				http.StatusBadRequest,
+				"bad_limit",
+				fmt.Sprintf("limit must be between 1 and %d", workspacetransfer.MaxImportHistoryLimit),
+			)
+			return
+		}
+		limit = parsed
+	}
+	entries, err := s.WorkspaceTransfer.ImportHistory(
+		r.Context(),
+		currentWorkspace(r).ID,
+		limit,
+	)
+	if err != nil {
+		if errors.Is(err, workspacetransfer.ErrNotConfigured) {
+			writeError(
+				w,
+				http.StatusServiceUnavailable,
+				"workspace_transfer_unavailable",
+				"workspace transfer is not configured",
+			)
+			return
+		}
+		s.logWorkspaceTransferError("list workspace import history", err)
+		writeWorkspaceTransferInternalError(w)
+		return
+	}
+	items := make([]workspaceImportHistoryEntryResponse, 0, len(entries))
+	for _, entry := range entries {
+		items = append(items, workspaceImportHistoryEntryResponse{
+			BundleID:          entry.BundleID.String(),
+			ArchiveSHA256:     entry.ArchiveSHA256,
+			SourceWorkspaceID: entry.SourceWorkspaceID.String(),
+			SchemaVersion:     entry.SchemaVersion,
+			RestoreMode:       entry.RestoreMode,
+			ResultStatus:      entry.ResultStatus,
+			ConflictCount:     entry.ConflictCount,
+			SkippedCount:      entry.SkippedCount,
+			ImportedAt:        entry.ImportedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, workspaceImportHistoryResponse{
+		Items: items,
+		Count: len(items),
+	})
+}
+
+type workspaceImportHistoryEntryResponse struct {
+	BundleID          string    `json:"bundle_id"`
+	ArchiveSHA256     string    `json:"archive_sha256"`
+	SourceWorkspaceID string    `json:"source_workspace_id"`
+	SchemaVersion     int       `json:"schema_version"`
+	RestoreMode       string    `json:"restore_mode"`
+	ResultStatus      string    `json:"result_status"`
+	ConflictCount     int       `json:"conflict_count"`
+	SkippedCount      int       `json:"skipped_count"`
+	ImportedAt        time.Time `json:"imported_at"`
+}
+
+type workspaceImportHistoryResponse struct {
+	Items []workspaceImportHistoryEntryResponse `json:"items"`
+	Count int                                   `json:"count"`
 }
 
 func workspaceCountsResponse(counts workspacebundle.ObjectCounts) workspaceObjectCountsResponse {
@@ -334,7 +462,7 @@ func (s *Server) writeWorkspaceTransferServiceError(
 		}
 		writeJSON(w, http.StatusConflict, workspaceImportConflictResponse{
 			Error:     "workspace_import_conflict",
-			Hint:      "target workspace conflicts with this fresh import",
+			Hint:      "target workspace conflicts with this import",
 			Conflicts: conflicts,
 			Total:     total,
 			Truncated: truncated,

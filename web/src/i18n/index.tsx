@@ -612,6 +612,91 @@ const dict = {
   'memory.detailUnavailable': { zh: '记忆不可用', en: 'Memory unavailable' },
   'memory.backToLedger': { zh: '返回记忆账本', en: 'Back to memory ledger' },
 
+  // ---- memory relations (correction / supersede chains) ----
+  'memories.superseded': { zh: '已被取代', en: 'Superseded' },
+  'memories.supersededHint': {
+    zh: '存在生效中的记忆替代或纠正了这条记忆；默认召回不再包含它。',
+    en: 'An active memory supersedes or corrects this one; default recall no longer includes it.',
+  },
+  'memories.supersededNotice': {
+    zh: '这条记忆已被生效中的记忆替代或纠正，默认召回不再包含它。记录本身保留，可继续审计。',
+    en: 'This memory has been superseded or corrected by an active memory and is excluded from default recall. The record is kept for audit.',
+  },
+  'memories.expandRelations': { zh: '展开记忆关系', en: 'Show memory relations' },
+  'memories.collapseRelations': { zh: '收起记忆关系', en: 'Hide memory relations' },
+  'memories.relationsTitle': { zh: '记忆关系', en: 'Memory relations' },
+  'memories.relationsLoading': { zh: '正在加载记忆关系…', en: 'Loading memory relations…' },
+  'memories.relationsEmpty': { zh: '没有记录任何关系', en: 'No relations recorded' },
+  'memories.relationsFailed': { zh: '记忆关系加载失败', en: 'Could not load memory relations' },
+  'memories.relations.outbound': { zh: '这条记忆指向', en: 'Points to' },
+  'memories.relations.inbound': { zh: '指向这条记忆', en: 'Pointed to by' },
+  'memories.relationType.supersedes': { zh: '替代', en: 'Supersedes' },
+  'memories.relationType.corrects': { zh: '纠正', en: 'Corrects' },
+  'memories.relationType.occurrence_of': { zh: '同源', en: 'Occurrence of' },
+  'memories.relation.peer': { zh: '记忆 {id}', en: 'Memory {id}' },
+  'memories.relation.peerUnavailable': { zh: '不可读的记忆', en: 'Unreadable memory' },
+  'memories.relation.reason': { zh: '原因', en: 'Reason' },
+  'memories.correctAction': { zh: '纠正', en: 'Correct' },
+  'memories.supersedeAction': { zh: '替代', en: 'Supersede' },
+  'memories.relationDialog.title.supersedes': { zh: '写入替代关系', en: 'Record a supersede relation' },
+  'memories.relationDialog.title.corrects': { zh: '写入纠正关系', en: 'Record a correction relation' },
+  'memories.relationDialog.description': {
+    zh: '关系一经写入不可修改；它只影响默认召回与展示，不会删除任何记忆。',
+    en: 'Relations are immutable once written. They only affect default recall and presentation; no memory is deleted.',
+  },
+  'memories.relationDialog.direction': { zh: '关系方向', en: 'Relation direction' },
+  'memories.relationDialog.directionOut.supersedes': {
+    zh: '由本条记忆替代所选记忆',
+    en: 'This memory supersedes the selected memory',
+  },
+  'memories.relationDialog.directionIn.supersedes': {
+    zh: '所选记忆替代本条记忆',
+    en: 'The selected memory supersedes this memory',
+  },
+  'memories.relationDialog.directionOut.corrects': {
+    zh: '由本条记忆纠正所选记忆',
+    en: 'This memory corrects the selected memory',
+  },
+  'memories.relationDialog.directionIn.corrects': {
+    zh: '所选记忆纠正本条记忆',
+    en: 'The selected memory corrects this memory',
+  },
+  'memories.relationDialog.peer': { zh: '关联记忆', en: 'Related memory' },
+  'memories.relationDialog.peerFromList': { zh: '从已加载列表选择', en: 'Choose from loaded memories' },
+  'memories.relationDialog.peerManual': { zh: '手动输入记忆 ID', en: 'Enter a memory ID' },
+  'memories.relationDialog.peerPlaceholder': { zh: '选择一条记忆…', en: 'Select a memory…' },
+  'memories.relationDialog.peerIdPlaceholder': { zh: '粘贴记忆 UUID', en: 'Paste a memory UUID' },
+  'memories.relationDialog.reason': { zh: '原因（可选）', en: 'Reason (optional)' },
+  'memories.relationDialog.reasonPlaceholder': {
+    zh: '例如：新决定更新了缓存 TTL',
+    en: 'e.g. a new decision updated the cache TTL',
+  },
+  'memories.relationDialog.submit': { zh: '写入关系', en: 'Write relation' },
+  'memories.relationDialog.cancel': { zh: '取消', en: 'Cancel' },
+  'memories.relationDialog.peerRequired': {
+    zh: '请选择或输入关联记忆',
+    en: 'Choose or enter a related memory',
+  },
+  'memories.relationDialog.peerInvalid': {
+    zh: '记忆 ID 必须是 UUID',
+    en: 'The memory ID must be a UUID',
+  },
+  'memories.relationDialog.failed': { zh: '关系写入失败', en: 'Could not write the relation' },
+  'memories.relationDialog.conflict': {
+    zh: '该关系会形成循环，已被拒绝',
+    en: 'The relation would form a cycle and was rejected',
+  },
+  'memories.relationDialog.notFound': {
+    zh: '找不到关联记忆',
+    en: 'The related memory was not found',
+  },
+  'memories.relationDialog.forgotten': {
+    zh: '关联记忆已被遗忘',
+    en: 'The related memory was forgotten',
+  },
+  'memories.relationSuccess.supersedes': { zh: '替代关系已写入', en: 'Supersede relation recorded' },
+  'memories.relationSuccess.corrects': { zh: '纠正关系已写入', en: 'Correction relation recorded' },
+
   // ---- portable workspace transfer ----
   'transfer.eyebrow': { zh: '可迁移 Agent 工作区', en: 'Portable Agent workspace' },
   'transfer.title': { zh: '工作区迁移', en: 'Workspace transfer' },
@@ -809,6 +894,30 @@ const dict = {
     zh: '服务端返回了未预期的 API 状态。保留下面的错误代码并在条件恢复后重试。',
     en: 'The server returned an unexpected API status. Keep the error code below and retry when the condition clears.',
   },
+  'transfer.history.eyebrow': { zh: '步骤 03 · 账本', en: 'Step 03 · Ledger' },
+  'transfer.history.title': { zh: '导入历史', en: 'Import history' },
+  'transfer.history.description': {
+    zh: '当前工作区已提交恢复的 bundle 记录，按导入时间倒序排列。展开任意一条可查看来源工作区、协议版本、恢复模式与账本摘要。',
+    en: 'Bundle restores committed into this workspace, newest first. Expand any entry to inspect the source workspace, schema version, restore mode, and ledger digest.',
+  },
+  'transfer.history.loading': { zh: '正在加载导入历史…', en: 'Loading import history…' },
+  'transfer.history.empty': { zh: '还没有导入记录', en: 'No imports recorded yet' },
+  'transfer.history.emptyHint': {
+    zh: '成功提交一次 fresh 恢复后，这里会出现对应的账本条目。失败或存在冲突的导入不会写入账本。',
+    en: 'After a fresh restore commits successfully, its ledger entry appears here. Failed or conflicting imports are never written to the ledger.',
+  },
+  'transfer.history.countNote': {
+    zh: '共 {count} 条已提交的导入记录',
+    en: '{count} committed import record(s)',
+  },
+  'transfer.history.modeValue': { zh: '模式 {mode}', en: 'mode {mode}' },
+  'transfer.history.status.succeeded': { zh: '成功', en: 'Succeeded' },
+  'transfer.history.importedAt': { zh: '导入时间', en: 'Imported at' },
+  'transfer.history.schemaVersion': { zh: 'Bundle 协议版本', en: 'Bundle schema version' },
+  'transfer.history.restoreMode': { zh: '恢复模式', en: 'Restore mode' },
+  'transfer.history.conflicts': { zh: '冲突', en: 'Conflicts' },
+  'transfer.history.skipped': { zh: '跳过', en: 'Skipped' },
+  'transfer.history.digest': { zh: '账本摘要（SHA-256）', en: 'Ledger digest (SHA-256)' },
 
   // ---- capabilities / task handoff gate ----
   'capabilities.failed': {
@@ -825,6 +934,86 @@ const dict = {
     zh: '当前令牌没有 read 权限，无法查看任务与检查点。',
     en: 'The current token lacks read permission for tasks and checkpoints.',
   },
+
+  // ---- permissions management ----
+  'permissions.nav': { zh: '权限', en: 'Permissions' },
+  'permissions.title': { zh: '权限管理', en: 'Permissions' },
+  'permissions.description': {
+    zh: '查看并控制谁能访问当前工作区：已签发的访问令牌，以及 durable-context 记忆召回授权。',
+    en: 'See and control who can access this workspace: issued access tokens and durable-context memory recall grants.',
+  },
+  'permissions.refresh': { zh: '刷新', en: 'Refresh' },
+  'permissions.forbidden.title': { zh: '需要管理权限', en: 'Admin permission required' },
+  'permissions.forbidden.description': {
+    zh: '当前会话没有 admin 权限，无法查看或管理工作区访问凭据。请使用具有 admin scope 的会话登录后重试。',
+    en: 'The current session lacks admin permission, so workspace access credentials cannot be listed or managed. Sign in with an admin-scoped session and retry.',
+  },
+  'permissions.actionFailed': { zh: '操作失败', en: 'Action failed' },
+
+  'permissions.tokens.title': { zh: '访问令牌', en: 'Access tokens' },
+  'permissions.tokens.description': {
+    zh: 'Agent 令牌绑定到工作区；浏览器会话令牌不绑定工作区。撤销后凭据立即失效。',
+    en: 'Agent tokens are bound to a workspace; browser session tokens are unbound. Revocation invalidates the credential immediately.',
+  },
+  'permissions.tokens.error': { zh: '令牌列表加载失败', en: 'Could not load tokens' },
+  'permissions.tokens.empty': { zh: '没有已签发的令牌', en: 'No issued tokens' },
+  'permissions.tokens.emptyHint': {
+    zh: '为 Agent 签发令牌后，它会出现在这里，可以随时撤销。',
+    en: 'Tokens issued to Agents appear here and can be revoked at any time.',
+  },
+  'permissions.tokens.col.name': { zh: '名称', en: 'Name' },
+  'permissions.tokens.col.scopes': { zh: '权限范围', en: 'Scopes' },
+  'permissions.tokens.col.created': { zh: '创建时间', en: 'Created' },
+  'permissions.tokens.col.lastUsed': { zh: '最近使用', en: 'Last used' },
+  'permissions.tokens.kind.agent': { zh: 'Agent 令牌', en: 'Agent token' },
+  'permissions.tokens.kind.session': { zh: '浏览器会话', en: 'Browser session' },
+  'permissions.tokens.allPaths': { zh: '不受路径限制', en: 'Unrestricted paths' },
+  'permissions.tokens.neverUsed': { zh: '从未使用', en: 'Never used' },
+  'permissions.tokens.expiresAt': { zh: '到期：{time}', en: 'Expires {time}' },
+  'permissions.tokens.revoke': { zh: '撤销', en: 'Revoke' },
+  'permissions.tokens.revokeTitle': { zh: '撤销令牌 “{name}”？', en: 'Revoke token "{name}"?' },
+  'permissions.tokens.revokeDescription': {
+    zh: '撤销后，使用该令牌的 Agent 或会话会立即失去访问权限，且无法恢复。',
+    en: 'The Agent or session using this token loses access immediately. This cannot be undone.',
+  },
+  'permissions.tokens.revokedNotice': { zh: '令牌 “{name}” 已撤销', en: 'Token "{name}" revoked' },
+
+  'permissions.grants.title': { zh: '记忆召回授权', en: 'Memory recall grants' },
+  'permissions.grants.description': {
+    zh: 'durable-context 允许列表：哪些 principal 可以恢复哪些已批准记忆的上下文。撤销是幂等软撤销，审计记录会保留。',
+    en: 'The durable-context allowlist: which principals can resume which approved memories. Revocation is an idempotent soft revoke; the audit row is preserved.',
+  },
+  'permissions.grants.error': { zh: '召回授权列表加载失败', en: 'Could not load recall grants' },
+  'permissions.grants.empty': { zh: '没有召回授权', en: 'No recall grants' },
+  'permissions.grants.emptyHint': {
+    zh: 'Agent 通过 durable-context 契约获得记忆召回授权后，会显示在这里。',
+    en: 'Grants issued through the durable-context contract appear here.',
+  },
+  'permissions.grants.col.principal': { zh: '被授权方', en: 'Grantee' },
+  'permissions.grants.col.memory': { zh: '记忆', en: 'Memory' },
+  'permissions.grants.col.status': { zh: '状态', en: 'Status' },
+  'permissions.grants.col.grantedAt': { zh: '授权时间', en: 'Granted' },
+  'permissions.grants.currentWorkspace': { zh: '当前工作区', en: 'Current workspace' },
+  'permissions.grants.grantedBy': { zh: '授权人：{user}', en: 'Granted by {user}' },
+  'permissions.grants.revokedAt': { zh: '撤销时间：{time}', en: 'Revoked {time}' },
+  'permissions.grants.revoke': { zh: '撤销', en: 'Revoke' },
+  'permissions.grants.revokeTitle': {
+    zh: '撤销 {principal} 的召回授权？',
+    en: 'Revoke recall grant for {principal}?',
+  },
+  'permissions.grants.revokeDescription': {
+    zh: '撤销后该 principal 不能再恢复这条记忆的上下文；授权记录会保留用于审计，重复撤销是安全的。',
+    en: 'The principal can no longer resume this memory. The audit row is preserved, and repeating the revoke is safe.',
+  },
+  'permissions.grants.revokedNotice': {
+    zh: '{principal} 的召回授权已撤销',
+    en: 'Recall grant for {principal} revoked',
+  },
+
+  'permissions.status.active': { zh: '生效', en: 'Active' },
+  'permissions.status.revoked': { zh: '已撤销', en: 'Revoked' },
+  'permissions.status.superseded': { zh: '已被替代', en: 'Superseded' },
+  'permissions.status.forgotten': { zh: '已遗忘', en: 'Forgotten' },
 
   // ---- portable task ledger ----
   'task.title': { zh: '任务账本', en: 'Task ledger' },

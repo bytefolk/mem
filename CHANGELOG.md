@@ -9,6 +9,30 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Added
 
+- `merge_conservative` workspace bundle restore: importing a validated
+  bundle into an existing, possibly non-empty workspace now compares every
+  bundle object against the target under the import lock by stable identity
+  and content hash, inserts only absent objects, skips identical or
+  already-present content, and reports divergent objects as structured
+  conflicts without ever overwriting target state. A durable per-object
+  ledger (migration 0023, `workspace_import_objects`) records each decision
+  in the same transaction as the merged state, so retried merges are
+  idempotent and replay the exact inserted/skipped/conflict summary;
+  conflict sets beyond the bounded detail budget abort the whole merge
+  without writing anything. Available through the existing import API
+  (`mode=merge_conservative`) and advertised in workspace capabilities.
+- Web UI for the immutable memory correction/supersede relations landed in
+  #90: memory list rows carry a server-derived `superseded` marker, detail
+  and expanded ledger views show a bidirectional relations panel with peer
+  resolution that degrades gracefully for unreadable peers, and a dialog
+  creates `supersedes`/`corrects` edges against listed or manually entered
+  peers with cache invalidation across lists, details, and relation panels.
+  Relation listing now enforces anchor visibility (path authorization,
+  not-found, and forgotten semantics mirroring `Get`), cycle detection
+  traverses the supersedes/corrects DAG forward and treats idempotent
+  replays as non-cycles, and bilingual `memories.relations.*` copy plus
+  deterministic mock fixtures and component tests cover the panel's
+  loaded/empty/error states.
 - Version-pinned scoped durable-context contract (`durable-context.v1`,
   mem#70 REQ-001): explicit workspace-scoped recall grants with audit
   retention and idempotent soft revoke, read-only recall/get endpoints and a
@@ -84,6 +108,13 @@ The project is not yet publishing stable semantic-versioned releases.
 - Resource-bounded workspace export and empty-target `fresh` import across
   API, typed client, CLI and Web, including idempotent import ledger,
   structured/truncated conflicts and failure compensation.
+- Read-only workspace import history: a bounded, paginated
+  `GET /v1/workspaces/current/imports` ledger endpoint (owner/admin,
+  unrestricted-path gated) projecting committed import ledger entries with
+  bundle id, archive SHA-256 digest, schema version, restore mode, result
+  status, conflict/skip counts and import time, plus a reverse-chronological
+  expandable import-history block on the Web Workspace Transfer page with
+  loading/empty/error states and bilingual copy.
 - Web Drive trust surfaces for Tasks, checkpoint/Resume, Memories lifecycle
   control and Workspace Transfer.
 - Real-image visual regression coverage and an opt-in multilingual CLIP
@@ -112,6 +143,18 @@ The project is not yet publishing stable semantic-versioned releases.
 - Go and Python coverage artifacts plus verified Go, Python, and Web build
   artifacts.
 - Checked-in Go and Python protobuf stubs for reproducible fresh-clone builds.
+- Additive durable-context grant allowlist view fields:
+  `GET /v1/durable-context/grants` now returns each grant's `memory_status`
+  plus a derived `status` (`active`/`revoked`/`superseded`/`forgotten`,
+  revocation wins over later memory lifecycle changes), and capabilities
+  expose a `permissions_manage` flag for the admin scope. Grant rows, query
+  semantics, and the idempotent soft-revoke response are unchanged.
+- Admin-gated Permissions page in the Web UI: issued agent tokens and browser
+  sessions with scopes, path restriction, creation/last-used timestamps and
+  revoke; durable-context recall grants with principal, workspace, lifecycle
+  status and grant/revoke audit, revocable through the existing idempotent
+  soft revoke; confirmation dialogs for destructive revokes and complete
+  bilingual loading/empty/error/forbidden states.
 
 ### Changed
 

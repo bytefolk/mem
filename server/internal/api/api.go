@@ -74,7 +74,7 @@ type MemoryService interface {
 type DurableContextService interface {
 	Grant(context.Context, durablecontext.GrantCommand) (*durablecontext.Grant, error)
 	Revoke(context.Context, durablecontext.RevokeCommand) (*durablecontext.Grant, error)
-	ListGrants(context.Context, durablecontext.ListGrantsQuery) ([]durablecontext.Grant, error)
+	ListGrantViews(context.Context, durablecontext.ListGrantsQuery) ([]durablecontext.GrantView, error)
 	Recall(context.Context, durablecontext.RecallQuery) (*durablecontext.RecallResult, error)
 	Get(context.Context, durablecontext.GetQuery) (*durablecontext.RecallHit, error)
 }
@@ -91,6 +91,11 @@ type WorkspaceTransferService interface {
 		context.Context,
 		workspacetransfer.ImportRequest,
 	) (*workspacetransfer.ImportResult, error)
+	ImportHistory(
+		context.Context,
+		uuid.UUID,
+		int,
+	) ([]workspacetransfer.ImportHistoryEntry, error)
 }
 
 // SearchService keeps the provider invocation behind a testable port. Replay
@@ -273,6 +278,12 @@ func (s *Server) Router() http.Handler {
 			s.requireWorkspaceTransfer,
 			s.requireWorkspaceTransferCapacity,
 		).Post("/v1/workspaces/current/import", s.handleWorkspaceImport)
+		r.With(
+			s.requireScope(auth.ScopeRead),
+			s.requireScope(auth.ScopeAdmin),
+			s.requireUnrestrictedPaths,
+			s.requireWorkspaceTransfer,
+		).Get("/v1/workspaces/current/imports", s.handleWorkspaceImportHistory)
 
 		r.With(s.requireScope(auth.ScopeAdmin)).Post("/v1/auth/tokens", s.handleCreateToken)
 		r.With(s.requireScope(auth.ScopeAdmin)).Get("/v1/auth/tokens", s.handleListTokens)

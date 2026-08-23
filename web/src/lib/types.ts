@@ -235,12 +235,14 @@ export interface Capabilities {
     provider_modify: boolean;
     workspace_export: boolean;
     workspace_import: boolean;
+    /** Admin-only permissions surface; absent on older servers. */
+    permissions_manage?: boolean;
   };
 }
 
 // ---- Portable workspace transfer ----
 
-export type WorkspaceRestoreMode = 'fresh';
+export type WorkspaceRestoreMode = 'fresh' | 'merge_conservative';
 
 export interface WorkspaceObjectCounts {
   folders: number;
@@ -277,6 +279,29 @@ export interface WorkspaceImportConflictResponse {
   /** Confirmed lower bound when the server caps conflict enumeration. */
   total?: number;
   truncated?: boolean;
+}
+
+/**
+ * One committed bundle import from the workspace_imports ledger. Only fully
+ * committed fresh imports are ever recorded, so `result_status` is always
+ * `succeeded` and the conflict/skip counts are always zero; failed imports
+ * leave no ledger row.
+ */
+export interface WorkspaceImportHistoryEntry {
+  bundle_id: string;
+  archive_sha256: string;
+  source_workspace_id: string;
+  schema_version: number;
+  restore_mode: WorkspaceRestoreMode;
+  result_status: 'succeeded';
+  conflict_count: number;
+  skipped_count: number;
+  imported_at: string;
+}
+
+export interface WorkspaceImportHistory {
+  items: WorkspaceImportHistoryEntry[];
+  count: number;
 }
 
 // ---- Structured Agent memory control plane ----
@@ -372,6 +397,8 @@ export interface AgentMemorySummary {
   content_sha256: string;
   lifecycle_status: MemoryLifecycle;
   state_version: number;
+  /** True when an active memory supersedes or corrects this one. */
+  superseded: boolean;
   pinned: boolean;
   pinned_at?: string | null;
   useful_count: number;
@@ -434,6 +461,32 @@ export interface MemoryForgetResponse {
   forgotten_at?: string;
   event: MemoryEvent;
   replayed: boolean;
+}
+
+/** Immutable memory-to-memory edge types. */
+export type MemoryRelationType = 'supersedes' | 'corrects' | 'occurrence_of';
+
+/** One immutable relation edge from `GET/POST /v1/memory-relations`. */
+export interface MemoryRelation {
+  id: string;
+  workspace_id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: MemoryRelationType;
+  actor_user_id?: string;
+  reason?: string;
+  created_at: string;
+}
+
+export interface ListMemoryRelationsResponse {
+  relations: MemoryRelation[];
+}
+
+export interface CreateMemoryRelationRequest {
+  source_id: string;
+  target_id: string;
+  relation_type: MemoryRelationType;
+  reason?: string;
 }
 
 // ---- Portable Agent handoff v1 ----

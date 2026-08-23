@@ -1,6 +1,6 @@
 import { http, HttpResponse, delay } from 'msw';
 import { FILES, GHOST_FOLDERS, findFile, relatedFor, searchFiles, ENTITIES } from './fixtures';
-import { MEMORY_FIXTURES } from './memoryFixtures';
+import { MEMORY_FIXTURES, MOCK_MEMORY_USER_ID, MOCK_WORKSPACE_ID } from './memoryFixtures';
 import type {
   AgentMemory,
   AgentMemoryRecord,
@@ -13,6 +13,8 @@ import type {
   MemoryEvent,
   MemoryFeedbackAction,
   MemoryForgetReason,
+  MemoryRelation,
+  MemoryRelationType,
 } from '@/lib/types';
 import {
   ROOT_PATH,
@@ -31,6 +33,7 @@ import {
   mockResume,
 } from './handoff-fixtures';
 import { WORKSPACE_BUNDLE_MEDIA_TYPE } from '@/lib/workspace-transfer';
+import type { ApiTokenRecord, DurableContextGrantView } from '@/lib/permissions';
 
 const BASE = '/v1';
 const EMPTY_ENRICHMENT_FILE_ID = 'empty-enrichment-e2e';
@@ -66,6 +69,106 @@ const EMPTY_ENRICHMENT_FILE: MemFile = {
 
 function jitter(min = 120, max = 320) {
   return delay(min + Math.random() * (max - min));
+}
+
+// ----- Permissions surface fixtures (tokens + durable-context grants) -----
+// Token rows use the capitalized Go field names because the server marshals
+// auth.Token without JSON tags (the CLI consumes the same shape).
+const MOCK_TOKENS: ApiTokenRecord[] = [
+  {
+    ID: 'cccccccc-cccc-4ccc-8ccc-cccccccccc01',
+    UserID: 'user-1',
+    Name: 'session-20260729-080000',
+    Scopes: ['search', 'read', 'write', 'delete', 'admin'],
+    Paths: [],
+    WorkspaceID: null,
+    RedactPII: false,
+    ExpiresAt: null,
+    LastUsedAt: '2026-07-29T09:30:00Z',
+    CreatedAt: '2026-07-29T08:00:00Z',
+  },
+  {
+    ID: 'cccccccc-cccc-4ccc-8ccc-cccccccccc02',
+    UserID: 'user-1',
+    Name: 'claude-code-laptop',
+    Scopes: ['search', 'read', 'write'],
+    Paths: ['/Projects'],
+    WorkspaceID: MOCK_WORKSPACE.id,
+    RedactPII: false,
+    ExpiresAt: '2026-12-31T23:59:59Z',
+    LastUsedAt: '2026-07-28T18:20:00Z',
+    CreatedAt: '2026-07-15T10:00:00Z',
+  },
+  {
+    ID: 'cccccccc-cccc-4ccc-8ccc-cccccccccc03',
+    UserID: 'user-1',
+    Name: 'codex-ci-readonly',
+    Scopes: ['read'],
+    Paths: [],
+    WorkspaceID: MOCK_WORKSPACE.id,
+    RedactPII: true,
+    ExpiresAt: null,
+    LastUsedAt: null,
+    CreatedAt: '2026-07-20T12:00:00Z',
+  },
+];
+
+const MOCK_DURABLE_GRANTS: DurableContextGrantView[] = [
+  {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccc11',
+    workspace_id: MOCK_WORKSPACE.id,
+    principal: 'agent.claude-code',
+    memory_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd01',
+    mode: 'read',
+    granted_by_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    granted_at: '2026-07-20T09:00:00Z',
+    updated_at: '2026-07-20T09:00:00Z',
+    memory_status: 'active',
+    status: 'active',
+  },
+  {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccc12',
+    workspace_id: MOCK_WORKSPACE.id,
+    principal: 'agent.codex',
+    memory_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd02',
+    mode: 'read',
+    granted_by_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    granted_at: '2026-07-18T09:00:00Z',
+    updated_at: '2026-07-25T09:00:00Z',
+    memory_status: 'archived',
+    status: 'superseded',
+  },
+  {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccc13',
+    workspace_id: MOCK_WORKSPACE.id,
+    principal: 'agent.claude-code',
+    memory_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd03',
+    mode: 'read',
+    granted_at: '2026-07-10T09:00:00Z',
+    revoked_at: '2026-07-12T09:00:00Z',
+    updated_at: '2026-07-12T09:00:00Z',
+    memory_status: 'active',
+    status: 'revoked',
+  },
+  {
+    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccc14',
+    workspace_id: MOCK_WORKSPACE.id,
+    principal: 'agent.codex',
+    memory_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddd04',
+    mode: 'read',
+    granted_by_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    granted_at: '2026-07-05T09:00:00Z',
+    updated_at: '2026-07-22T09:00:00Z',
+    memory_status: 'forgotten',
+    status: 'forgotten',
+  },
+];
+
+function permissionsForbidden() {
+  return HttpResponse.json(
+    { error: 'forbidden', hint: 'admin scope required for permissions management' },
+    { status: 403 },
+  );
 }
 
 function inferKind(mime: string, name: string): MemFile['kind'] {
@@ -240,9 +343,104 @@ const MEMORY_ACTION_REPLAYS = new Map<
   string,
   { signature: string; result: Record<string, unknown> }
 >();
+
+// Immutable relation edges (supersedes/corrects/occurrence_of). Seeded with a
+// deterministic chain: the refreshed product-boundary decision supersedes both
+// the original decision and the legacy task state.
+const MEMORY_RELATIONS: MemoryRelation[] = [
+  {
+    id: '40000000-0000-4000-8000-000000000001',
+    workspace_id: MOCK_WORKSPACE_ID,
+    source_id: '30000000-0000-4000-8000-000000000007',
+    target_id: '30000000-0000-4000-8000-000000000005',
+    relation_type: 'supersedes',
+    actor_user_id: MOCK_MEMORY_USER_ID,
+    reason: '新的产品边界决策取代旧任务状态',
+    created_at: '2026-07-29T09:00:00Z',
+  },
+  {
+    id: '40000000-0000-4000-8000-000000000002',
+    workspace_id: MOCK_WORKSPACE_ID,
+    source_id: '30000000-0000-4000-8000-000000000007',
+    target_id: '30000000-0000-4000-8000-000000000001',
+    relation_type: 'supersedes',
+    actor_user_id: MOCK_MEMORY_USER_ID,
+    reason: '边界决策升级：Context Pack 附带证据强度标注',
+    created_at: '2026-07-29T09:05:00Z',
+  },
+];
+const MOCK_RELATION_TYPES = new Set(['supersedes', 'corrects', 'occurrence_of']);
+const MOCK_RELATION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Mirrors the server: a memory is superseded when it is the target of a
+// supersedes/corrects edge whose source is still active (and not forgotten).
+function memorySuperseded(memoryID: string): boolean {
+  return MEMORY_RELATIONS.some((relation) => {
+    if (relation.target_id !== memoryID) return false;
+    if (relation.relation_type !== 'supersedes' && relation.relation_type !== 'corrects') {
+      return false;
+    }
+    if (FORGOTTEN_MEMORY_IDS.has(relation.source_id)) return false;
+    const source = memoryAt(relation.source_id);
+    return Boolean(source) && source!.lifecycle_status === 'active';
+  });
+}
+
+// Mirrors the server cycle check: adding source -> target closes a cycle iff
+// target already supersedes/corrects source through existing forward edges.
+// The exact edge being written is excluded so idempotent replays pass.
+function mockRelationWouldCycle(sourceID: string, targetID: string): boolean {
+  const seen = new Set<string>([targetID]);
+  const queue = [targetID];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const relation of MEMORY_RELATIONS) {
+      if (relation.source_id !== current) continue;
+      if (relation.relation_type !== 'supersedes' && relation.relation_type !== 'corrects') {
+        continue;
+      }
+      if (relation.source_id === sourceID && relation.target_id === targetID) continue;
+      if (relation.target_id === sourceID) return true;
+      if (!seen.has(relation.target_id)) {
+        seen.add(relation.target_id);
+        queue.push(relation.target_id);
+      }
+    }
+  }
+  return false;
+}
 const MOCK_WORKSPACE_BUNDLE_TEXT =
   'PK\u0003\u0004MEM.WORKSPACE_BUNDLE.V1\nmanifest.json\nchecksums.sha256\n';
 const IMPORTED_WORKSPACE_BUNDLES = new Set<string>();
+
+// Deterministic workspace_imports ledger projection, newest first. Every entry
+// is a committed import, so result_status is always succeeded; fresh entries
+// carry zero conflicts and zero skips, merge_conservative entries carry their
+// recorded counts.
+const MOCK_IMPORT_HISTORY = [
+  {
+    bundle_id: '77777777-7777-4777-8777-777777777777',
+    archive_sha256: 'c'.repeat(64),
+    source_workspace_id: '99999999-9999-4999-8999-999999999999',
+    schema_version: 2,
+    restore_mode: 'fresh',
+    result_status: 'succeeded',
+    conflict_count: 0,
+    skipped_count: 0,
+    imported_at: '2026-07-28T07:08:09Z',
+  },
+  {
+    bundle_id: '66666666-6666-4666-8666-666666666666',
+    archive_sha256: 'b'.repeat(64),
+    source_workspace_id: '88888888-8888-4888-8888-888888888888',
+    schema_version: 1,
+    restore_mode: 'fresh',
+    result_status: 'succeeded',
+    conflict_count: 0,
+    skipped_count: 0,
+    imported_at: '2026-07-01T03:04:05Z',
+  },
+];
 
 function mockToken(request: Request): string {
   return request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? '';
@@ -268,6 +466,7 @@ function memorySummary(memory: AgentMemory): AgentMemorySummary {
     content_sha256: memory.content_sha256,
     lifecycle_status: memory.lifecycle_status,
     state_version: memory.state_version,
+    superseded: memorySuperseded(memory.id),
     pinned: memory.pinned,
     pinned_at: memory.pinned_at,
     useful_count: memory.useful_count,
@@ -502,6 +701,50 @@ export const handlers = [
     });
   }),
 
+  // ----- Permissions surface: tokens + durable-context grants -----
+  http.get(`${BASE}/auth/tokens`, async ({ request }) => {
+    await jitter(60, 140);
+    if (!mockPermissions(request).permissions_manage) return permissionsForbidden();
+    return HttpResponse.json({ tokens: structuredClone(MOCK_TOKENS) });
+  }),
+
+  http.delete(`${BASE}/auth/tokens/:id`, async ({ params, request }) => {
+    await jitter(60, 140);
+    if (!mockPermissions(request).permissions_manage) return permissionsForbidden();
+    const idx = MOCK_TOKENS.findIndex((token) => token.ID === String(params.id));
+    if (idx < 0) {
+      return HttpResponse.json({ error: 'not_found', hint: 'no such token' }, { status: 404 });
+    }
+    MOCK_TOKENS.splice(idx, 1);
+    return HttpResponse.json({ ok: true });
+  }),
+
+  http.get(`${BASE}/durable-context/grants`, async ({ request }) => {
+    await jitter(60, 140);
+    if (!mockPermissions(request).permissions_manage) return permissionsForbidden();
+    return HttpResponse.json({ grants: structuredClone(MOCK_DURABLE_GRANTS) });
+  }),
+
+  http.post(`${BASE}/durable-context/grants/:grantID/revoke`, async ({ params, request }) => {
+    await jitter(60, 140);
+    if (!mockPermissions(request).permissions_manage) return permissionsForbidden();
+    const grant = MOCK_DURABLE_GRANTS.find(
+      (candidate) => candidate.id === String(params.grantID),
+    );
+    if (!grant) {
+      return HttpResponse.json({ error: 'not_found', hint: 'no such grant' }, { status: 404 });
+    }
+    // Idempotent soft revoke: stamp once, keep the audit row.
+    if (!grant.revoked_at) {
+      grant.revoked_at = '2026-07-29T10:00:00Z';
+      grant.updated_at = grant.revoked_at;
+      grant.status = 'revoked';
+    }
+    // The real endpoint returns the bare grant row, never view annotations.
+    const { memory_status: _memoryStatus, status: _status, ...grantRow } = grant;
+    return HttpResponse.json(structuredClone(grantRow));
+  }),
+
   // ----- Workspace / deployment capabilities -----
   http.get(`${BASE}/capabilities`, async ({ request }) => {
     await jitter(50, 120);
@@ -734,6 +977,34 @@ export const handlers = [
     });
   }),
 
+  http.get(`${BASE}/workspaces/current/imports`, async ({ request }) => {
+    await delay(60);
+    if (!mockPermissions(request).workspace_import) {
+      return HttpResponse.json(
+        {
+          error: 'forbidden',
+          hint: 'workspace import history requires an unrestricted owner/admin token',
+        },
+        { status: 403 },
+      );
+    }
+    const url = new URL(request.url);
+    const limitRaw = url.searchParams.get('limit');
+    let limit = 50;
+    if (limitRaw !== null && limitRaw !== '') {
+      const parsed = Number(limitRaw);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+        return HttpResponse.json(
+          { error: 'bad_limit', hint: 'limit must be between 1 and 100' },
+          { status: 400 },
+        );
+      }
+      limit = parsed;
+    }
+    const items = MOCK_IMPORT_HISTORY.slice(0, limit);
+    return HttpResponse.json({ items, count: items.length });
+  }),
+
   // ----- Structured Agent memory ledger -----
   http.get(`${BASE}/memories`, async ({ request }) => {
     await delay(60);
@@ -830,6 +1101,154 @@ export const handlers = [
       memories: page.map(memorySummary),
       ...(hasNextPage && last ? { next_cursor: encodeMemoryCursor(last, filter) } : {}),
     });
+  }),
+
+  http.get(`${BASE}/memories/:id/relations`, async ({ params, request }) => {
+    await delay(40);
+    if (!mockPermissions(request).read) return mockForbidden();
+    const id = String(params.id);
+    if (FORGOTTEN_MEMORY_IDS.has(id)) {
+      return HttpResponse.json(
+        {
+          error: 'memory_forgotten',
+          hint: 'relations of a forgotten memory are not readable',
+        },
+        { status: 410 },
+      );
+    }
+    if (!memoryAt(id)) {
+      return HttpResponse.json({ error: 'not_found', hint: 'memory not found' }, { status: 404 });
+    }
+    const url = new URL(request.url);
+    const directionRaw = (url.searchParams.get('direction') ?? '').trim().toLowerCase();
+    const direction = directionRaw === '' ? 'source' : directionRaw;
+    if (direction !== 'source' && direction !== 'target') {
+      return HttpResponse.json(
+        { error: 'invalid_relation_query', hint: 'direction must be source or target' },
+        { status: 400 },
+      );
+    }
+    const relationType = (url.searchParams.get('relation_type') ?? '').trim().toLowerCase();
+    if (relationType !== '' && !MOCK_RELATION_TYPES.has(relationType)) {
+      return HttpResponse.json(
+        {
+          error: 'invalid_relation_query',
+          hint: 'relation_type must be supersedes, corrects, or occurrence_of',
+        },
+        { status: 400 },
+      );
+    }
+    let limit = 50;
+    const rawLimit = url.searchParams.get('limit');
+    if (rawLimit !== null) {
+      limit = Number(rawLimit);
+      if (!Number.isInteger(limit) || limit < 1) {
+        return HttpResponse.json(
+          { error: 'bad_limit', hint: 'limit must be a positive integer' },
+          { status: 400 },
+        );
+      }
+      if (limit > 200) limit = 200;
+    }
+    const relations = MEMORY_RELATIONS.filter((relation) =>
+      direction === 'source' ? relation.source_id === id : relation.target_id === id,
+    )
+      .filter((relation) => relationType === '' || relation.relation_type === relationType)
+      .sort(
+        (left, right) =>
+          right.created_at.localeCompare(left.created_at) || left.id.localeCompare(right.id),
+      )
+      .slice(0, limit)
+      .map((relation) => structuredClone(relation));
+    return HttpResponse.json({ relations });
+  }),
+
+  http.post(`${BASE}/memory-relations`, async ({ request }) => {
+    await delay(60);
+    const permissions = mockPermissions(request);
+    if (!permissions.read || !permissions.write) return mockForbidden();
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const sourceID =
+      typeof body.source_id === 'string' ? body.source_id.trim().toLowerCase() : '';
+    const targetID =
+      typeof body.target_id === 'string' ? body.target_id.trim().toLowerCase() : '';
+    const relationType =
+      typeof body.relation_type === 'string' ? body.relation_type.trim().toLowerCase() : '';
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (!MOCK_RELATION_UUID.test(sourceID)) {
+      return HttpResponse.json(
+        { error: 'bad_source_id', hint: 'source_id must be a UUID' },
+        { status: 400 },
+      );
+    }
+    if (!MOCK_RELATION_UUID.test(targetID)) {
+      return HttpResponse.json(
+        { error: 'bad_target_id', hint: 'target_id must be a UUID' },
+        { status: 400 },
+      );
+    }
+    if (sourceID === targetID) {
+      return HttpResponse.json(
+        { error: 'invalid_relation', hint: 'source_id and target_id must differ' },
+        { status: 400 },
+      );
+    }
+    if (!MOCK_RELATION_TYPES.has(relationType)) {
+      return HttpResponse.json(
+        {
+          error: 'invalid_relation',
+          hint: 'relation_type must be supersedes, corrects, or occurrence_of',
+        },
+        { status: 400 },
+      );
+    }
+    const source = memoryAt(sourceID);
+    const target = memoryAt(targetID);
+    if (!source || !target) {
+      return HttpResponse.json(
+        { error: 'not_found', hint: 'source or target memory not found' },
+        { status: 404 },
+      );
+    }
+    if (FORGOTTEN_MEMORY_IDS.has(sourceID) || FORGOTTEN_MEMORY_IDS.has(targetID)) {
+      return HttpResponse.json(
+        { error: 'memory_forgotten', hint: 'cannot create relation to a forgotten memory' },
+        { status: 410 },
+      );
+    }
+    const existing = MEMORY_RELATIONS.find(
+      (relation) =>
+        relation.source_id === sourceID &&
+        relation.target_id === targetID &&
+        relation.relation_type === relationType,
+    );
+    if (existing) {
+      return HttpResponse.json(structuredClone(existing), { status: 200 });
+    }
+    if (
+      (relationType === 'supersedes' || relationType === 'corrects') &&
+      mockRelationWouldCycle(sourceID, targetID)
+    ) {
+      return HttpResponse.json(
+        {
+          error: 'relation_cycle',
+          hint: 'relation would create a cycle in the supersedes/corrects graph',
+        },
+        { status: 409 },
+      );
+    }
+    const relation: MemoryRelation = {
+      id: crypto.randomUUID(),
+      workspace_id: MOCK_WORKSPACE_ID,
+      source_id: sourceID,
+      target_id: targetID,
+      relation_type: relationType as MemoryRelationType,
+      actor_user_id: MOCK_MEMORY_USER_ID,
+      ...(reason ? { reason } : {}),
+      created_at: new Date().toISOString(),
+    };
+    MEMORY_RELATIONS.push(relation);
+    return HttpResponse.json(structuredClone(relation), { status: 201 });
   }),
 
   http.get(`${BASE}/memories/:id`, async ({ params, request }) => {

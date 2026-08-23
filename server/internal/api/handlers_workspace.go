@@ -53,6 +53,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		workspaceRestoreModes = append(
 			workspaceRestoreModes,
 			workspacetransfer.RestoreModeFresh,
+			workspacetransfer.RestoreModeMergeConservative,
 		)
 		workspaceBundleSchemaVersions = append(
 			workspaceBundleSchemaVersions,
@@ -78,14 +79,15 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 		},
 		"handoff_schema_versions": handoffVersions,
 		"permissions": map[string]bool{
-			"read":             auth.HasScope(t, auth.ScopeRead),
-			"search":           auth.HasScope(t, auth.ScopeSearch),
-			"write":            auth.HasScope(t, auth.ScopeWrite),
-			"delete":           auth.HasScope(t, auth.ScopeDelete) && ws.Role != "member",
-			"provider_read":    auth.HasScope(t, auth.ScopeRead),
-			"provider_modify":  auth.HasScope(t, auth.ScopeAdmin) && ws.Role != "member",
-			"workspace_export": exportAllowed,
-			"workspace_import": importAllowed,
+			"read":               auth.HasScope(t, auth.ScopeRead),
+			"search":             auth.HasScope(t, auth.ScopeSearch),
+			"write":              auth.HasScope(t, auth.ScopeWrite),
+			"delete":             auth.HasScope(t, auth.ScopeDelete) && ws.Role != "member",
+			"provider_read":      auth.HasScope(t, auth.ScopeRead),
+			"provider_modify":    auth.HasScope(t, auth.ScopeAdmin) && ws.Role != "member",
+			"permissions_manage": auth.HasScope(t, auth.ScopeAdmin),
+			"workspace_export":   exportAllowed,
+			"workspace_import":   importAllowed,
 		},
 	})
 }
