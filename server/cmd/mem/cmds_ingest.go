@@ -174,10 +174,11 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 	for _, abs := range paths {
 		files++
 		cp := loadQoderCheckpoint(stateDir, abs)
-		turns, perr := parseQoderTranscript(abs, cp.LastLine)
+		turns, skipped, perr := parseQoderTranscript(abs, cp.LastLine)
 		if perr != nil {
 			return perr
 		}
+		unparseable += skipped
 		project, session := splitTranscriptPath(base, abs)
 
 		newLast := cp.LastLine
@@ -187,10 +188,7 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 			}
 			// parseQoderTranscript already skips <= cp.LastLine, so this
 			// guard is a belt-and-suspenders check against anomalies.
-			if turn.Line <= newLast || turn.Content == "" {
-				if turn.Content == "" {
-					unparseable++
-				}
+			if turn.Line <= newLast {
 				continue
 			}
 

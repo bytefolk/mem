@@ -43,12 +43,16 @@ func TestParseQoderTranscript(t *testing.T) {
 	dir := t.TempDir()
 	abs := writeTranscript(t, dir, "campus-2027/sessions/recruit-s3e0a.jsonl")
 
-	turns, err := parseQoderTranscript(abs, 0)
+	turns, skipped, err := parseQoderTranscript(abs, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(turns) != 3 {
 		t.Fatalf("turns = %d, want 3\n%v", len(turns), turns)
+	}
+	// line 4 (garbage) and line 5 (empty content) are unparseable.
+	if skipped != 2 {
+		t.Errorf("skipped = %d, want 2", skipped)
 	}
 	if turns[0].Content != "you are a scoring assistant" || turns[0].Role != "system" ||
 		turns[0].AgentID != "qoder-default" {
@@ -75,7 +79,7 @@ func TestParseQoderTranscriptSkipBefore(t *testing.T) {
 
 	// Skip the first two ingestible lines (system + first user turn): lines 1-2.
 	// The assistant decision line (3) must remain.
-	turns, err := parseQoderTranscript(abs, 2)
+	turns, _, err := parseQoderTranscript(abs, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
