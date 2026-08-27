@@ -1,5 +1,26 @@
 #!/bin/bash
 # mem-mcp — npm wrapper shell script
-# Resolves the package directory and runs the binary.
+# Resolves the package directory and runs the correct platform binary.
+set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec "$DIR/bin/mem-mcp" "$@"
+
+# Detect platform and pick the correct binary.
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64)  ASSET="mem-mcp-linux-amd64" ;;
+  Darwin-x86_64) ASSET="mem-mcp-darwin-amd64" ;;
+  Darwin-arm64)  ASSET="mem-mcp-darwin-arm64" ;;
+  *)
+    echo "mem-mcp: unsupported platform $(uname -s)-$(uname -m)" >&2
+    echo "mem-mcp: supported: linux-amd64, darwin-amd64, darwin-arm64" >&2
+    exit 1
+    ;;
+esac
+
+BIN="$DIR/bin/$ASSET"
+if [ ! -x "$BIN" ]; then
+  echo "mem-mcp: binary not found at $BIN" >&2
+  echo "mem-mcp: run 'npm rebuild @fullstack-ai-infra/mem-mcp' to download" >&2
+  exit 1
+fi
+
+exec "$BIN" "$@"

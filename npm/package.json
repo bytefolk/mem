@@ -27,13 +27,11 @@
   "os": ["linux", "darwin"],
   "cpu": ["x64", "arm64"],
   "scripts": {
-    "postinstall": "node install.js",
-    "prepack": "node install.js"
+    "postinstall": "node install.js"
   },
   "files": [
     "install.js",
     "mem-mcp",
-    "mem-mcp.cmd",
     "README.md",
     "LICENSE"
   ],
