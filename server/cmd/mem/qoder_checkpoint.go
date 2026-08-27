@@ -30,6 +30,10 @@ func qoderCheckpointPath(stateDir, abs string) string {
 // loadQoderCheckpoint reads a transcript cursor. A missing or malformed cursor
 // yields the zero value (LastLine 0), meaning "nothing ingested yet" — never a
 // hard error, so a corrupt cursor cannot block ingest.
+//
+// If the on-disk file is now smaller than when the checkpoint was written, the
+// file was truncated and rewritten — reset LastLine so re-ingestion does not
+// skip the new content at formerly-ingested line numbers.
 func loadQoderCheckpoint(stateDir, abs string) qoderCheckpoint {
 	var cp qoderCheckpoint
 	p := qoderCheckpointPath(stateDir, abs)
@@ -42,6 +46,14 @@ func loadQoderCheckpoint(stateDir, abs string) qoderCheckpoint {
 	}
 	if cp.Abs == "" {
 		cp.Abs = abs
+	}
+	// Detect truncation: if the file was rewritten and is now smaller, reset
+	// the cursor so the new content at formerly-ingested line numbers is not
+	// silently skipped.
+	if cp.Size > 0 {
+		if fi, err := os.Stat(abs); err == nil && fi.Size() < cp.Size {
+			cp.LastLine = 0
+		}
 	}
 	return cp
 }

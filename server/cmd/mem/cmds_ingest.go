@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/PeterGuy326/mem/server/internal/apiclient"
 	"github.com/spf13/cobra"
 )
 
@@ -182,8 +185,8 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 			if o.limit > 0 && remaining <= 0 {
 				break
 			}
-			// parseQoderTranscript already skips <= cp.LastLine, but guard
-			// against anomalies so we never re-ingest an older line.
+			// parseQoderTranscript already skips <= cp.LastLine, so this
+			// guard is a belt-and-suspenders check against anomalies.
 			if turn.Line <= newLast || turn.Content == "" {
 				if turn.Content == "" {
 					unparseable++
@@ -196,7 +199,6 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 
 			if o.dryRun {
 				memories++
-				newLast = turn.Line
 				if remaining > 0 {
 					remaining--
 				}
@@ -204,7 +206,10 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 			}
 
 			var resp map[string]any
-			err := client.doJSONWithHeaders(
+			// Use the raw client to detect 409 (Idempotency-Key conflict)
+			// without wrapping into cliError, which would lose the kind.
+			err := client.api.DoJSONWithHeaders(
+				context.Background(),
 				http.MethodPost,
 				"/v1/memories",
 				body,
@@ -212,7 +217,19 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 				map[string]string{"Idempotency-Key": key},
 			)
 			if err != nil {
-				return err
+				// 409 Idempotency-Key conflict: the file was rewritten with
+				// different content at the same line — skip the remainder of
+				// this file and continue with others rather than aborting the
+				// whole run. The checkpoint is NOT advanced for this file, so
+				// the operator can investigate and retry.
+				var ae *apiclient.APIError
+				if errors.As(err, &ae) && ae.Kind() == apiclient.KindConflict {
+					fmt.Fprintf(cmd.ErrOrStderr(),
+						"warn: %s line %d: idempotency conflict (file rewritten?); skipping remaining lines in %s\n",
+						abs, turn.Line, filepath.Base(abs))
+					break
+				}
+				return fromAPIError(err)
 			}
 			if r, _ := resp["replayed"].(bool); r {
 				replayed++
@@ -225,13 +242,17 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 			newLast = turn.Line
 		}
 
-		if size, mtime, serr := fileState(abs); serr == nil {
-			_ = saveQoderCheckpoint(stateDir, qoderCheckpoint{
-				Abs:      abs,
-				Size:     size,
-				ModTime:  mtime,
-				LastLine: newLast,
-			})
+		if !o.dryRun {
+			if size, mtime, serr := fileState(abs); serr == nil {
+				if err := saveQoderCheckpoint(stateDir, qoderCheckpoint{
+					Abs:      abs,
+					Size:     size,
+					ModTime:  mtime,
+					LastLine: newLast,
+				}); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warn: save checkpoint for %s: %v\n", abs, err)
+				}
+			}
 		}
 	}
 

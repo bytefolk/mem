@@ -68,6 +68,25 @@ Ingestion is **incremental and idempotent**:
 
 Deleting `~/.mem/ingest/qoder` resets all cursors (safe: ids remain idempotent).
 
+## Privacy note
+
+AI-CLI transcripts routinely contain material users did not consciously choose
+to archive: API keys, tokens, secrets, or other credentials they pasted into a
+prompt, plus personal data that scoped into an agent conversation. `mem ingest
+qoder` writes the message text **verbatim** into the vault as a normal memory
+`observation`, where it becomes recallable through the same search/context/USI
+surfaces and governed by the same token/path permissions as any other record.
+
+Before running ingest in an environment that matters, consider:
+
+- Using `--dry-run` first to preview exactly what would be ingested.
+- Purging secrets from the transcript store (or excluding those files) so they
+  are never written.
+- Deleting the state dir and re-ingesting is **not** a redaction path:
+  `forget`/delete on the resulting memories is the way to remove credentials
+  you do not want retained. Plainly, **do not ingest a transcript you would be
+  unwilling to have searched later.**
+
 ## Recall
 
 Because ingestion writes through `POST /v1/memories`, records appear exactly like

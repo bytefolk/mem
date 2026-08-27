@@ -227,10 +227,11 @@ func TestIngestQoderDryRunWritesNothing(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	stateDir := filepath.Join(dir, "state")
 	t.Setenv("MEM_CONFIG", filepath.Join(dir, "missing.yaml"))
 	t.Setenv("MEM_SERVER", srv.URL)
 	t.Setenv("MEM_TOKEN", "tok")
-	t.Setenv("MEM_STATE_DIR", filepath.Join(dir, "state"))
+	t.Setenv("MEM_STATE_DIR", stateDir)
 
 	root := newRootCmd()
 	var stdout bytes.Buffer
@@ -244,6 +245,11 @@ func TestIngestQoderDryRunWritesNothing(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "dry-run") {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+	// No checkpoint files must be written after a dry run.
+	checkpointFiles, _ := filepath.Glob(filepath.Join(stateDir, "ingest", "qoder", "*.json"))
+	if len(checkpointFiles) != 0 {
+		t.Fatalf("dry-run left %d checkpoint file(s): %v", len(checkpointFiles), checkpointFiles)
 	}
 }
 
@@ -265,5 +271,152 @@ func TestIngestQoderRequiresLogin(t *testing.T) {
 	var ce *cliError
 	if !errors.As(err, &ce) || ce.code != 3 {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestIngestQoderReplayedResponseCounted(t *testing.T) {
+	dir := t.TempDir()
+	transcriptDir := filepath.Join(dir, "store")
+	writeTranscript(t, transcriptDir, "p/s.jsonl")
+
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"memory":{"id":"m-1"},"replayed":true}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("MEM_CONFIG", filepath.Join(dir, "missing.yaml"))
+	t.Setenv("MEM_SERVER", srv.URL)
+	t.Setenv("MEM_TOKEN", "tok")
+	t.Setenv("MEM_WORKSPACE", "ws-1")
+	t.Setenv("MEM_STATE_DIR", filepath.Join(dir, "state"))
+
+	root := newRootCmd()
+	root.SetArgs([]string{"ingest", "qoder", "--root", transcriptDir})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 3 {
+		t.Fatalf("requests = %d, want 3", requests.Load())
+	}
+}
+
+func TestIngestQoder409ConflictDegradesPerFile(t *testing.T) {
+	dir := t.TempDir()
+	transcriptDir := filepath.Join(dir, "store")
+	abs1 := writeTranscript(t, transcriptDir, "project-a/s1.jsonl")
+	abs2 := writeTranscript(t, transcriptDir, "project-b/s2.jsonl")
+
+	var (
+		requests atomic.Int32
+		first409 int32
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		raw, _ := io.ReadAll(r.Body)
+		var b map[string]any
+		_ = json.Unmarshal(raw, &b)
+		src := b["source"].(map[string]any)
+		loc := src["locator"].(map[string]any)
+		line := int(loc["line"].(float64))
+		if line == 2 && atomic.CompareAndSwapInt32(&first409, 0, 1) {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"error":"idempotency conflict","hint":"file rewritten"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"memory":{"id":"m-1"},"replayed":false}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("MEM_CONFIG", filepath.Join(dir, "missing.yaml"))
+	t.Setenv("MEM_SERVER", srv.URL)
+	t.Setenv("MEM_TOKEN", "tok")
+	t.Setenv("MEM_WORKSPACE", "ws-1")
+	t.Setenv("MEM_STATE_DIR", filepath.Join(dir, "state"))
+
+	stateDir := filepath.Join(dir, "state")
+	cpDir := filepath.Join(stateDir, "ingest", "qoder")
+	root := newRootCmd()
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stdout)
+	root.SetArgs([]string{"ingest", "qoder", "--root", transcriptDir})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	// project-a: line 1 (200), line 2 (409 → skip file, line 3 not attempted)
+	// project-b: line 1 (200), line 2 (200), line 3 (200) — all 3
+	// Total: 1 + 1(409) + 3 = 5 requests.
+	if requests.Load() != 5 {
+		t.Fatalf("requests = %d, want 5 (a1=200, a2=409→skip, b1-b3=200)", requests.Load())
+	}
+	if !strings.Contains(stdout.String(), "idempotency conflict") {
+		t.Fatalf("expected conflict warning, got stdout = %q", stdout.String())
+	}
+	cp := loadQoderCheckpoint(cpDir, abs1)
+	if cp.LastLine != 1 {
+		t.Fatalf("project-a checkpoint LastLine = %d, want 1 (line 2 failed)", cp.LastLine)
+	}
+	cp2 := loadQoderCheckpoint(cpDir, abs2)
+	if cp2.LastLine != 3 {
+		t.Fatalf("project-b checkpoint LastLine = %d, want 3", cp2.LastLine)
+	}
+}
+
+func TestIngestQoderLimitCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	transcriptDir := filepath.Join(dir, "store")
+	abs := writeTranscript(t, transcriptDir, "p/s.jsonl")
+
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"memory":{"id":"m-1"},"replayed":false}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("MEM_CONFIG", filepath.Join(dir, "missing.yaml"))
+	t.Setenv("MEM_SERVER", srv.URL)
+	t.Setenv("MEM_TOKEN", "tok")
+	t.Setenv("MEM_WORKSPACE", "ws-1")
+	t.Setenv("MEM_STATE_DIR", filepath.Join(dir, "state"))
+
+	stateDir := filepath.Join(dir, "state")
+	cpDir := filepath.Join(stateDir, "ingest", "qoder")
+
+	// First run with --limit 2: only 2 of 3 lines are ingested.
+	root := newRootCmd()
+	root.SetArgs([]string{"ingest", "qoder", "--root", transcriptDir, "--limit", "2"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("first run requests = %d, want 2", requests.Load())
+	}
+	cp := loadQoderCheckpoint(cpDir, abs)
+	if cp.LastLine != 2 {
+		t.Fatalf("after limit checkpoint LastLine = %d, want 2", cp.LastLine)
+	}
+
+	// Second run without limit: processes the remaining line 3.
+	requests.Store(0)
+	root2 := newRootCmd()
+	root2.SetArgs([]string{"ingest", "qoder", "--root", transcriptDir})
+	if err := root2.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("second run requests = %d, want 1", requests.Load())
+	}
+	cp2 := loadQoderCheckpoint(cpDir, abs)
+	if cp2.LastLine != 3 {
+		t.Fatalf("after second run LastLine = %d, want 3", cp2.LastLine)
 	}
 }

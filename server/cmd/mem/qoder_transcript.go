@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // qoderTurn is one normalized conversation turn extracted from a Qoder/CLI
@@ -68,21 +69,24 @@ func splitTranscriptPath(root, abs string) (project string, session string) {
 }
 
 // parseQoderTranscript reads a .jsonl transcript line by line and returns one
-// qoderTurn per parseable message. Lines that do not decode as JSON, do not
-// carry message text, or fall at or before the already-ingested line cursor
-// (skipBefore, inclusive) are skipped. The returned turns are ordered by line.
-func parseQoderTranscript(abs string, skipBefore int) ([]qoderTurn, error) {
+// qoderTurn per parseable message, plus the number of lines skipped as
+// unparseable. Lines that do not decode as JSON, do not carry message text, or
+// fall at or before the already-ingested line cursor (skipBefore, inclusive)
+// are skipped. The returned turns are ordered by line.
+func parseQoderTranscript(abs string, skipBefore int) (turns []qoderTurn, skipped int, err error) {
 	f, err := os.Open(abs)
 	if err != nil {
-		return nil, fmt.Errorf("open transcript: %w", err)
+		return nil, 0, fmt.Errorf("open transcript: %w", err)
 	}
 	defer f.Close()
 	return parseQoderTranscriptFrom(f, skipBefore)
 }
 
 // parseQoderTranscriptFrom is the io.Reader variant used by tests.
-func parseQoderTranscriptFrom(r io.Reader, skipBefore int) ([]qoderTurn, error) {
-	var turns []qoderTurn
+// It returns the ingestible turns and the number of lines it deliberately
+// skipped as unparseable (non-JSON, continuation, or no ingestible text) so the
+// caller can report an honest "skipped" count instead of a dead zero.
+func parseQoderTranscriptFrom(r io.Reader, skipBefore int) (turns []qoderTurn, skipped int, err error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*maxMessageBytes)
 	line := 0
@@ -98,19 +102,21 @@ func parseQoderTranscriptFrom(r io.Reader, skipBefore int) ([]qoderTurn, error) 
 		// previous object (they do not parse as a complete object either way).
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+			skipped++
 			continue // not a standalone JSON object — skip (e.g. continuation)
 		}
 		turn := turnFromObject(obj)
 		if turn == nil || turn.Content == "" {
+			skipped++
 			continue
 		}
 		turn.Line = line
 		turns = append(turns, *turn)
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read transcript: %w", err)
+	if serr := scanner.Err(); serr != nil {
+		return nil, 0, fmt.Errorf("read transcript: %w", serr)
 	}
-	return turns, nil
+	return turns, skipped, nil
 }
 
 // turnFromObject normalizes one decoded JSON line into a qoderTurn, probing the
@@ -129,7 +135,9 @@ func turnFromObject(obj map[string]any) *qoderTurn {
 		return nil
 	}
 	if len(t.Content) > maxMessageBytes {
-		t.Content = t.Content[:maxMessageBytes]
+		// Truncate at the nearest rune boundary to avoid splitting a multi-byte
+		// character, which would produce a U+FFFD replacement character.
+		t.Content = truncateUTF8(t.Content, maxMessageBytes)
 	}
 
 	// ---- role / speaker ----------------------------------------------------
@@ -250,35 +258,42 @@ func parseTimeLike(raw string) *time.Time {
 	}
 	var result time.Time
 	var err error
-	switch {
-	case strings.HasPrefix(raw, "202") && strings.Contains(raw, "T"):
-		result, err = time.Parse(time.RFC3339, raw)
-		if err != nil {
-			result, err = time.Parse("2006-01-02 15:04:05", raw)
+
+	// Try each known layout in order — no heuristics, so no layout is
+	// unreachable and no year range is excluded.
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		time.RFC1123Z,
+	}
+	for _, layout := range layouts {
+		result, err = time.Parse(layout, raw)
+		if err == nil {
+			return &result
 		}
-	case looksNumeric(raw):
+	}
+	if looksNumeric(raw) {
 		// epoch milliseconds (~1.7e12) or epoch seconds (~1.7e9).
 		var f float64
 		if _, e := fmt.Sscanf(raw, "%f", &f); e == nil {
 			switch {
 			case f > 1e11: // milliseconds
-				result = time.Unix(int64(f/1000), (int64(f)%1000)*int64(time.Millisecond))
+				sec := int64(f / 1000)
+				ns := (int64(f) % 1000) * int64(time.Millisecond)
+				result = time.Unix(sec, ns)
+				return &result
 			case f > 1e8: // epoch seconds (2016+)
 				sec := int64(f)
 				ns := int64((f - float64(sec)) * 1e9)
 				result = time.Unix(sec, ns)
-			default:
-				// too small to be a plausible epoch; treat as unparseable.
+				return &result
 			}
 		}
 	}
-	if err != nil {
-		return nil
-	}
-	if result.IsZero() {
-		return nil
-	}
-	return &result
+	return nil
 }
 
 func looksNumeric(s string) bool {
@@ -291,4 +306,19 @@ func looksNumeric(s string) bool {
 		}
 	}
 	return true
+}
+
+// truncateUTF8 returns the longest prefix of s that is no longer than maxBytes
+// bytes and ends at a valid UTF-8 rune boundary. This avoids producing U+FFFD
+// replacement characters when truncating at a multi-byte boundary.
+func truncateUTF8(s string, maxBytes int) string {
+	if maxBytes >= len(s) {
+		return s
+	}
+	// Walk backward from the cut point to find the last rune start.
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
