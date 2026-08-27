@@ -197,6 +197,7 @@ func (s *Server) Router() http.Handler {
 	}
 	r.Use(s.logRequest)
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeadersMiddleware)
 	r.Use(s.requestTimeoutMiddleware)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -1137,10 +1138,18 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rc.Close()
 	w.Header().Set("Content-Type", f.MIME)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if f.Size > 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
 	}
-	w.Header().Set("Content-Disposition", `inline; filename="`+f.Name+`"`)
+	// Disposition: active/interpretable types (HTML, script, XML, SVG, fonts)
+	// are served as guaranteed downloads so a browser never executes an
+	// uploaded file in the origin's context. Everything else stays inline.
+	disposition := "inline"
+	if dispositionShouldDownload(f.MIME) {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Disposition", disposition+`; filename="`+sanitizeFilename(f.Name)+`"`)
 	w.WriteHeader(http.StatusOK)
 	// best-effort copy; client may disconnect
 	_, _ = copyTo(w, rc)
