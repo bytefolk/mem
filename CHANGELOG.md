@@ -9,6 +9,10 @@ The project is not yet publishing stable semantic-versioned releases.
 
 ### Added
 
+- MCP distribution packaging: smithery.yaml, npm wrapper, README Tools table,
+  and mcp-server repository topic (preparation for MCP Registry, Smithery,
+  mcp.so, Glama, and PulseMCP discovery).
+
 - `merge_conservative` workspace bundle restore: importing a validated
   bundle into an existing, possibly non-empty workspace now compares every
   bundle object against the target under the import lock by stable identity

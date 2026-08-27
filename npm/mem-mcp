@@ -1,0 +1,5 @@
+#!/bin/bash
+# mem-mcp — npm wrapper shell script
+# Resolves the package directory and runs the binary.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec "$DIR/bin/mem-mcp" "$@"
