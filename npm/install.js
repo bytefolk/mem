@@ -18,6 +18,7 @@ const { createWriteStream, unlinkSync, existsSync, chmodSync, mkdirSync } = requ
 const { get } = require("https");
 const { platform, arch } = require("os");
 const { join } = require("path");
+const { assetFor } = require("./platforms");
 
 const PACKAGE = "@fullstack-ai-infra/mem-mcp";
 const REPO = "fullstack-ai-infra/mem";
@@ -25,19 +26,6 @@ const REPO = "fullstack-ai-infra/mem";
 // Version from package.json — single source of truth.
 // eslint-disable-next-line import/no-unresolved
 const { version: VERSION } = require("./package.json");
-
-// Determine the asset name for the current platform.
-function assetName() {
-  const p = platform();
-  const a = arch();
-  if (p === "linux" && a === "x64") return "mem-mcp-linux-amd64";
-  if (p === "darwin" && a === "x64") return "mem-mcp-darwin-amd64";
-  if (p === "darwin" && a === "arm64") return "mem-mcp-darwin-arm64";
-  throw new Error(
-    `Unsupported platform: ${p} ${a}. ` +
-      `${PACKAGE} currently supports linux-amd64, darwin-amd64, and darwin-arm64.`
-  );
-}
 
 /**
  * Downloads a URL to a file, following HTTP redirects (up to 5 hops).
@@ -78,7 +66,7 @@ async function main() {
   // Write to bin/ subdirectory so we never collide with the wrapper script at
   // npm/mem-mcp (which is checked into the package and resolves the binary here).
   const binDir = join(__dirname, "bin");
-  const asset = assetName();
+  const asset = assetFor(platform(), arch());
   const binPath = join(binDir, asset);
   const url = `https://github.com/${REPO}/releases/download/v${VERSION}/${asset}`;
 

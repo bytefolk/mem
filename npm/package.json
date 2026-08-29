@@ -24,7 +24,7 @@
   "bin": {
     "mem-mcp": "./mem-mcp"
   },
-  "os": ["linux", "darwin"],
+  "os": ["linux", "darwin", "win32"],
   "cpu": ["x64", "arm64"],
   "scripts": {
     "postinstall": "node install.js"
@@ -32,6 +32,7 @@
   "files": [
     "install.js",
     "mem-mcp",
+    "platforms.js",
     "README.md",
     "LICENSE"
   ],

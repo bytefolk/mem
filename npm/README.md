@@ -54,7 +54,8 @@ claude mcp add --scope project --transport stdio \
 
 ## Compatibility
 
-- **Platforms**: linux-amd64, darwin-amd64, darwin-arm64
+- **Platforms**: linux-amd64, linux-arm64, darwin-amd64, darwin-arm64,
+  windows-amd64, windows-arm64
 - **Protocol**: MCP 2024-11-05
 - **Tools**: 26 built-in tools (put, get, search, context, remember, checkpoint, resume, etc.)
 

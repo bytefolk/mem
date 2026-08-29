@@ -91,7 +91,8 @@ adapter over the canonical `memd` HTTP API — one core across API / MCP / CLI /
 | `mem_memory_list` | List bounded structured-memory summaries |
 | `mem_memory_get` | Get one full structured memory by UUID within the token path boundary |
 | `mem_feedback` | Record useful/not-useful or pin/unpin feedback with optimistic concurrency |
-| `mem_archive` / `mem_restore` | Reversibly exclude a memory from or return it to normal recall |
+| `mem_archive` | Reversibly exclude a memory from normal recall |
+| `mem_restore` | Return an archived memory to normal recall |
 | `mem_forget` | Irreversibly redact one live memory payload after explicit confirmation |
 | `mem_checkpoint` | Persist a versioned task checkpoint or an explicit handoff to another Agent/device |
 | `mem_task_list` | List bounded resumable-task summaries |

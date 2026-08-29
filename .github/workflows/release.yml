@@ -20,12 +20,27 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
-        goos: [linux, darwin]
-        goarch: [amd64, arm64]
-        exclude:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: mem-mcp-linux-amd64
           - goos: linux
             goarch: arm64
+            asset: mem-mcp-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            asset: mem-mcp-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            asset: mem-mcp-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            asset: mem-mcp-windows-amd64.exe
+          - goos: windows
+            goarch: arm64
+            asset: mem-mcp-windows-arm64.exe
     env:
       GOFLAGS: "-trimpath -ldflags=-s -w"
 
@@ -41,19 +56,18 @@ jobs:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
 
-      - name: Build mem-mcp (${{ matrix.goos }}-${{ matrix.goarch }})
+      - name: Build mem-mcp (${{ matrix.asset }})
         working-directory: server
         run: |
-          asset="mem-mcp-${{ matrix.goos }}-${{ matrix.goarch }}"
           mkdir -p "${RUNNER_TEMP}/assets"
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -o "${RUNNER_TEMP}/assets/${asset}" ./cmd/mem-mcp
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -o "${RUNNER_TEMP}/assets/${{ matrix.asset }}" ./cmd/mem-mcp
 
       - name: Upload asset
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: mem-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ runner.temp }}/assets/mem-mcp-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ${{ matrix.asset }}
+          path: ${{ runner.temp }}/assets/${{ matrix.asset }}
           if-no-files-found: error
           retention-days: 1
 
@@ -86,10 +100,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${GITHUB_REF_NAME:-${{ inputs.version }}}"
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME:-${INPUT_VERSION}}"
+          # The `v*` tag glob and the workflow_dispatch input are both
+          # caller-controlled, so the version is asserted before it reaches
+          # the release API and the asset paths.
+          if ! printf '%s' "${VERSION}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "refusing to release non-semver version: ${VERSION}" >&2
+            exit 1
+          fi
           gh release create "${VERSION}" \
-            --repo "${{ github.repository }}" \
+            --repo "${GITHUB_REPOSITORY}" \
             --title "${VERSION}" \
             --generate-notes \
             /tmp/release-assets/mem-mcp-*
