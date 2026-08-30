@@ -1137,19 +1137,16 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rc.Close()
-	w.Header().Set("Content-Type", f.MIME)
+	// files.mime is declared by the uploader, so normalize it before deciding
+	// anything: interpretable types download rather than execute in this
+	// origin, and the stored string is never echoed into a response header.
+	contentType, disposition := contentResponseHeaders(f.MIME, f.Name)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if f.Size > 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
 	}
-	// Disposition: active/interpretable types (HTML, script, XML, SVG, fonts)
-	// are served as guaranteed downloads so a browser never executes an
-	// uploaded file in the origin's context. Everything else stays inline.
-	disposition := "inline"
-	if dispositionShouldDownload(f.MIME) {
-		disposition = "attachment"
-	}
-	w.Header().Set("Content-Disposition", disposition+`; filename="`+sanitizeFilename(f.Name)+`"`)
+	w.Header().Set("Content-Disposition", disposition)
 	w.WriteHeader(http.StatusOK)
 	// best-effort copy; client may disconnect
 	_, _ = copyTo(w, rc)

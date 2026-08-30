@@ -27,15 +27,55 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	}
 }
 
-func TestDispositionShouldDownload(t *testing.T) {
-	for _, mime := range []string{"text/html", "image/svg+xml", "application/pdf", "text/xml", "application/javascript"} {
-		if !dispositionShouldDownload(mime) {
-			t.Errorf("dispositionShouldDownload(%q) = false, want true", mime)
-		}
+// TestContentResponseHeaders pins the two response headers a browser actually
+// acts on for every spelling a client can store. Upload keeps the declared MIME
+// verbatim, so "Text/HTML;charset=utf-8" and "text/html" are the same type to
+// the browser and must be policed identically.
+func TestContentResponseHeaders(t *testing.T) {
+	cases := []struct {
+		storedMIME string
+		wantType   string
+		wantDisp   string
+	}{
+		// Interpretable/active types: forced download, however declared.
+		{"text/html", "text/html", "attachment"},
+		{"TEXT/HTML", "text/html", "attachment"},
+		{"  text/html  ", "text/html", "attachment"},
+		{"text/html; charset=utf-8", "text/html; charset=utf-8", "attachment"},
+		{"Text/Html;charset=UTF-8", "text/html; charset=utf-8", "attachment"},
+		{"image/SVG+XML", "image/svg+xml", "attachment"},
+		{"application/pdf", "application/pdf", "attachment"},
+		{"text/xml", "text/xml", "attachment"},
+		{"application/javascript", "application/javascript", "attachment"},
+		{"font/woff2", "font/woff2", "attachment"},
+		// A declared type the server cannot bound is treated as hostile: no
+		// inline preview, and the junk never reaches the browser verbatim.
+		{"text/html\r\nX-Injected: 1", "application/octet-stream", "attachment"},
+		{"html", "application/octet-stream", "attachment"},
+		{"", "application/octet-stream", "attachment"},
+		// Inert types stay inline for preview.
+		{"image/png", "image/png", "inline"},
+		{"image/png;", "image/png", "inline"},
+		{"text/plain; charset=utf-8", "text/plain; charset=utf-8", "inline"},
+		{"TEXT/PLAIN; CHARSET=GBK", "text/plain; charset=gbk", "inline"},
+		// ParseMediaType unquotes parameters, so a non-token charset is
+		// dropped rather than echoed back into the response.
+		{"text/plain; charset=\"utf 8\"", "text/plain", "inline"},
+		{"text/plain; charset=\"x\r\nY: 1\"", "text/plain", "inline"},
+		{"text/markdown", "text/markdown", "inline"},
+		{"application/octet-stream", "application/octet-stream", "inline"},
+		{"video/mp4", "video/mp4", "inline"},
 	}
-	for _, mime := range []string{"image/png", "text/plain", "application/octet-stream", "video/mp4"} {
-		if dispositionShouldDownload(mime) {
-			t.Errorf("dispositionShouldDownload(%q) = true, want false", mime)
+	for _, tc := range cases {
+		contentType, disposition := contentResponseHeaders(tc.storedMIME, "note.txt")
+		if contentType != tc.wantType {
+			t.Errorf("contentResponseHeaders(%q) content type = %q, want %q",
+				tc.storedMIME, contentType, tc.wantType)
+		}
+		want := tc.wantDisp + `; filename="note.txt"`
+		if disposition != want {
+			t.Errorf("contentResponseHeaders(%q) disposition = %q, want %q",
+				tc.storedMIME, disposition, want)
 		}
 	}
 }
@@ -73,6 +113,14 @@ func TestDispositionShouldDownloadDeclaredMIMEForms(t *testing.T) {
 		// XML vocabularies reach the same parser-activated surface.
 		"application/atom+xml",
 		"application/rss+xml",
+		// Fail closed on a declaration the server cannot bound. files.mime is
+		// client-supplied, so an unusable value must not take the permissive
+		// branch; ingest never stores an empty type anyway (it falls back to
+		// the filename extension, then to application/octet-stream), so this
+		// costs no real preview.
+		"",
+		"html",
+		"text/html\r\nX-Injected: 1",
 	}
 	for _, declared := range active {
 		if !dispositionShouldDownload(declared) {
@@ -86,7 +134,6 @@ func TestDispositionShouldDownloadDeclaredMIMEForms(t *testing.T) {
 		"text/markdown; charset=utf-8", // previewed as text, not browser-active
 		"application/octet-stream",
 		"application/zip",
-		"",
 	}
 	for _, declared := range inline {
 		if dispositionShouldDownload(declared) {
@@ -105,6 +152,17 @@ func TestSanitizeFilename(t *testing.T) {
 		"\x01\x02":             "download",
 		"report.final.v2.docx": "report.final.v2.docx",
 		"a: b;c=x - (1).pdf":   "a: b_c=x - (1).pdf",
+		// Bidi controls are written as UTF-8 bytes so nothing invisible lives
+		// in this file: \xe2\x80\xae is U+202E RIGHT-TO-LEFT OVERRIDE, which
+		// makes "报告<RLO>gpj.exe" display to the user as "报告exe.jpg".
+		"报告\xe2\x80\xaegpj.exe":   "报告_gpj.exe",
+		"\xe2\x80\xaeinvoice.pdf": "invoice.pdf",
+		"notes\xe2\x80\xaa":       "notes",
+		// The set is Unicode Bidi_Control, not a U+20xx range: ZWJ survives so
+		// emoji names stay intact, while \xd8\x9c (U+061C ARABIC LETTER MARK)
+		// goes even though it sits outside the bidi block.
+		"👨\xe2\x80\x8d👩.png": "👨\xe2\x80\x8d👩.png",
+		"ع\xd8\x9ca.pdf":     "ع_a.pdf",
 	}
 	for in, want := range cases {
 		if got := sanitizeFilename(in); got != want {
