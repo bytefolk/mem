@@ -227,7 +227,9 @@ func TestIngestQoderDryRunWritesNothing(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"memory":{"id":"m-1"},"replayed":false}`))
 	}))
 	defer srv.Close()
 
@@ -254,6 +256,18 @@ func TestIngestQoderDryRunWritesNothing(t *testing.T) {
 	checkpointFiles, _ := filepath.Glob(filepath.Join(stateDir, "ingest", "qoder", "*.json"))
 	if len(checkpointFiles) != 0 {
 		t.Fatalf("dry-run left %d checkpoint file(s): %v", len(checkpointFiles), checkpointFiles)
+	}
+
+	// A dry run must not consume the transcript: the following real run has to
+	// post every ingestible line. (Fresh root: cobra retains parsed flag values.)
+	real := newRootCmd()
+	real.SetOut(&stdout)
+	real.SetArgs([]string{"ingest", "qoder", "--root", transcriptDir})
+	if err := real.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("requests after dry-run + real run = %d, want 3 (dry run advanced the cursor)", got)
 	}
 }
 
