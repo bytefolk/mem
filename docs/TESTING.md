@@ -95,7 +95,22 @@ make test-worker
 make test-web
 ```
 
-## 3.1 Production deployment assets
+### 3.1 npm wrapper integrity
+
+Run the dependency-free npm wrapper tests and inspect the package payload:
+
+```bash
+(cd npm && npm test)
+(cd npm && npm pack --dry-run)
+```
+
+The tests use deterministic local download doubles; they do not mutate a live
+Release or publish a package. They prove strict checksum-manifest parsing,
+SHA-256 verification before executable installation, verified cache reuse, and
+cleanup after manifest, checksum, and partial-download failures. The `npm
+wrapper` CI job runs these checks with Node 24.
+
+## 3.2 Production deployment assets
 
 Validate the single-node Compose graph and the default, production and
 Worker-disabled Helm renders:

@@ -18,6 +18,14 @@ After install, the `mem-mcp` binary is available via `npx` or in `node_modules/.
 MEM_SERVER=http://localhost:8787 MEM_TOKEN=mem_... npx mem-mcp
 ```
 
+## Download integrity
+
+The postinstall step downloads `mem-mcp-checksums.txt` from the same versioned
+GitHub Release as the platform binary. It accepts exactly one checksum row for
+that asset, verifies the binary with SHA-256, and only then makes it executable.
+Installation fails and removes partial or unverified files when the manifest,
+download, or checksum is invalid.
+
 ### Claude Desktop config
 
 ```json

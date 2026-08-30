@@ -7,6 +7,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Fixed
+
+- The npm installer now verifies the selected Release binary against the
+  release's SHA-256 manifest before making it executable, rejects malformed or
+  ambiguous manifest entries, verifies cached binaries, and removes partial or
+  unverified files on failure.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added

@@ -1,96 +1,286 @@
 #!/usr/bin/env node
 
 /**
- * install.js — Downloads the correct mem-mcp binary for the current platform
- * from the GitHub release.
+ * install.js — Downloads and verifies the mem-mcp binary for this platform.
  *
- * The binary is written to npm/bin/<platform-asset> so it never collides with
- * the wrapper script at npm/mem-mcp. On install, the wrapper script at
- * npm/mem-mcp resolves the real binary at runtime.
- *
- * If the download fails, the install exits with a non-zero code but does not
- * remove the package — the user can build manually or retry with `npm rebuild`.
+ * The checksum manifest and binary must come from the same GitHub Release.
+ * A binary is written to its final executable path only after its SHA-256
+ * digest matches the manifest entry for the exact platform asset.
  */
 
 "use strict";
 
-const { createWriteStream, unlinkSync, existsSync, chmodSync, mkdirSync } = require("fs");
+const { createHash, randomBytes, timingSafeEqual } = require("crypto");
+const {
+  chmodSync,
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  unlinkSync,
+} = require("fs");
 const { get } = require("https");
 const { platform, arch } = require("os");
 const { join } = require("path");
+const { pipeline } = require("stream/promises");
+const { TextDecoder } = require("util");
 const { assetFor } = require("./platforms");
 
 const PACKAGE = "@fullstack-ai-infra/mem-mcp";
 const REPO = "fullstack-ai-infra/mem";
+const CHECKSUM_ASSET = "mem-mcp-checksums.txt";
+const MAX_CHECKSUM_BYTES = 64 * 1024;
+const MAX_REDIRECTS = 5;
 
-// Version from package.json — single source of truth.
+// Version from package.json — single source of truth for both release URLs.
 // eslint-disable-next-line import/no-unresolved
 const { version: VERSION } = require("./package.json");
 
-/**
- * Downloads a URL to a file, following HTTP redirects (up to 5 hops).
- * GitHub Release asset URLs 302 to objects.githubusercontent.com.
- */
-function download(url, dest, redirects = 0) {
+function removeIfPresent(path) {
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
+}
+
+function checkedHttpsUrl(value, base) {
+  const parsed = new URL(value, base);
+  if (parsed.protocol !== "https:") {
+    throw new Error(`Refusing non-HTTPS download URL: ${parsed.toString()}`);
+  }
+  return parsed;
+}
+
+/** Opens an HTTPS response, following at most five redirects. */
+function openResponse(url, redirects = 0) {
   return new Promise((resolve, reject) => {
-    if (redirects > 5) {
-      return reject(new Error("Too many redirects"));
-    }
-    const file = createWriteStream(dest);
-    get(url, (res) => {
-      // Follow redirects.
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        file.close();
-        unlinkSync(dest);
-        const redirectUrl = new URL(res.headers.location, url).toString();
-        return download(redirectUrl, dest, redirects + 1).then(resolve, reject);
-      }
-      if (res.statusCode !== 200) {
-        reject(new Error(`Download failed: HTTP ${res.statusCode}`));
-        return;
-      }
-      res.pipe(file);
-      file.on("finish", () => {
-        file.close();
-        resolve();
-      });
-    }).on("error", (err) => {
-      // Clean up partial download.
-      try { unlinkSync(dest); } catch (_) { /* ignore */ }
+    let parsed;
+    try {
+      parsed = checkedHttpsUrl(url);
+    } catch (err) {
       reject(err);
-    });
+      return;
+    }
+
+    let request;
+    try {
+      request = get(
+        parsed,
+        { headers: { "User-Agent": `${PACKAGE}/${VERSION}` } },
+        (response) => {
+          const status = response.statusCode || 0;
+          if (status >= 300 && status < 400 && response.headers.location) {
+            response.resume();
+            if (redirects >= MAX_REDIRECTS) {
+              reject(new Error("Too many redirects"));
+              return;
+            }
+            let next;
+            try {
+              next = checkedHttpsUrl(response.headers.location, parsed);
+            } catch (err) {
+              reject(err);
+              return;
+            }
+            openResponse(next, redirects + 1).then(resolve, reject);
+            return;
+          }
+          if (status !== 200) {
+            response.resume();
+            reject(new Error(`Download failed: HTTP ${status}`));
+            return;
+          }
+          resolve(response);
+        },
+      );
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    request.on("error", reject);
   });
 }
 
-async function main() {
-  // Write to bin/ subdirectory so we never collide with the wrapper script at
-  // npm/mem-mcp (which is checked into the package and resolves the binary here).
-  const binDir = join(__dirname, "bin");
-  const asset = assetFor(platform(), arch());
-  const binPath = join(binDir, asset);
-  const url = `https://github.com/${REPO}/releases/download/v${VERSION}/${asset}`;
+async function downloadFile(url, destination) {
+  const response = await openResponse(url);
+  await pipeline(
+    response,
+    createWriteStream(destination, { flags: "wx", mode: 0o600 }),
+  );
+}
 
-  // Skip if already downloaded (reinstall, or cached).
-  if (existsSync(binPath)) {
-    console.log(`${PACKAGE}: binary already exists at ${binPath}`);
-    return;
+async function downloadText(url, maxBytes = MAX_CHECKSUM_BYTES) {
+  const response = await openResponse(url);
+  const declaredLength = Number(response.headers["content-length"] || 0);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    response.resume();
+    throw new Error(`Checksum manifest exceeds ${maxBytes} bytes`);
   }
 
-  // Ensure bin/ directory exists.
-  mkdirSync(binDir, { recursive: true });
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      response.destroy();
+      throw new Error(`Checksum manifest exceeds ${maxBytes} bytes`);
+    }
+    chunks.push(chunk);
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks));
+}
 
-  console.log(`${PACKAGE}: downloading ${url}...`);
-  try {
-    await download(url, binPath);
-    chmodSync(binPath, 0o755);
-    console.log(`${PACKAGE}: installed binary at ${binPath}`);
-  } catch (err) {
-    // Clean up partial download.
-    if (existsSync(binPath)) unlinkSync(binPath);
-    console.error(`${PACKAGE}: failed to download binary: ${err.message}`);
-    console.error(`${PACKAGE}: you can build manually from https://github.com/${REPO}`);
-    process.exit(1);
+/**
+ * Returns the unique lowercase SHA-256 hex digest for an exact asset name.
+ * Every manifest row must use the output format emitted by GNU sha256sum:
+ * 64 lowercase hexadecimal characters, two spaces, then one safe basename.
+ */
+function checksumForAsset(manifest, asset) {
+  if (typeof manifest !== "string" || !manifest.endsWith("\n")) {
+    throw new Error("Checksum manifest must be non-empty and newline-terminated");
+  }
+  const lines = manifest.slice(0, -1).split("\n");
+  if (lines.length === 0 || lines.some((line) => line.length === 0)) {
+    throw new Error("Checksum manifest contains an empty line");
+  }
+
+  let expected = null;
+  for (const [index, line] of lines.entries()) {
+    const match = /^([0-9a-f]{64})  ([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(line);
+    if (!match) {
+      throw new Error(`Invalid checksum manifest line ${index + 1}`);
+    }
+    if (match[2] === asset) {
+      if (expected !== null) {
+        throw new Error(`Duplicate checksum entry for ${asset}`);
+      }
+      expected = match[1];
+    }
+  }
+  if (expected === null) {
+    throw new Error(`Checksum manifest has no entry for ${asset}`);
+  }
+  return expected;
+}
+
+async function sha256File(path) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk);
+  }
+  return hash.digest();
+}
+
+async function verifyFile(path, expectedHex) {
+  if (!/^[0-9a-f]{64}$/.test(expectedHex)) {
+    throw new Error("Expected checksum is not lowercase SHA-256 hex");
+  }
+  const expected = Buffer.from(expectedHex, "hex");
+  const actual = await sha256File(path);
+  if (!timingSafeEqual(actual, expected)) {
+    throw new Error(
+      `Checksum mismatch: expected ${expectedHex}, got ${actual.toString("hex")}`,
+    );
   }
 }
 
-main();
+function temporaryPath(binDir, asset) {
+  const nonce = randomBytes(12).toString("hex");
+  return join(binDir, `.${asset}.${process.pid}.${nonce}.tmp`);
+}
+
+async function install(options = {}) {
+  const osPlatform = options.osPlatform || platform();
+  const osArch = options.osArch || arch();
+  const version = options.version || VERSION;
+  const repository = options.repository || REPO;
+  const binDir = options.binDir || join(__dirname, "bin");
+  const fetchText = options.downloadText || downloadText;
+  const fetchFile = options.downloadFile || downloadFile;
+  const logger = options.logger || console;
+
+  const asset = assetFor(osPlatform, osArch);
+  const binPath = join(binDir, asset);
+  const releaseBase = `https://github.com/${repository}/releases/download/v${version}`;
+  const checksumUrl = `${releaseBase}/${CHECKSUM_ASSET}`;
+  const binaryUrl = `${releaseBase}/${asset}`;
+  let tempPath = null;
+
+  mkdirSync(binDir, { recursive: true });
+
+  try {
+    logger.log(`${PACKAGE}: downloading ${checksumUrl}...`);
+    const manifest = await fetchText(checksumUrl);
+    const expected = checksumForAsset(manifest, asset);
+
+    if (existsSync(binPath)) {
+      try {
+        await verifyFile(binPath, expected);
+        chmodSync(binPath, 0o755);
+        logger.log(`${PACKAGE}: verified existing binary at ${binPath}`);
+        return binPath;
+      } catch (err) {
+        removeIfPresent(binPath);
+        logger.warn(`${PACKAGE}: removed unverified cached binary: ${err.message}`);
+      }
+    }
+
+    tempPath = temporaryPath(binDir, asset);
+    logger.log(`${PACKAGE}: downloading ${binaryUrl}...`);
+    await fetchFile(binaryUrl, tempPath);
+    await verifyFile(tempPath, expected);
+    chmodSync(tempPath, 0o755);
+    renameSync(tempPath, binPath);
+    tempPath = null;
+    logger.log(`${PACKAGE}: installed verified binary at ${binPath}`);
+    return binPath;
+  } catch (err) {
+    const cleanupErrors = [];
+    if (tempPath !== null) {
+      try {
+        removeIfPresent(tempPath);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    // Fail closed: an install error must not leave an executable that this run
+    // could not verify against the release manifest.
+    try {
+      removeIfPresent(binPath);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [err, ...cleanupErrors],
+        `${err.message}; failed to remove unverified install files`,
+      );
+    }
+    throw err;
+  }
+}
+
+async function main() {
+  try {
+    await install();
+  } catch (err) {
+    console.error(`${PACKAGE}: failed to install verified binary: ${err.message}`);
+    console.error(`${PACKAGE}: you can build manually from https://github.com/${REPO}`);
+    process.exitCode = 1;
+  }
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  checksumForAsset,
+  downloadFile,
+  downloadText,
+  install,
+  sha256File,
+  verifyFile,
+};
