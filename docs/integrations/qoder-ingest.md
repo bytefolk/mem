@@ -14,7 +14,7 @@ those surfaces.
 mem auth login                       # once, if not already logged in
 mem ingest qoder                     # default ~/.qoder/projects
 mem ingest qoder --root ~/sessions   # custom store
-mem ingest qoder --dry-run           # parse + plan, no writes
+mem ingest qoder --dry-run           # parse + plan: no writes, cursors untouched
 mem ingest qoder --limit 200         # stop after 200 memories
 ```
 
