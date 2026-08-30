@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
+const { EventEmitter } = require("node:events");
 const {
   chmodSync,
   mkdirSync,
@@ -14,9 +15,15 @@ const {
 } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
+const { PassThrough } = require("node:stream");
 const test = require("node:test");
 const { assetFor } = require("./platforms");
-const { checksumForAsset, install } = require("./install");
+const {
+  checksumForAsset,
+  downloadText,
+  install,
+  openResponse,
+} = require("./install");
 
 const ASSET = assetFor("linux", "x64");
 const QUIET_LOGGER = { log() {}, warn() {} };
@@ -33,6 +40,27 @@ function testDirectory(t) {
   const directory = mkdtempSync(join(tmpdir(), "mem-mcp-install-test-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
+}
+
+function fakeResponse(statusCode, headers = {}) {
+  const response = new PassThrough();
+  response.statusCode = statusCode;
+  response.headers = headers;
+  return response;
+}
+
+function fakeGetSequence(responses) {
+  const pending = [...responses];
+  return (_url, _options, callback) => {
+    const request = new EventEmitter();
+    const next = pending.shift();
+    const response = next.response || next;
+    queueMicrotask(() => {
+      callback(response);
+      if (next.afterCallback) next.afterCallback(response);
+    });
+    return request;
+  };
 }
 
 test("checksumForAsset accepts one exact sha256sum row", () => {
@@ -65,6 +93,68 @@ test("checksumForAsset rejects malformed, missing, and duplicate rows", () => {
   for (const [name, manifest, expected] of cases) {
     assert.throws(() => checksumForAsset(manifest, ASSET), expected, name);
   }
+});
+
+test("redirect body reset cannot escape as an uncaught stream error", async () => {
+  const redirect = fakeResponse(302, { location: "https://assets.example/binary" });
+  const success = fakeResponse(200);
+  const responsePromise = openResponse(
+    "https://github.example/release/binary",
+    0,
+    fakeGetSequence([redirect, success]),
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.doesNotThrow(() => redirect.emit("error", new Error("redirect reset")));
+  assert.equal(await responsePromise, success);
+  success.end();
+});
+
+test("200 response reset before consumer attachment rejects normally", async () => {
+  const success = fakeResponse(200);
+  const reset = new Error("reset immediately after 200 headers");
+  const textPromise = downloadText(
+    "https://github.example/release/checksums",
+    64,
+    () => openResponse(
+      "https://github.example/release/checksums",
+      0,
+      fakeGetSequence([{
+        response: success,
+        afterCallback: (response) => {
+          response.destroy(reset);
+          // Model an error event emitted in the status-callback/consumer gap.
+          response.emit("error", reset);
+        },
+      }]),
+    ),
+  );
+
+  await assert.rejects(textPromise, /reset immediately after 200 headers/);
+});
+
+test("HTTP error body reset remains a controlled rejection", async () => {
+  const unavailable = fakeResponse(503);
+  const responsePromise = openResponse(
+    "https://github.example/release/binary",
+    0,
+    fakeGetSequence([unavailable]),
+  );
+
+  await assert.rejects(responsePromise, /Download failed: HTTP 503/);
+  assert.doesNotThrow(() => unavailable.emit("error", new Error("error reset")));
+});
+
+test("oversized manifest body reset remains a controlled rejection", async () => {
+  const oversized = fakeResponse(200, { "content-length": "5" });
+  const textPromise = downloadText(
+    "https://github.example/release/checksums",
+    4,
+    async () => oversized,
+  );
+
+  await assert.rejects(textPromise, /exceeds 4 bytes/);
+  assert.doesNotThrow(() => oversized.emit("error", new Error("oversize reset")));
 });
 
 test("install verifies a temporary download before exposing it", async (t) => {

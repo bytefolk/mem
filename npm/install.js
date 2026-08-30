@@ -32,6 +32,7 @@ const REPO = "fullstack-ai-infra/mem";
 const CHECKSUM_ASSET = "mem-mcp-checksums.txt";
 const MAX_CHECKSUM_BYTES = 64 * 1024;
 const MAX_REDIRECTS = 5;
+const guardedResponses = new WeakSet();
 
 // Version from package.json — single source of truth for both release URLs.
 // eslint-disable-next-line import/no-unresolved
@@ -53,8 +54,31 @@ function checkedHttpsUrl(value, base) {
   return parsed;
 }
 
+/**
+ * Stops an untrusted response body that the caller will not consume.
+ *
+ * IncomingMessage may emit an error after the status callback returns (for
+ * example, when a redirect body is reset). Keep an error listener attached so
+ * an intentionally discarded body cannot escape the install failure path as
+ * an uncaught exception.
+ */
+function guardResponseErrors(response) {
+  if (guardedResponses.has(response)) return;
+  guardedResponses.add(response);
+  // This prevents an error emitted between the HTTPS status callback and the
+  // consumer's pipeline/async iterator from becoming an uncaught exception.
+  // Stream consumers still receive the same error through their own listener
+  // or the Readable's stored errored state and therefore reject normally.
+  response.on("error", () => {});
+}
+
+function discardResponse(response) {
+  guardResponseErrors(response);
+  response.destroy();
+}
+
 /** Opens an HTTPS response, following at most five redirects. */
-function openResponse(url, redirects = 0) {
+function openResponse(url, redirects = 0, requestGet = get) {
   return new Promise((resolve, reject) => {
     let parsed;
     try {
@@ -66,13 +90,14 @@ function openResponse(url, redirects = 0) {
 
     let request;
     try {
-      request = get(
+      request = requestGet(
         parsed,
         { headers: { "User-Agent": `${PACKAGE}/${VERSION}` } },
         (response) => {
+          guardResponseErrors(response);
           const status = response.statusCode || 0;
           if (status >= 300 && status < 400 && response.headers.location) {
-            response.resume();
+            discardResponse(response);
             if (redirects >= MAX_REDIRECTS) {
               reject(new Error("Too many redirects"));
               return;
@@ -84,11 +109,11 @@ function openResponse(url, redirects = 0) {
               reject(err);
               return;
             }
-            openResponse(next, redirects + 1).then(resolve, reject);
+            openResponse(next, redirects + 1, requestGet).then(resolve, reject);
             return;
           }
           if (status !== 200) {
-            response.resume();
+            discardResponse(response);
             reject(new Error(`Download failed: HTTP ${status}`));
             return;
           }
@@ -111,11 +136,15 @@ async function downloadFile(url, destination) {
   );
 }
 
-async function downloadText(url, maxBytes = MAX_CHECKSUM_BYTES) {
-  const response = await openResponse(url);
+async function downloadText(
+  url,
+  maxBytes = MAX_CHECKSUM_BYTES,
+  open = openResponse,
+) {
+  const response = await open(url);
   const declaredLength = Number(response.headers["content-length"] || 0);
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
-    response.resume();
+    discardResponse(response);
     throw new Error(`Checksum manifest exceeds ${maxBytes} bytes`);
   }
 
@@ -124,7 +153,7 @@ async function downloadText(url, maxBytes = MAX_CHECKSUM_BYTES) {
   for await (const chunk of response) {
     size += chunk.length;
     if (size > maxBytes) {
-      response.destroy();
+      discardResponse(response);
       throw new Error(`Checksum manifest exceeds ${maxBytes} bytes`);
     }
     chunks.push(chunk);
@@ -278,9 +307,11 @@ if (require.main === module) {
 
 module.exports = {
   checksumForAsset,
+  discardResponse,
   downloadFile,
   downloadText,
   install,
+  openResponse,
   sha256File,
   verifyFile,
 };
