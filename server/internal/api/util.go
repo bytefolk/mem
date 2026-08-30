@@ -6,6 +6,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"unicode"
 )
 
 // writeJSON serializes v as JSON with the given status code.
@@ -70,7 +71,13 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 // default for text types carries a charset parameter
 // ("text/html; charset=utf-8").
 func dispositionShouldDownload(declaredMIME string) bool {
-	switch mediaType := normalizedMediaType(declaredMIME); {
+	mediaType, _, ok := normalizedMediaType(declaredMIME)
+	if !ok {
+		// The declaration is unusable and attacker-supplied, so assume the
+		// worst instead of defaulting to the permissive branch.
+		return true
+	}
+	switch {
 	case mediaType == "text/html", mediaType == "text/xhtml",
 		mediaType == "application/xhtml+xml",
 		mediaType == "image/svg+xml",
@@ -87,27 +94,79 @@ func dispositionShouldDownload(declaredMIME string) bool {
 	return false
 }
 
-// normalizedMediaType lowercases and strips parameters from a declared media
-// type. A value that cannot be parsed falls back to its leading token rather
-// than to "unknown", because a browser given "text/html; charset" still treats
-// the document as HTML; returning the raw subtype keeps that shape inside the
-// active-type policy.
-func normalizedMediaType(declaredMIME string) string {
-	if mediaType, _, err := mime.ParseMediaType(declaredMIME); err == nil {
-		return strings.ToLower(mediaType)
+// normalizedMediaType canonicalises a declared media type the way a browser
+// reads one: lowercased "type/subtype" with the parameters split off.
+//
+// ParseMediaType reports an error for a malformed parameter but still returns
+// the type it parsed, which is the part the policy depends on, so the error is
+// deliberately not the signal here. ok is false only when no usable type came
+// back at all — an empty value, a value with no subtype separator, or one
+// padded with CR/LF, which ParseMediaType rejects outright.
+func normalizedMediaType(declaredMIME string) (mediaType string, params map[string]string, ok bool) {
+	mediaType, params, _ = mime.ParseMediaType(declaredMIME)
+	if !strings.Contains(mediaType, "/") {
+		return "", nil, false
 	}
-	raw := strings.ToLower(strings.TrimSpace(declaredMIME))
-	if i := strings.IndexByte(raw, ';'); i >= 0 {
-		raw = strings.TrimSpace(raw[:i])
-	}
-	return raw
+	return mediaType, params, true
 }
+
+// contentResponseHeaders returns the Content-Type and Content-Disposition values
+// served for a stored file's bytes.
+//
+// files.mime holds whatever the uploader declared — file.Service.Put keeps the
+// value verbatim — so it is attacker input, not ground truth: a declaration the
+// server cannot bound is served as an opaque attachment and never echoed back
+// into a response header. A usable declaration is re-emitted canonically,
+// keeping only a charset that is a well-formed RFC 7230 token so text previews
+// retain their encoding.
+func contentResponseHeaders(storedMIME, name string) (contentType, disposition string) {
+	mediaType, params, ok := normalizedMediaType(storedMIME)
+	if !ok {
+		return "application/octet-stream", `attachment; filename="` + sanitizeFilename(name) + `"`
+	}
+	contentType = mediaType
+	if charset := params["charset"]; isHTTPToken(charset) {
+		contentType += "; charset=" + strings.ToLower(charset)
+	}
+	disposition = "inline"
+	if dispositionShouldDownload(mediaType) {
+		disposition = "attachment"
+	}
+	return contentType, disposition + `; filename="` + sanitizeFilename(name) + `"`
+}
+
+// isHTTPToken reports whether s is a non-empty RFC 7230 token. ParseMediaType
+// unquotes parameter values, and charset is the one parameter echoed back into
+// a header, so it must not be able to carry delimiters.
+func isHTTPToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		b := s[i]
+		if b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' {
+			continue
+		}
+		if !strings.ContainsRune("!#$%&'*+-.^_`|~", rune(b)) {
+			return false
+		}
+	}
+	return true
+}
+
+// bidiControl is the same Unicode property table pathx.ValidateName rejects on
+// upload, so the two layers agree on what a name may contain. Stripping it here
+// is defense in depth for any name that reaches a response without that
+// validation: "报告" + U+202E + "gpj.exe" renders as "报告exe.jpg" in a save
+// dialog. U+200D ZERO WIDTH JOINER is not Bidi_Control, so emoji sequences
+// survive.
+var bidiControl = unicode.Properties["Bidi_Control"]
 
 // sanitizeFilename produces a safe, single-line, path-free filename for use in
 // a Content-Disposition header value. It strips CR/LF and other control
-// characters (header-injection), quote/semicolon delimiters, and path
-// traversal components, collapsing runs of stripped characters to a single
-// underscore.
+// characters (header-injection), quote/semicolon delimiters, bidi controls
+// (extension spoofing), and path traversal components, collapsing runs of
+// stripped characters to a single underscore.
 func sanitizeFilename(name string) string {
 	var b strings.Builder
 	b.Grow(len(name) + 1)
@@ -116,7 +175,8 @@ func sanitizeFilename(name string) string {
 		// RFC 7230 §3.2.6: header field values must not contain C0 controls
 		// or DEL; CR/LF would enable response splitting.
 		if r == 0x7f || r < 0x20 ||
-			r == '/' || r == '\\' || r == '"' || r == ';' {
+			r == '/' || r == '\\' || r == '"' || r == ';' ||
+			unicode.Is(bidiControl, r) {
 			underscore = true
 			continue
 		}

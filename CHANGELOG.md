@@ -287,6 +287,15 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   cannot echo full untrusted memory payloads into an Agent context.
 - Prevent checkpoint-list pages from amplifying up to 200 complete handoff
   payloads and reference arrays into one Agent context.
+- Normalize the client-declared MIME type of a stored file before deciding how
+  to serve it: `GET /v1/files/{id}/content` now forces `attachment` for
+  interpretable types in every spelling a browser accepts (`Text/HTML`,
+  `text/html; charset=utf-8`), serves a declaration it cannot bound as opaque
+  `application/octet-stream` instead of echoing it back, strips Unicode
+  bidirectional controls from download names using the same property table the
+  upload validator rejects, and adds `nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer` and `Content-Security-Policy: default-src
+  'none'` to every API response.
 
 ### Fixed
 
