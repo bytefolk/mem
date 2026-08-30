@@ -1,6 +1,7 @@
 package api
 
 import (
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -35,6 +36,61 @@ func TestDispositionShouldDownload(t *testing.T) {
 	for _, mime := range []string{"image/png", "text/plain", "application/octet-stream", "video/mp4"} {
 		if dispositionShouldDownload(mime) {
 			t.Errorf("dispositionShouldDownload(%q) = true, want false", mime)
+		}
+	}
+}
+
+// TestDispositionShouldDownloadDeclaredMIMEForms guards the shape the data
+// actually arrives in: the stored MIME is whatever the client declared, and the
+// CLI's own default already carries a charset parameter. An exact match on the
+// bare type name therefore misses ordinary HTML/JS/XML uploads.
+func TestDispositionShouldDownloadDeclaredMIMEForms(t *testing.T) {
+	// The upload path this policy has to survive: `mem put page.html` declares
+	// exactly what mime.TypeByExtension returns.
+	defaultHTML := mime.TypeByExtension(".html")
+	if defaultHTML != "text/html; charset=utf-8" {
+		t.Fatalf("fixture assumption drifted: TypeByExtension(.html) = %q", defaultHTML)
+	}
+	if !dispositionShouldDownload(defaultHTML) {
+		t.Errorf("the default `mem put page.html` MIME %q must download", defaultHTML)
+	}
+
+	active := []string{
+		// Parameters, casing and padding must not downgrade an active type.
+		"text/html; charset=utf-8",
+		"TEXT/HTML",
+		"  text/html  ",
+		"image/svg+xml;charset=utf-8",
+		"text/xml; charset=UTF-8",
+		// A malformed parameter must not buy inline rendering either.
+		"text/html; charset",
+		"text/html;",
+		// Legacy and alternative spellings browsers still honour.
+		"application/xhtml+xml",
+		"application/x-javascript",
+		"text/ecmascript",
+		"application/ecmascript",
+		// XML vocabularies reach the same parser-activated surface.
+		"application/atom+xml",
+		"application/rss+xml",
+	}
+	for _, declared := range active {
+		if !dispositionShouldDownload(declared) {
+			t.Errorf("dispositionShouldDownload(%q) = false, want true", declared)
+		}
+	}
+
+	inline := []string{
+		"image/png",
+		"text/plain; charset=utf-8",
+		"text/markdown; charset=utf-8", // previewed as text, not browser-active
+		"application/octet-stream",
+		"application/zip",
+		"",
+	}
+	for _, declared := range inline {
+		if dispositionShouldDownload(declared) {
+			t.Errorf("dispositionShouldDownload(%q) = true, want false", declared)
 		}
 	}
 }

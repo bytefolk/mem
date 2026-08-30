@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 )
@@ -63,16 +64,43 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 // as a forced download (attachment) rather than inline. Interpretable/active
 // types can execute in the browser or trigger parser-based attacks if a
 // document is opened in-page; forcing download neuters that surface.
-func dispositionShouldDownload(mime string) bool {
-	switch mime {
-	case "text/html", "text/xhtml", "application/xhtml+xml",
-		"image/svg+xml", "text/xml", "application/xml",
-		"text/javascript", "application/javascript",
-		"application/json", "application/pdf",
-		"font/ttf", "font/otf", "font/woff", "font/woff2":
+//
+// The decision is made on the normalized media type, never the raw declared
+// string: the stored MIME is whatever the client declared, and the CLI's own
+// default for text types carries a charset parameter
+// ("text/html; charset=utf-8").
+func dispositionShouldDownload(declaredMIME string) bool {
+	switch mediaType := normalizedMediaType(declaredMIME); {
+	case mediaType == "text/html", mediaType == "text/xhtml",
+		mediaType == "application/xhtml+xml",
+		mediaType == "image/svg+xml",
+		mediaType == "text/xml", mediaType == "application/xml",
+		strings.HasSuffix(mediaType, "+xml"),
+		mediaType == "text/javascript", mediaType == "application/javascript",
+		mediaType == "application/ecmascript", mediaType == "text/ecmascript",
+		mediaType == "application/x-javascript", mediaType == "text/js",
+		mediaType == "application/json", mediaType == "application/pdf",
+		mediaType == "font/ttf", mediaType == "font/otf",
+		mediaType == "font/woff", mediaType == "font/woff2":
 		return true
 	}
 	return false
+}
+
+// normalizedMediaType lowercases and strips parameters from a declared media
+// type. A value that cannot be parsed falls back to its leading token rather
+// than to "unknown", because a browser given "text/html; charset" still treats
+// the document as HTML; returning the raw subtype keeps that shape inside the
+// active-type policy.
+func normalizedMediaType(declaredMIME string) string {
+	if mediaType, _, err := mime.ParseMediaType(declaredMIME); err == nil {
+		return strings.ToLower(mediaType)
+	}
+	raw := strings.ToLower(strings.TrimSpace(declaredMIME))
+	if i := strings.IndexByte(raw, ';'); i >= 0 {
+		raw = strings.TrimSpace(raw[:i])
+	}
+	return raw
 }
 
 // sanitizeFilename produces a safe, single-line, path-free filename for use in
