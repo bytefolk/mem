@@ -10,7 +10,9 @@ if ! (
   enable -n readarray 2>/dev/null || :
 
   # The sourced validator invokes this deterministic replacement.
-  # shellcheck disable=SC2329
+  # The sourced validator calls this shell function indirectly, which static
+  # analysis cannot follow across the source boundary.
+  # shellcheck disable=SC2317,SC2329
   git() {
     if [[ "$#" -ne 2 ]]; then
       return 64
