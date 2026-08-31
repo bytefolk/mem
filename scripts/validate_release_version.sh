@@ -87,7 +87,10 @@ heading_count="$(grep -Fc -- "## [${version}] - " "${changelog}" || true)"
 require_exact_line CHANGELOG.md \
   "[Unreleased]: https://github.com/fullstack-ai-infra/mem/compare/v${version}...HEAD"
 
-mapfile -t version_links < <(grep -F -- "[${version}]: " "${changelog}" || true)
+version_links=()
+while IFS= read -r version_link; do
+  version_links[${#version_links[@]}]="${version_link}"
+done < <(grep -F -- "[${version}]: " "${changelog}" || true)
 [[ "${#version_links[@]}" == 1 ]] ||
   die "CHANGELOG.md: expected exactly one [${version}] comparison link"
 if [[ "${version_links[0]}" != \

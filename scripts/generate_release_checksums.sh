@@ -26,7 +26,10 @@ assets=(
   mem-mcp-windows-arm64.exe
 )
 
-mapfile -t actual_assets < <(
+actual_assets=()
+while IFS= read -r actual_asset; do
+  actual_assets[${#actual_assets[@]}]="${actual_asset}"
+done < <(
   find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort
 )
 if [[ "${actual_assets[*]}" != "${assets[*]}" ]]; then

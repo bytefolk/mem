@@ -39,6 +39,7 @@ jobs:
       - name: Validate release action pins
         run: |
           ./scripts/test_validate_release_action_pins_compat.sh
+          ./scripts/test_release_helpers_compat.sh
           ./scripts/validate_release_action_pins.sh
 
       - name: Validate release guards
@@ -52,6 +53,7 @@ jobs:
             scripts/acceptance_agent_memory.sh \
             scripts/generate_release_checksums.sh \
             scripts/render_release_notes.sh \
+            scripts/test_release_helpers_compat.sh \
             scripts/test_release_guards.sh \
             scripts/test_validate_release_action_pins_compat.sh \
             scripts/validate_release_action_pins.sh \

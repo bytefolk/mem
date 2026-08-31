@@ -39,14 +39,16 @@ Release action pins can be validated from a stock macOS checkout with:
 
 ```bash
 /bin/bash ./scripts/test_validate_release_action_pins_compat.sh
+/bin/bash ./scripts/test_release_helpers_compat.sh
 /bin/bash ./scripts/validate_release_action_pins.sh
 ```
 
-The first command is a deterministic, network-free compatibility regression:
-it disables the Bash 4-only `mapfile` and `readarray` collection builtins and
-replays the validator with local action-ref fixtures. The second command
+The first two commands are deterministic, network-free compatibility
+regressions: they disable the Bash 4-only `mapfile` and `readarray` collection
+builtins, replay the action-pin validator with local fixtures, and exercise the
+release version/checksum helpers with local asset fixtures. The final command
 resolves every immutable pin against its official GitHub repository. Expected
-result: both commands exit `0` and print the documented `PASS` lines.
+result: all commands exit `0` and print the documented `PASS` lines.
 
 ## 2. Bootstrap a clean checkout
 
