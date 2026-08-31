@@ -46,7 +46,7 @@ grep -Fq -- 'needs: [preflight, build]' "${release_workflow}" ||
   die "Release creation must depend on preflight and every build"
 grep -Fq -- '--verify-tag' "${release_workflow}" ||
   die "Release creation must refuse an absent remote tag"
-grep -Fq -- '--draft \' "${release_workflow}" ||
+grep -Eq -- '^[[:space:]]+--draft([[:space:]]|$)' "${release_workflow}" ||
   die "Release assets must first upload to a draft"
 grep -Fq -- '--draft=false' "${release_workflow}" ||
   die "the verified draft must be published explicitly"
@@ -56,7 +56,10 @@ grep -Fq -- '(.size > 0)' "${release_workflow}" ||
   die "remote draft validation must reject empty assets"
 
 create_line="$(grep -nF -- 'gh release create' "${release_workflow}" | cut -d: -f1)"
-draft_line="$(grep -nF -- '--draft \' "${release_workflow}" | cut -d: -f1)"
+draft_line="$(
+  grep -nE -- '^[[:space:]]+--draft([[:space:]]|$)' "${release_workflow}" |
+    cut -d: -f1
+)"
 verify_line="$(grep -nF -- '- name: Verify remote draft assets' "${release_workflow}" | cut -d: -f1)"
 edit_line="$(grep -nF -- 'gh release edit' "${release_workflow}" | cut -d: -f1)"
 ((create_line < draft_line && draft_line < verify_line && verify_line < edit_line)) ||
