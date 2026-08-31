@@ -13,4 +13,4 @@ See SPEC.md §3 (F2 / F8) and §9 for the source-of-truth contract.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

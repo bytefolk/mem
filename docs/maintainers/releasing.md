@@ -1,9 +1,9 @@
 # Releasing mem
 
-This document defines the initial release and packaging policy for `mem`.
-Release automation, signing, and publishing to additional distribution
-channels are intentionally deferred until the project has completed a stable
-release workflow.
+This document defines the release and packaging policy for `mem`. The
+repository Release workflow publishes multi-platform `mem-mcp` binaries to a
+GitHub Release. The npm package is published only after that Release has been
+verified because its runtime bootstrap downloads and verifies those assets.
 
 ## Version policy
 
@@ -67,17 +67,63 @@ Before creating a tag or GitHub Release, a maintainer must verify:
 - The working tree is clean and the selected commit is contained in
   `origin/main`.
 - The version does not already exist as a local tag, remote tag, or GitHub
-  Release.
+  Release, and the npm version does not already exist in the registry.
 - Release notes match the versioned `CHANGELOG.md` section.
 - Packages were rebuilt from the exact tag commit in a clean GitHub-hosted
   environment and their checksums were recorded.
 
-The project does not yet have a repository-controlled release workflow that
-can satisfy the final clean-build and publication gate. Until that workflow
-lands, maintainers must not advertise CI artifacts as an official stable
-release. The first publication workflow should require explicit approval,
-create an annotated tag, build assets from that tag, emit checksums, and create
-one GitHub Release.
+## Publication sequence
+
+Publication is deliberately split at the tag boundary. The workflow never
+creates, moves, or replaces a tag.
+
+1. Merge the independently approved release pull request through protected
+   `main`, then record its full commit ID and the successful required checks.
+2. From an up-to-date, clean checkout of that exact commit, create one annotated
+   tag and push only that new tag. Never reuse a version or move an existing
+   tag.
+3. The tag push starts `.github/workflows/release.yml`. A manual retry must be
+   dispatched from the current default branch and must name the same existing
+   annotated tag. The workflow resolves that input as the full
+   `refs/tags/VERSION` ref, never as a short branch-or-tag name; the input is
+   not permission to create a tag.
+4. The workflow rejects a missing or lightweight tag, a tag not contained in
+   `origin/main`, a checkout/tag mismatch, any public version mismatch, an
+   existing GitHub Release, or anything other than the exact six expected
+   binaries. Each binary embeds the tag commit as Go VCS metadata. The checksum
+   manifest contains exactly one GNU `sha256sum` row per binary so the npm
+   installer can parse it strictly. It uploads all seven assets to a draft,
+   reads that draft back, and requires the exact seven names with non-zero
+   sizes before its final command changes the draft to a public Release. Any
+   earlier failure leaves the Release as a draft.
+5. Read the completed GitHub Release back again. It must be non-draft, use the
+   expected tag, and expose the six binaries plus `mem-mcp-checksums.txt`.
+   Download all seven assets into a clean directory, run
+   `sha256sum --check --strict mem-mcp-checksums.txt`, and inspect
+   `go version -m` on each binary for the recorded release commit before
+   starting npm publication.
+6. In `npm/`, rerun `npm test`, the npm 12 clean-tarball test, and
+   `npm pack --dry-run --ignore-scripts`. Confirm
+   `npm view @fullstack-ai-infra/mem-mcp@VERSION version` does not find the
+   version, then publish it once with
+   `npm publish --access public --tag latest`.
+7. Install the public package in a clean temporary consumer with lifecycle
+   scripts disabled, invoke `mem-mcp`, and confirm the checksum-verified binary
+   is fetched from the matching GitHub Release. Record the Release URL, npm
+   package URL, checksum result, and smoke-test result on the release issue.
+
+Trusted Publishing is the target npm credential path. For the bootstrap
+publication, prefer interactive npm 2FA. If a token is required, use a one-day
+granular npm token restricted to read/write access for
+`@fullstack-ai-infra/mem-mcp` only, with no unrelated package or organization
+access. Keep it out of repository files, logs, workflow inputs, and issue
+comments. Read the published version back from the registry and complete the
+clean-install smoke test before revoking the token immediately.
+
+If GitHub asset upload fails, inspect and remove any incomplete draft before a
+reviewed retry; do not move the tag. If npm publication is wrong, deprecate the
+bad version when possible and correct it with a new patch version rather than
+reusing either the tag or package version.
 
 ## Deferred channels
 
@@ -85,7 +131,6 @@ The following are out of scope for the initial baseline:
 
 - Automated release or version-bump pull requests
 - PyPI publication
-- npm publication
 - Container registry publication
 - Homebrew or other operating-system package managers
 - Signed multi-platform binaries and provenance attestations

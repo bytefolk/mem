@@ -293,7 +293,7 @@ print(stub.HealthCheck(pb.HealthCheckRequest()))
 PY
 ```
 
-Expected: `status: SERVING\nversion: "0.1.0"`.
+Expected: `status: SERVING\nversion: "0.1.1"`.
 
 ---
 

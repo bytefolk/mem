@@ -7,6 +7,18 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-31
+
+### Changed
+
+- The Release workflow now accepts only an existing annotated tag whose exact
+  commit is on `main`; manual dispatch resolves the full `refs/tags/...` name
+  so a same-named branch cannot shadow it. The workflow validates every public
+  version surface, builds and checksums the explicit six-platform asset set
+  from that commit, and renders release notes from this versioned section.
+  Assets first upload to a draft; the workflow verifies the exact seven
+  non-empty remote assets before the final step can publish the GitHub Release.
+
 ### Fixed
 
 - The npm installer now verifies the selected Release binary against the
@@ -319,4 +331,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Preserve the primary Web acceptance failure when browser or Vite cleanup
   also fails.
 
-[Unreleased]: https://github.com/fullstack-ai-infra/mem/commits/main
+[Unreleased]: https://github.com/fullstack-ai-infra/mem/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/fullstack-ai-infra/mem/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/fullstack-ai-infra/mem/releases/tag/v0.1.0
