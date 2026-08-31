@@ -7,6 +7,21 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Changed
+
+- Internal, behaviour-preserving: the local ingestion mechanics used by
+  `mem ingest qoder` — deterministic recursive transcript walk, per-path line
+  cursors (atomic rename write, reset when a file is rewritten shorter), the
+  `--dry-run` / `--limit` semantics, per-file degradation on an idempotency
+  conflict, run-report aggregation and the closed failure-code vocabulary —
+  moved out of `server/cmd/mem` into a new `server/internal/ingest` package
+  (`#111`). The connector is now a thin call site that supplies the Qoder parser,
+  the memory payload and the HTTP upload. No observable change: memories
+  payloads, `Idempotency-Key` derivation, the stdout summary, and the cursor file
+  format and location under `~/.mem/ingest/qoder` are unchanged, so existing
+  cursors remain readable. The package is the shared core that `put --watch`
+  (`#110`) consumes instead of writing a second state layer.
+
 ### Fixed
 
 - The npm installer now verifies the selected Release binary against the
