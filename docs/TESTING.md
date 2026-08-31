@@ -110,9 +110,12 @@ SHA-256 verification before executable installation, verified cache reuse, and
 cleanup after manifest, checksum, and partial-download failures. Wrapper tests
 also prove verification-before-spawn, stderr-only bootstrap diagnostics,
 argument/environment/inherited-stdio propagation, child exit handling, and that
-installer failures never start a child. Run `npm test` with Node 18, 20, and 24
-when changing the wrapper; the `npm wrapper` CI job keeps Node 24 as the npm 11
-compatibility gate.
+installer failures never start a child. They also exercise platform-default and
+absolute override cache paths, serialized concurrent bootstrap, failed-installer
+isolation, invalid-cache replacement, and real parent/child signal forwarding
+with bounded escalation. Run `npm test` with Node 18, 20, and 24 when changing
+the wrapper; CI keeps Node 24 as the npm 11 gate and adds Node 18/20 Linux plus
+Node 24 Windows compatibility jobs.
 
 The npm 12 clean-tarball acceptance test is an explicit additional gate:
 
@@ -127,7 +130,9 @@ HTTPS module double supplies deterministic manifest and binary bytes without a
 certificate, private key, live Release request, or registry mutation. The test
 requires bootstrap and cache verification logs on stderr, clean child-only MCP
 stdout, one verified binary download on first use, and manifest-only reuse on a
-subsequent invocation.
+subsequent invocation. The installed package tree is made read-only before the
+first wrapper invocation; the executable must be created only in the explicit
+user-writable, version-and-platform-scoped cache.
 
 ## 3.2 Production deployment assets
 

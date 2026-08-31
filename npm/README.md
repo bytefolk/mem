@@ -32,9 +32,20 @@ A missing, corrupt, or substituted cache is replaced only after the new download
 passes verification. Manifest, download, or checksum failures remove unverified
 files and prevent the MCP child process from starting.
 
+The executable cache is outside the installed npm package and is isolated by
+package version and platform. Defaults are `$XDG_CACHE_HOME` (or `~/.cache`) on
+Linux, `~/Library/Caches` on macOS, and `%LOCALAPPDATA%` on Windows, below
+`fullstack-ai-infra/mem-mcp`. Set `MEM_MCP_CACHE_DIR` to an absolute path to use
+a different writable cache root. A per-asset cross-process lock serializes
+verification and atomic replacement, so concurrent hosts cannot expose or
+delete each other's downloads.
+
 Bootstrap and verification diagnostics use stderr. Stdout is inherited by the
 verified binary and remains clean for the MCP stdio protocol. This first-run
-bootstrap works with npm 12 without approving dependency install scripts.
+bootstrap works with npm 12 without approving dependency install scripts or
+making the installed package writable. The wrapper forwards termination signals
+to the native MCP process and force-stops a child that does not exit within the
+bounded shutdown grace period.
 
 ### Claude Desktop config
 

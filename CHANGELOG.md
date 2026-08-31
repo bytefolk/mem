@@ -17,7 +17,12 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   npm 12 blocks by default. The first explicit `mem-mcp` invocation performs the
   checksum-verified binary bootstrap, later invocations reverify and reuse a
   valid cache, all bootstrap diagnostics stay on stderr to preserve MCP stdout,
-  and installer failures prevent the child process from starting.
+  and installer failures prevent the child process from starting. Runtime
+  binaries now live in a user-writable, version-and-platform-scoped cache rather
+  than the installed package; an atomic per-asset lock prevents concurrent
+  installers from deleting each other's verified result, and wrapper shutdown
+  forwards signals with bounded escalation so the native MCP child is not left
+  orphaned.
 
 ## [0.1.0] - 2026-08-30
 

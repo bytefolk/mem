@@ -4,10 +4,13 @@ const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -35,6 +38,25 @@ function run(command, args, options = {}) {
   return result;
 }
 
+function makeTreeReadOnly(root, originalModes = new Map()) {
+  const info = lstatSync(root);
+  if (info.isSymbolicLink()) return originalModes;
+  originalModes.set(root, info.mode & 0o777);
+  if (info.isDirectory()) {
+    for (const entry of readdirSync(root)) {
+      makeTreeReadOnly(join(root, entry), originalModes);
+    }
+  }
+  chmodSync(root, (info.mode & 0o777) & ~0o222);
+  return originalModes;
+}
+
+function restoreTreeModes(originalModes) {
+  for (const [target, mode] of originalModes) {
+    if (existsSync(target)) chmodSync(target, mode);
+  }
+}
+
 test(
   "npm 12 clean tarball lazily bootstraps a verified binary without scripts",
   { skip: platform() !== "linux" },
@@ -46,9 +68,11 @@ test(
     assert.match(npmVersion, /^12\./, `expected npm 12, got ${npmVersion}`);
 
     const root = mkdtempSync(join(tmpdir(), "mem-mcp-npm12-test-"));
+    let originalPackageModes = null;
     try {
       const consumer = join(root, "consumer");
       const cache = join(root, "npm-cache");
+      const runtimeCacheRoot = join(root, "runtime-cache");
       const userConfig = join(root, "empty-npmrc");
       const requestLog = join(root, "https-requests.log");
       const hookPath = join(root, "release-double.cjs");
@@ -120,12 +144,21 @@ test(
       assert.equal(packageJson.scripts.postinstall, undefined);
 
       const asset = assetFor(platform(), arch());
-      const binaryPath = join(packageRoot, "bin", asset);
+      const packageBinaryPath = join(packageRoot, "bin", asset);
       assert.equal(
-        existsSync(binaryPath),
+        existsSync(packageBinaryPath),
         false,
         "installing the tarball must not execute a dependency lifecycle script",
       );
+      const binaryPath = join(
+        runtimeCacheRoot,
+        `v${PACKAGE_VERSION}`,
+        `${platform()}-${arch()}`,
+        asset,
+      );
+
+      originalPackageModes = new Map();
+      makeTreeReadOnly(packageRoot, originalPackageModes);
 
       const binary = Buffer.from(
         "#!/bin/sh\nprintf 'fixture stdout:%s:%s\\n' \"$MEM_TARBALL_SENTINEL\" \"$*\"\n",
@@ -170,6 +203,7 @@ https.get = (url, _options, callback) => {
       const wrapper = join(consumer, "node_modules", ".bin", "mem-mcp");
       const wrapperEnv = {
         ...process.env,
+        MEM_MCP_CACHE_DIR: runtimeCacheRoot,
         MEM_TARBALL_SENTINEL: "inherited-env",
         NODE_OPTIONS: `--require=${hookPath}`,
       };
@@ -189,6 +223,11 @@ https.get = (url, _options, callback) => {
       assert.match(first.stderr, /installed verified binary/);
       assert.deepEqual(readFileSync(binaryPath), binary);
       assert.notEqual(statSync(binaryPath).mode & 0o111, 0);
+      assert.equal(
+        existsSync(packageBinaryPath),
+        false,
+        "first invocation must not write into the read-only installed package",
+      );
 
       const firstRequests = readFileSync(requestLog, "utf8").trim().split("\n");
       assert.equal(firstRequests.length, 2);
@@ -247,6 +286,7 @@ https.get = (url, _options, callback) => {
       assert.match(repaired.stderr, /removed unverified cached binary/);
       assert.match(repaired.stderr, new RegExp(`downloading .*${asset}`));
       assert.deepEqual(readFileSync(binaryPath), binary);
+      assert.equal(existsSync(packageBinaryPath), false);
       const repairedRequests = readFileSync(requestLog, "utf8").trim().split("\n");
       assert.equal(repairedRequests.length, 5);
       assert.equal(
@@ -255,6 +295,7 @@ https.get = (url, _options, callback) => {
         "a substituted cache must be replaced before the child starts",
       );
     } finally {
+      if (originalPackageModes !== null) restoreTreeModes(originalPackageModes);
       rmSync(root, { recursive: true, force: true });
     }
   },
