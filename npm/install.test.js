@@ -6,6 +6,7 @@ const { createHash } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,12 +22,15 @@ const { PassThrough } = require("node:stream");
 const test = require("node:test");
 const { assetFor } = require("./platforms");
 const {
+  acquireAssetLock,
   cacheDirectory,
   cacheRootFor,
   checksumForAsset,
   downloadText,
   install,
+  isLockContention,
   openResponse,
+  releaseAssetLock,
 } = require("./install");
 
 const ASSET = assetFor("linux", "x64");
@@ -762,4 +766,272 @@ test("a logger failure after atomic publish preserves only the verified final", 
 
   assert.deepEqual(readFileSync(binPath), bytes);
   assert.deepEqual(readdirSync(cacheDir), [ASSET]);
+});
+
+test("EEXIST is contention everywhere while permission errors are contention only on win32", () => {
+  const withCode = (code) => Object.assign(new Error(code), { code });
+  assert.equal(isLockContention(withCode("EEXIST"), "linux"), true);
+  assert.equal(isLockContention(withCode("EEXIST"), "darwin"), true);
+  assert.equal(isLockContention(withCode("EEXIST"), "win32"), true);
+  assert.equal(isLockContention(withCode("EPERM"), "win32"), true);
+  assert.equal(isLockContention(withCode("EACCES"), "win32"), true);
+  assert.equal(isLockContention(withCode("EPERM"), "linux"), false);
+  assert.equal(isLockContention(withCode("EACCES"), "darwin"), false);
+  assert.equal(isLockContention(withCode("ENOENT"), "win32"), false);
+  assert.equal(isLockContention(new Error("no code"), "win32"), false);
+});
+
+test("a contended Windows lock reported as EPERM waits for a proven lock", async (t) => {
+  // install.js destructures mkdirSync at load time, so patch it in a child
+  // before requiring the module. The real lock proves that EPERM represents
+  // contention rather than an arbitrary permission failure.
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const { hostname } = require("node:os");
+    const { join } = require("node:path");
+    const realMkdirSync = fs.mkdirSync;
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    const lockPath = join(cacheDir, ".${ASSET}.lock");
+    realMkdirSync(lockPath, { mode: 0o700 });
+    fs.writeFileSync(
+      join(lockPath, "owner.json"),
+      JSON.stringify({ pid: process.pid, hostname: hostname(), nonce: "a".repeat(24) }) + "\\n",
+    );
+    let armed = true;
+    fs.mkdirSync = function (target, ...rest) {
+      if (armed && String(target).endsWith(".lock")) {
+        armed = false;
+        throw Object.assign(new Error("simulated Windows contention"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock, releaseAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    setTimeout(() => fs.rmSync(lockPath, { recursive: true, force: true }), 25).unref();
+    acquireAssetLock(cacheDir, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 5000,
+    })
+      .then((lock) => {
+        const owner = JSON.parse(fs.readFileSync(join(lock.lockPath, "owner.json"), "utf8"));
+        if (owner.pid !== process.pid) throw new Error("lock is not owned by this process");
+        releaseAssetLock(lock);
+      })
+      .catch((error) => {
+        console.error(error.stack || String(error));
+        process.exitCode = 1;
+      });
+  `);
+  assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
+});
+
+test("an EEXIST lock that disappears before inspection observes the timeout without spinning", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    const realLstatSync = fs.lstatSync;
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    let attempts = 0;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        attempts += 1;
+        if (attempts === 1) {
+          throw Object.assign(new Error("simulated lock contention"), {
+            code: "EEXIST",
+            syscall: "mkdir",
+          });
+        }
+        throw Object.assign(new Error("retry spun past its deadline"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    fs.lstatSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("competing lock released"), {
+          code: "ENOENT",
+          syscall: "lstat",
+        });
+      }
+      return realLstatSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    acquireAssetLock(cacheDir, ${JSON.stringify(ASSET)}, {
+      osPlatform: "linux",
+      pollMs: 1,
+      waitTimeoutMs: 0,
+    })
+      .then(() => {
+        throw new Error("expected lock acquisition to time out");
+      })
+      .catch((error) => {
+        if (!/Timed out waiting for mem-mcp cache lock/.test(String(error.message))) {
+          throw error;
+        }
+        if (attempts !== 1) {
+          throw new Error("expected one mkdir attempt before timeout, saw " + attempts);
+        }
+      });
+  `);
+});
+
+test("a stale-lock rename race observes the timeout without spinning", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const { join } = require("node:path");
+    const realMkdirSync = fs.mkdirSync;
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    const lockPath = join(cacheDir, ".${ASSET}.lock");
+    realMkdirSync(lockPath, { mode: 0o700 });
+    let attempts = 0;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        attempts += 1;
+        if (attempts === 1) {
+          throw Object.assign(new Error("simulated lock contention"), {
+            code: "EEXIST",
+            syscall: "mkdir",
+          });
+        }
+        throw Object.assign(new Error("retry spun past its deadline"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    fs.renameSync = function (source) {
+      if (String(source).endsWith(".lock")) {
+        fs.rmSync(lockPath, { recursive: true, force: true });
+        throw Object.assign(new Error("competing lock moved first"), {
+          code: "ENOENT",
+          syscall: "rename",
+        });
+      }
+      throw new Error("unexpected rename target");
+    };
+    const { acquireAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    acquireAssetLock(cacheDir, ${JSON.stringify(ASSET)}, {
+      osPlatform: "linux",
+      pollMs: 1,
+      waitTimeoutMs: 0,
+      staleMs: 0,
+      orphanGraceMs: 0,
+    })
+      .then(() => {
+        throw new Error("expected lock acquisition to time out");
+      })
+      .catch((error) => {
+        if (!/Timed out waiting for mem-mcp cache lock/.test(String(error.message))) {
+          throw error;
+        }
+        if (attempts !== 1) {
+          throw new Error("expected one mkdir attempt before timeout, saw " + attempts);
+        }
+      });
+  `);
+});
+
+test("a persistent Windows EPERM without a lock fails promptly instead of retrying", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("simulated Windows permission failure"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    const startedAt = Date.now();
+    acquireAssetLock(${JSON.stringify(cacheDir)}, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 10000,
+    })
+      .then(() => {
+        throw new Error("expected a permission failure");
+      })
+      .catch((error) => {
+        if (error.code !== "EPERM") throw error;
+        if (Date.now() - startedAt >= 1000) throw new Error("permission error entered the retry loop");
+      });
+  `);
+});
+
+test("a Windows lock inspection permission error fails promptly", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    const realLstatSync = fs.lstatSync;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("simulated Windows contention"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    fs.lstatSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("simulated inspection permission failure"), {
+          code: "EACCES",
+          syscall: "lstat",
+        });
+      }
+      return realLstatSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    const startedAt = Date.now();
+    acquireAssetLock(${JSON.stringify(cacheDir)}, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 10000,
+    })
+      .then(() => {
+        throw new Error("expected an inspection failure");
+      })
+      .catch((error) => {
+        if (error.code !== "EACCES") throw error;
+        if (Date.now() - startedAt >= 1000) throw new Error("inspection error entered the retry loop");
+      });
+  `);
+});
+
+test("a non-contention error propagates immediately instead of entering the wait loop", async (t) => {
+  const root = testDirectory(t);
+  const missing = join(root, "no-such-parent", "cache");
+  const startedAt = Date.now();
+  await assert.rejects(
+    acquireAssetLock(missing, ASSET, { osPlatform: "linux", pollMs: 1, waitTimeoutMs: 10000 }),
+    (error) => error.code === "ENOENT",
+  );
+  assert.ok(
+    Date.now() - startedAt < 5000,
+    "expected an immediate rejection, not a wait",
+  );
 });

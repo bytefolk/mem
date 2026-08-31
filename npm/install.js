@@ -241,12 +241,25 @@ function ownedArtifactPaths(cacheDir, asset, nonce) {
   ];
 }
 
-function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs) {
+// Windows reports EPERM/EACCES rather than EEXIST when another process already
+// owns the lock directory or is mid-create on it, so either code is ordinary
+// contention there and must not be mistaken for a hard permission failure.
+function isLockContention(err, currentPlatform = platform()) {
+  if (err.code === "EEXIST") return true;
+  return currentPlatform === "win32" && (err.code === "EPERM" || err.code === "EACCES");
+}
+
+function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkdirError) {
   let info;
   try {
     info = lstatSync(lockPath);
   } catch (err) {
-    if (err.code === "ENOENT") return true;
+    // An EEXIST result followed by ENOENT means a competing owner released
+    // the lock before inspection. It is safe to retry, but it must take the
+    // normal deadline/delay path rather than spin synchronously. A Windows
+    // EPERM/EACCES without a lock to inspect remains a real permission failure.
+    if (err.code === "ENOENT" && mkdirError.code === "EEXIST") return;
+    if (err.code === "ENOENT") throw mkdirError;
     throw err;
   }
   if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -261,13 +274,15 @@ function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs) {
     : alive === true
       ? false
       : age >= staleMs;
-  if (!reclaimable) return false;
+  if (!reclaimable) return;
 
   const quarantine = `${lockPath}.stale.${process.pid}.${randomBytes(12).toString("hex")}`;
   try {
     renameSync(lockPath, quarantine);
   } catch (err) {
-    if (err.code === "ENOENT" || err.code === "EEXIST") return true;
+    // Another contender changed the lock after we inspected it. Retrying is
+    // safe, but uses the normal poll path so repeated races cannot busy-loop.
+    if (err.code === "ENOENT" || err.code === "EEXIST") return;
     throw err;
   }
 
@@ -277,7 +292,6 @@ function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs) {
     }
   }
   removeOwnedPath(quarantine);
-  return true;
 }
 
 async function acquireAssetLock(cacheDir, asset, options = {}) {
@@ -285,6 +299,7 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
   const staleMs = options.staleMs ?? LOCK_STALE_MS;
   const orphanGraceMs = options.orphanGraceMs ?? LOCK_ORPHAN_GRACE_MS;
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
+  const osPlatform = options.osPlatform || platform();
   const signal = options.signal;
   const lockPath = path.join(cacheDir, `.${asset}.lock`);
   const deadline = Date.now() + waitTimeoutMs;
@@ -292,6 +307,7 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
   for (;;) {
     throwIfAborted(signal);
     const nonce = randomBytes(12).toString("hex");
+    let mkdirError;
     try {
       mkdirSync(lockPath, { mode: 0o700 });
       try {
@@ -306,12 +322,15 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
       }
       return { lockPath, nonce };
     } catch (err) {
-      if (err.code !== "EEXIST") throw err;
+      if (!isLockContention(err, osPlatform)) throw err;
+      mkdirError = err;
     }
 
-    if (reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs)) {
-      continue;
-    }
+    // All failed acquisitions, including a successfully reclaimed stale lock,
+    // pass through the same deadline and abort-aware poll. This prevents a
+    // repeated create/release race from bypassing the wait budget in a tight
+    // synchronous loop.
+    reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkdirError);
     if (Date.now() >= deadline) {
       throw new Error(`Timed out waiting for mem-mcp cache lock: ${lockPath}`);
     }
@@ -625,6 +644,7 @@ async function install(options = {}) {
   throwIfAborted(signal);
   ensureCacheDirectory(cacheDir);
   lock = await acquireAssetLock(cacheDir, asset, {
+    osPlatform,
     waitTimeoutMs: options.lockWaitTimeoutMs,
     staleMs: options.lockStaleMs,
     orphanGraceMs: options.lockOrphanGraceMs,
@@ -769,6 +789,7 @@ module.exports = {
   downloadText,
   ensureCacheDirectory,
   install,
+  isLockContention,
   openResponse,
   releaseAssetLock,
   sha256File,
