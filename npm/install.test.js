@@ -826,21 +826,21 @@ test("a contended lock reported as EPERM is retried instead of aborting the inst
   assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
 });
 
-test("a permission failure that is not contention still fails closed", async (t) => {
-  if (typeof process.getuid === "function" && process.getuid() === 0) {
-    t.skip("root ignores the read-only cache directory mode");
-    return;
-  }
+test("a non-contention error propagates immediately instead of entering the wait loop", async (t) => {
+  // ENOENT is raised by a lock mkdir under a missing parent on both POSIX and
+  // Windows, unlike a read-only mode which NTFS ignores, so this pins the
+  // fail-closed half of the classification on every platform.
   const root = testDirectory(t);
-  const cacheDir = join(root, "cache");
-  mkdirSync(cacheDir, { recursive: true });
-  chmodSync(cacheDir, 0o500);
-  try {
-    await assert.rejects(
-      acquireAssetLock(cacheDir, ASSET, { osPlatform: "linux", pollMs: 1, waitTimeoutMs: 250 }),
-      (error) => error.code === "EACCES" || error.code === "EPERM",
-    );
-  } finally {
-    chmodSync(cacheDir, 0o700);
-  }
+  const missing = join(root, "no-such-parent", "cache");
+  const startedAt = Date.now();
+  await assert.rejects(
+    acquireAssetLock(missing, ASSET, { osPlatform: "linux", pollMs: 1, waitTimeoutMs: 10_000 }),
+    (error) => error.code === "ENOENT",
+  );
+  // Comfortably under the deadline, so a regression that turns this into
+  // contention fails here rather than by hanging for ten seconds.
+  assert.ok(
+    Date.now() - startedAt < 5000,
+    "expected an immediate rejection, not a wait",
+  );
 });
