@@ -29,8 +29,12 @@ with SHA-256, and only then makes it executable and starts it.
 Later invocations download the small versioned checksum manifest and reverify
 the cached binary; they do not download the binary again when it still matches.
 A missing, corrupt, or substituted cache is replaced only after the new download
-passes verification. Manifest, download, or checksum failures remove unverified
-files and prevent the MCP child process from starting.
+passes verification. Manifest download or parse failures fail closed by removing
+any final executable whose checksum could not be established in that invocation;
+download or checksum failures likewise remove unverified files. In every failure
+case the MCP child process is prevented from starting. A final executable already
+verified and atomically published by the invocation is not removed merely because
+a later diagnostic sink fails.
 
 The executable cache is outside the installed npm package and is isolated by
 package version and platform. Defaults are `$XDG_CACHE_HOME` (or `~/.cache`) on
@@ -38,7 +42,8 @@ Linux, `~/Library/Caches` on macOS, and `%LOCALAPPDATA%` on Windows, below
 `fullstack-ai-infra/mem-mcp`. Set `MEM_MCP_CACHE_DIR` to an absolute path to use
 a different writable cache root. A per-asset cross-process lock serializes
 verification and atomic replacement, so concurrent hosts cannot expose or
-delete each other's downloads.
+delete each other's downloads. Stale-lock recovery removes only artifacts named
+by that lock owner's nonce and leaves foreign temporary files untouched.
 
 Bootstrap and verification diagnostics use stderr. Stdout is inherited by the
 verified binary and remains clean for the MCP stdio protocol. This first-run

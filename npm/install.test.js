@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { spawn } = require("node:child_process");
 const { createHash } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const {
@@ -14,7 +15,7 @@ const {
   symlinkSync,
   writeFileSync,
 } = require("node:fs");
-const { tmpdir } = require("node:os");
+const { arch, hostname, platform, tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { PassThrough } = require("node:stream");
 const test = require("node:test");
@@ -43,6 +44,37 @@ function testDirectory(t) {
   const directory = mkdtempSync(join(tmpdir(), "mem-mcp-install-test-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return directory;
+}
+
+function runWorker(t, program) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["-e", program], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    t.after(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+      }
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0 && signal === null) {
+        resolve(stdout);
+      } else {
+        reject(new Error(
+          `worker ${child.pid} failed: code=${code} signal=${signal}\n${stdout}${stderr}`,
+        ));
+      }
+    });
+  });
 }
 
 function fakeResponse(statusCode, headers = {}) {
@@ -327,6 +359,92 @@ test("concurrent installers serialize and publish one verified binary", async (t
   assert.deepEqual(readdirSync(cacheDir), [ASSET]);
 });
 
+test("independent processes contend on one lock and download one binary", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const downloadLog = join(root, "binary-downloads.log");
+  const hostAsset = assetFor(platform(), arch());
+  const binPath = join(cacheDir, hostAsset);
+  const bytes = Buffer.from("one verified binary shared across processes");
+  const manifest = manifestFor(bytes, hostAsset);
+  const installPath = require.resolve("./install");
+  const workerProgram = `
+    const { appendFileSync, writeFileSync } = require("node:fs");
+    const { install } = require(${JSON.stringify(installPath)});
+    const bytes = Buffer.from(${JSON.stringify(bytes.toString("base64"))}, "base64");
+    install({
+      osPlatform: ${JSON.stringify(platform())},
+      osArch: ${JSON.stringify(arch())},
+      cacheDir: ${JSON.stringify(cacheDir)},
+      logger: { log() {}, warn() {} },
+      lockPollMs: 2,
+      downloadText: async () => ${JSON.stringify(manifest)},
+      downloadFile: async (_url, destination) => {
+        appendFileSync(${JSON.stringify(downloadLog)}, process.pid + "\\n");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        writeFileSync(destination, bytes, { flag: "wx", mode: 0o600 });
+      },
+    }).then(
+      (installed) => {
+        if (installed !== ${JSON.stringify(binPath)}) {
+          throw new Error("unexpected install path: " + installed);
+        }
+      },
+      (error) => {
+        console.error(error.stack || error);
+        process.exitCode = 1;
+      },
+    );
+  `;
+
+  await Promise.all(
+    Array.from({ length: 12 }, () => runWorker(t, workerProgram)),
+  );
+
+  assert.deepEqual(readFileSync(binPath), bytes);
+  assert.equal(readFileSync(downloadLog, "utf8").trim().split("\n").length, 1);
+  assert.deepEqual(readdirSync(cacheDir), [hostAsset]);
+});
+
+test("stale lock recovery cleans its owner temp and preserves a foreign temp", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const lockPath = join(cacheDir, `.${ASSET}.lock`);
+  const staleNonce = "a".repeat(24);
+  const foreignNonce = "b".repeat(24);
+  const staleTempName = `.${ASSET}.${staleNonce}.tmp`;
+  const foreignTempName = `.${ASSET}.${foreignNonce}.tmp`;
+  const bytes = Buffer.from("verified binary after stale lock recovery");
+  mkdirSync(lockPath, { recursive: true });
+  writeFileSync(
+    join(lockPath, "owner.json"),
+    `${JSON.stringify({
+      pid: process.pid,
+      hostname: `${hostname()}-stale-owner`,
+      nonce: staleNonce,
+    })}\n`,
+  );
+  writeFileSync(join(cacheDir, staleTempName), "stale owner partial");
+  writeFileSync(join(cacheDir, foreignTempName), "foreign partial");
+
+  assert.equal(await install({
+    osPlatform: "linux",
+    osArch: "x64",
+    cacheDir,
+    logger: QUIET_LOGGER,
+    lockPollMs: 1,
+    lockStaleMs: 0,
+    downloadText: async () => manifestFor(bytes),
+    downloadFile: async (_url, destination) => {
+      writeFileSync(destination, bytes, { flag: "wx", mode: 0o600 });
+    },
+  }), join(cacheDir, ASSET));
+
+  assert.deepEqual(readFileSync(join(cacheDir, ASSET)), bytes);
+  assert.deepEqual(readFileSync(join(cacheDir, foreignTempName), "utf8"), "foreign partial");
+  assert.deepEqual(readdirSync(cacheDir).sort(), [ASSET, foreignTempName].sort());
+});
+
 test("a failed concurrent installer removes only its own temporary file", async (t) => {
   const root = testDirectory(t);
   const cacheDir = join(root, "cache");
@@ -504,7 +622,7 @@ test("partial download failure leaves no executable or temp file", async (t) => 
   assert.deepEqual(readdirSync(cacheDir), []);
 });
 
-test("manifest HTTP failure preserves but never executes an existing cache", async (t) => {
+test("manifest failure removes an unverifiable executable from the service path", async (t) => {
   const root = testDirectory(t);
   const cacheDir = join(root, "cache");
   const binPath = join(cacheDir, ASSET);
@@ -527,6 +645,114 @@ test("manifest HTTP failure preserves but never executes an existing cache", asy
     /HTTP 503/,
   );
 
-  assert.deepEqual(readFileSync(binPath, "utf8"), "unverified cache");
+  assert.deepEqual(readdirSync(cacheDir), []);
+});
+
+test("manifest failure safely removes a directory occupying the service path", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const binPath = join(cacheDir, ASSET);
+  mkdirSync(binPath, { recursive: true });
+  writeFileSync(join(binPath, "not-a-binary"), "untrusted directory content");
+
+  await assert.rejects(
+    install({
+      osPlatform: "linux",
+      osArch: "x64",
+      cacheDir,
+      logger: QUIET_LOGGER,
+      downloadText: async () => {
+        throw new Error("invalid checksum manifest");
+      },
+    }),
+    /invalid checksum manifest/,
+  );
+
+  assert.deepEqual(readdirSync(cacheDir), []);
+});
+
+test(
+  "manifest failure unlinks a service-path symlink without following its target",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const root = testDirectory(t);
+    const cacheDir = join(root, "cache");
+    const binPath = join(cacheDir, ASSET);
+    const target = join(root, "outside-target");
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(target, "must remain untouched");
+    symlinkSync(target, binPath);
+
+    await assert.rejects(
+      install({
+        osPlatform: "linux",
+        osArch: "x64",
+        cacheDir,
+        logger: QUIET_LOGGER,
+        downloadText: async () => {
+          throw new Error("manifest unavailable");
+        },
+      }),
+      /manifest unavailable/,
+    );
+
+    assert.deepEqual(readFileSync(target, "utf8"), "must remain untouched");
+    assert.deepEqual(readdirSync(cacheDir), []);
+  },
+);
+
+test("a logger failure after atomic publish preserves only the verified final", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const binPath = join(cacheDir, ASSET);
+  const bytes = Buffer.from("verified binary published before logger failure");
+  const logger = {
+    log(message) {
+      if (message.includes("installed verified binary")) {
+        throw new Error("diagnostic sink failed after publish");
+      }
+    },
+    warn() {},
+  };
+
+  await assert.rejects(
+    install({
+      osPlatform: "linux",
+      osArch: "x64",
+      cacheDir,
+      logger,
+      downloadText: async () => manifestFor(bytes),
+      downloadFile: async (_url, destination) => {
+        writeFileSync(destination, bytes, { flag: "wx", mode: 0o600 });
+      },
+    }),
+    /diagnostic sink failed after publish/,
+  );
+
+  assert.deepEqual(readFileSync(binPath), bytes);
+  assert.deepEqual(readdirSync(cacheDir), [ASSET]);
+
+  await assert.rejects(
+    install({
+      osPlatform: "linux",
+      osArch: "x64",
+      cacheDir,
+      logger: {
+        log(message) {
+          if (message.includes("verified existing binary")) {
+            throw new Error("diagnostic sink failed after cache verification");
+          }
+        },
+        warn() {},
+      },
+      downloadText: async () => manifestFor(bytes),
+      downloadFile: async () => {
+        throw new Error("verified final must not be redownloaded");
+      },
+    }),
+    /diagnostic sink failed after cache verification/,
+  );
+
+  assert.deepEqual(readFileSync(binPath), bytes);
   assert.deepEqual(readdirSync(cacheDir), [ASSET]);
 });

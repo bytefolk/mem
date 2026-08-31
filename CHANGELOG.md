@@ -20,9 +20,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   and installer failures prevent the child process from starting. Runtime
   binaries now live in a user-writable, version-and-platform-scoped cache rather
   than the installed package; an atomic per-asset lock prevents concurrent
-  installers from deleting each other's verified result, and wrapper shutdown
-  forwards signals with bounded escalation so the native MCP child is not left
-  orphaned.
+  installers from deleting each other's verified result, stale recovery cleans
+  only its owner's artifacts, manifest failures remove any unverifiable service
+  path, and wrapper shutdown forwards signals with bounded escalation so the
+  native MCP child is not left orphaned.
 - Release validation now verifies that every immutable GitHub Action pin used
   by the release workflow resolves in the action's official repository.
 

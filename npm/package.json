@@ -27,7 +27,7 @@
   "os": ["linux", "darwin", "win32"],
   "cpu": ["x64", "arm64"],
   "scripts": {
-    "test": "node --test install.test.js mem-mcp.test.js",
+    "test": "node --test install.test.js mem-mcp.test.js windows-shim.test.js",
     "test:tarball": "node --test clean-tarball.test.js"
   },
   "files": [

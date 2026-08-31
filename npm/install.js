@@ -237,6 +237,7 @@ function ownedArtifactPaths(cacheDir, asset, nonce) {
   return [
     path.join(cacheDir, `.${asset}.${nonce}.tmp`),
     path.join(cacheDir, `.${asset}.${nonce}.invalid`),
+    path.join(cacheDir, `.${asset}.${nonce}.failed`),
   ];
 }
 
@@ -560,12 +561,27 @@ async function verifyFile(path, expectedHex, signal) {
   }
 }
 
-function quarantineCachedBinary(binPath, cacheDir, asset, nonce) {
-  const quarantinePath = path.join(cacheDir, `.${asset}.${nonce}.invalid`);
+function quarantineCacheEntry(binPath, cacheDir, asset, nonce, suffix) {
+  if (suffix !== "invalid" && suffix !== "failed") {
+    throw new Error(`Unsafe mem-mcp quarantine suffix: ${suffix}`);
+  }
+  const quarantinePath = path.join(cacheDir, `.${asset}.${nonce}.${suffix}`);
   renameSync(binPath, quarantinePath);
   const info = lstatSync(quarantinePath);
   if (!info.isSymbolicLink() && info.isFile() && platform() !== "win32") {
-    chmodSync(quarantinePath, 0o600);
+    try {
+      chmodSync(quarantinePath, 0o600);
+    } catch (err) {
+      try {
+        removeOwnedPath(quarantinePath);
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [err, cleanupError],
+          `${err.message}; failed to remove quarantined cache entry`,
+        );
+      }
+      throw err;
+    }
   }
   return quarantinePath;
 }
@@ -602,6 +618,8 @@ async function install(options = {}) {
   let lock = null;
   let tempPath = null;
   let quarantinePath = null;
+  let failedServicePath = null;
+  let servicePathVerified = false;
   let operationError = null;
 
   throwIfAborted(signal);
@@ -630,15 +648,18 @@ async function install(options = {}) {
       try {
         await verifyFile(binPath, expected, signal);
         chmodSync(binPath, 0o755);
+        servicePathVerified = true;
         logger.log(`${PACKAGE}: verified existing binary at ${binPath}`);
         return binPath;
       } catch (err) {
+        if (servicePathVerified) throw err;
         if ((signal && signal.aborted) || err.name === "AbortError") throw err;
-        quarantinePath = quarantineCachedBinary(
+        quarantinePath = quarantineCacheEntry(
           binPath,
           cacheDir,
           asset,
           lock.nonce,
+          "invalid",
         );
         logger.warn(
           `${PACKAGE}: removed unverified cached binary from service path: ${err.message}`,
@@ -655,6 +676,7 @@ async function install(options = {}) {
     chmodSync(tempPath, 0o755);
     renameSync(tempPath, binPath);
     tempPath = null;
+    servicePathVerified = true;
     logger.log(`${PACKAGE}: installed verified binary at ${binPath}`);
     if (quarantinePath !== null) {
       removeOwnedPath(quarantinePath);
@@ -664,9 +686,31 @@ async function install(options = {}) {
   } catch (err) {
     operationError = err;
     const cleanupErrors = [];
+    if (!servicePathVerified) {
+      try {
+        if (pathEntryExists(binPath)) {
+          failedServicePath = quarantineCacheEntry(
+            binPath,
+            cacheDir,
+            asset,
+            lock.nonce,
+            "failed",
+          );
+        }
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
     if (tempPath !== null) {
       try {
         removeIfPresent(tempPath);
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (failedServicePath !== null) {
+      try {
+        removeOwnedPath(failedServicePath);
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
