@@ -27,7 +27,8 @@
 //     treated as rewritten so its cursor resets. Nothing compares content, so a
 //     same-size in-place edit is not detected here; adding a content gate is a
 //     decision to make, not an implementation detail of a call site.
-//   - Cursors are keyed by the absolute path (see CursorPath). Keying on
+//   - Cursors are keyed by the canonical absolute path (see CanonicalRoot,
+//     CursorPath), which Walk establishes for every path it returns. Keying on
 //     path-plus-device identity would invalidate existing on-disk cursors.
 //   - --dry-run neither writes a request nor advances a cursor. Callers must
 //     not "optimize" by saving a cursor after a dry run.
@@ -40,7 +41,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -138,16 +138,19 @@ type Options struct {
 	Log func(format string, args ...any)
 }
 
-// Report aggregates one cycle. Unchanged, Changed and LocalGone stay zero for
-// sources that do not observe those states; they exist so a watcher and a
+// Report aggregates one cycle. Run populates Scanned, Ingested, Deduped,
+// Changed, Failed and Unparseable. Unchanged and LocalGone are observations a
+// caller makes, not states Run detects: comparing content is out of scope here
+// (see the size-based contract note above) and Run never deletes a cursor, so
+// both stay zero unless a watcher fills them. They exist so a watcher and a
 // one-shot importer report the same names.
 type Report struct {
 	Scanned     int          // files walked and offered to Parse
 	Ingested    int          // units persisted by this run (or planned, in dry-run)
 	Deduped     int          // units the server reported as replays
-	Unchanged   int          // files whose content was already ingested
-	Changed     int          // files accepted because they moved forward
-	LocalGone   int          // cursor records whose file disappeared
+	Unchanged   int          // reserved: files observed as already ingested
+	Changed     int          // files that had at least one unit accepted
+	LocalGone   int          // reserved: cursor records whose file disappeared
 	Failed      int          // files degraded rather than aborted
 	Unparseable int          // readable lines that yielded no unit
 	Failures    map[Code]int // per-code tally, including cursor degradation
@@ -179,11 +182,35 @@ func (r *Report) fail(code Code) {
 	r.Failures[code]++
 }
 
+// CanonicalRoot turns any caller-supplied path into the identity that cursors
+// and idempotency keys are derived from. Without it a relative --root makes two
+// different working directories that each contain the same relative source path
+// collide on one cursor, so the second run sees an up-to-date checkpoint and
+// silently ingests nothing.
+//
+// Symlinks are resolved so the same store reached by two spellings shares one
+// identity. A root that does not exist yet keeps its absolute form rather than
+// erroring, which is what Walk's documented "missing root yields no paths, no
+// error" behavior needs.
+func CanonicalRoot(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", p, err)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
 // Walk collects candidate files under base in lexical order, so cursor
 // high-water marks mean the same thing from one run to the next. Go's
 // filepath.Glob does not treat ** as recursive, hence the explicit walk.
 // Unreadable entries are skipped rather than failing the walk: a session store
 // routinely contains directories the caller cannot enter.
+//
+// base is canonicalized, so every returned path is absolute and cursor identity
+// cannot depend on the caller's working directory.
 //
 // A base that does not exist yields no paths and no error, which is what the
 // existing connector does with it (it reports "no transcripts matched").
@@ -193,11 +220,15 @@ func (r *Report) fail(code Code) {
 //
 // accept is called with each candidate path; a nil accept takes every file.
 func Walk(base string, accept func(abs string) bool) ([]string, error) {
-	if fi, err := os.Stat(base); err == nil && !fi.IsDir() {
-		return []string{base}, nil
+	root, err := CanonicalRoot(base)
+	if err != nil {
+		return nil, err
+	}
+	if fi, err := os.Stat(root); err == nil && !fi.IsDir() {
+		return []string{root}, nil
 	}
 	var paths []string
-	err := filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -217,7 +248,8 @@ func Walk(base string, accept func(abs string) bool) ([]string, error) {
 }
 
 // CursorPath returns the cursor file for one source path, keyed by a hash of
-// its absolute path so any source layout is safe to store in one directory.
+// its canonical absolute path (see CanonicalRoot) so any source layout is safe
+// to store in one directory.
 func CursorPath(stateDir, abs string) string {
 	sum := sha1.Sum([]byte(abs))
 	return filepath.Join(stateDir, hex.EncodeToString(sum[:])+".json")
@@ -251,21 +283,45 @@ func LoadCursor(stateDir, abs string) Cursor {
 }
 
 // SaveCursor writes a cursor through a temporary file and an atomic rename, so
-// an interrupted run cannot leave a half-written checkpoint behind.
+// an interrupted run cannot leave a half-written checkpoint behind. Each save
+// gets its own temporary name: two runs may reach the same cursor concurrently
+// and a shared name would interleave their writes before the rename.
+//
+// A save never rewinds a checkpoint that is already further along. A stored
+// cursor with a smaller Size is the truncation signal LoadCursor resets on, so
+// that case must still write; anything else that is ahead stays.
 func SaveCursor(stateDir string, cp Cursor) error {
 	p := CursorPath(stateDir, cp.Abs)
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	dir := filepath.Dir(p)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create checkpoint dir: %w", err)
+	}
+	if stored, err := os.ReadFile(p); err == nil {
+		var prev Cursor
+		if json.Unmarshal(stored, &prev) == nil && prev.LastLine > cp.LastLine && prev.Size <= cp.Size {
+			return nil
+		}
 	}
 	b, err := json.Marshal(cp)
 	if err != nil {
 		return fmt.Errorf("encode checkpoint: %w", err)
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	tmp, err := os.CreateTemp(dir, ".cursor-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create checkpoint: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("write checkpoint: %w", err)
 	}
-	if err := os.Rename(tmp, p); err != nil {
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("write checkpoint: %w", err)
+	}
+	if err := os.Rename(tmpName, p); err != nil {
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("commit checkpoint: %w", err)
 	}
 	return nil
@@ -301,27 +357,30 @@ func Classify(err error) Code {
 			return CodeUploadRejected
 		}
 	}
-	var ne net.Error
-	if errors.As(err, &ne) || errors.Is(err, os.ErrDeadlineExceeded) {
-		return CodeNetwork
-	}
 	switch {
 	case errors.Is(err, ErrDegradeFile):
 		return CodeUploadRejected
+	// The local-file cases must come before any net.Error-shaped probe:
+	// syscall.Errno implements Timeout and Temporary, so the *fs.PathError a
+	// failed open or stat returns satisfies net.Error, and treating it as a
+	// transport failure would hide which local path was unreadable or gone.
 	case errors.Is(err, os.ErrPermission):
 		return CodeReadDenied
 	case errors.Is(err, os.ErrNotExist):
 		return CodeRootMissing
 	}
+	// Anything else is a request that never reached the server, including a
+	// transport error and a deadline exceeded mid-call.
 	return CodeNetwork
 }
 
 // Run walks the given paths, parses each against its cursor, uploads units
 // through upload, and persists cursors for the files it actually wrote.
 //
-// A unit error other than ErrDegradeFile ends the run and is returned as-is, so
-// the caller keeps its own error surface. An ErrDegradeFile error ends the
-// current file only; its cursor stays put and the report records the failure.
+// A parse or unit error other than ErrDegradeFile ends the run: the report
+// tallies its classified code and the error is returned as-is, so the caller
+// keeps its own error surface. An ErrDegradeFile error ends the current file
+// only; its cursor stays put and the report records the failure.
 func Run(ctx context.Context, paths []string, opts Options, parse ParseFunc, upload UploadFunc) (Report, error) {
 	var report Report
 	remaining := opts.Limit
@@ -336,6 +395,7 @@ func Run(ctx context.Context, paths []string, opts Options, parse ParseFunc, upl
 		units, unparseable, err := parse(abs, cp.LastLine)
 		report.Unparseable += unparseable
 		if err != nil {
+			report.fail(Classify(err))
 			return report, err
 		}
 
