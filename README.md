@@ -52,6 +52,50 @@ flowchart LR
 > `mem` is experimental. Interfaces, storage schemas, and release artifacts may
 > change without notice. Do not use it as the only copy of important data.
 
+## 开始使用
+
+面向第一次部署 mem 的人，主路径是 `deploy/compose`：一份密钥文件、一条 `up`、
+一个浏览器。裸机进程栈是**只用于开发**的替代路径，见
+[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
+
+前置条件是 Linux 主机或 WSL2 / Docker Desktop 环境，装有 Docker Engine 与
+Compose v2、`openssl`；模型无关的单机基线为 4 vCPU / 8 GiB 内存 / 80 GiB 磁盘。
+
+```bash
+git clone https://github.com/fullstack-ai-infra/mem.git
+cd mem/deploy/compose
+./generate-env.sh          # 生成 .env（0600，拒绝覆盖已有文件，含随机密钥）
+docker compose --env-file .env -f compose.yaml config --quiet
+docker compose --env-file .env -f compose.yaml up -d --build --wait
+```
+
+起来的是六个常驻服务（PostgreSQL/pgvector、Redis、MinIO、Worker、memd、Web）
+加两个一次性任务（`minio-init` 建私有桶、`migrate` 恰好跑一次 schema）。只有 Web
+对外暴露：`http://127.0.0.1:8080`，后端网络是 internal，数据库、对象存储与 gRPC
+都不发布端口。
+
+1. 打开 `http://127.0.0.1:8080` 注册首个账号。默认
+   `MEM_REGISTRATION_MODE=first_user` 只放行第一个用户，第二次注册应被拒绝。
+2. 在 Web 里新建目录（例如 `/Photos`）并上传文件，确认原件可浏览、可下载。
+3. CLI 与 MCP 打的是同一套 API：拿到 token 后 `mem put`、`mem search`、
+   `mem remember` 指向 `http://127.0.0.1:8080`。
+
+`generate-env.sh` → `up -d --build --wait` → 首用户注册 → 建目录上传这条闭环已在
+运维 dogfood 环境跑通，过程记录见
+[#109](https://github.com/fullstack-ai-infra/mem/issues/109)。同时说清当前边界：
+默认 AI profile `local-fast-v2` 只启用文本 embedding（`ollama:qwen3-embedding:0.6b`，
+768 维）并只放行文本/PDF/结构化文本类 MIME，视觉 embedding、LLM、VLM、ASR 与
+rerank 阶段是显式禁用的（视觉阶段在 CLIP 权重的安装、完整性与离线缓存探针纳入
+模型清单之前保持禁用，避免首次请求时下载权重）。而 Compose 的 `backend` 网络是
+`internal`，Worker 容器内的 `OLLAMA_BASE_URL` 又指向容器自身的 `127.0.0.1:11434`，
+所以默认容器路径下这些模型阶段不可达：选择 `local-fast-v2` 时的 768 维 embedding
+探针会失败并拒绝写入配置（fail-closed，不静默回退）。要让语义检索可用，需要显式
+接入可达的 Ollama 或 BYOM provider；文件与原件下载、结构化记忆和词法召回不依赖
+模型阶段。
+
+密钥备份、端口与反向代理边界、备份/恢复演练、升级回滚以及多机 Helm 方案见
+[生产部署指南](docs/DEPLOYMENT.md)。
+
 ## What is in this repository?
 
 | Component | Purpose |
@@ -178,16 +222,42 @@ forget 需要 `delete` 及允许删除的 workspace 角色。写入时关联
 `source_file_id` 还需 `read`。
 `source=all` 的调用方必须检查 `partial/warnings`，避免把单路降级当成完整召回。
 
-## 开发环境
+## 开发环境（仅开发）
 
-本地开发依赖：
+改代码才需要这一节。只是想把 mem 跑起来，请回到[开始使用](#开始使用)。
 
-- Go 1.25
-- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
-- Node.js 24 and npm
-- `protoc` 34.1, `protoc-gen-go` v1.36.11, and
-  `protoc-gen-go-grpc` v1.6.2 when changing protobuf definitions
-- Docker with Compose
+工具链 pin 与平台无关，两个系统用同一套安装方式；`make bootstrap` 已经带 Linux
+分支（Playwright Chromium 在 Linux 上加 `--with-deps`）：
+
+| 依赖 | pin | 为什么是这个值 |
+| --- | --- | --- |
+| Go | 1.25.x | `server/go.mod` 的 `go 1.25.0` |
+| Python + `uv` | 3.11 或 3.12，锁在 `worker/uv.lock` | Worker 的 protobuf 与测试依赖按 `uv sync --locked` 还原 |
+| Node.js + npm | 24.x，锁在检出的 `web/package-lock.json` | Web 构建与浏览器验收 |
+| protobuf 代码生成 | `protoc` 34.1、`protoc-gen-go` v1.36.11、`protoc-gen-go-grpc` v1.6.2 | 只有改 `worker/proto/*.proto` 才需要；两个 Go 插件用 `go install …@v1.36.11` / `@v1.6.2` 安装，平台无关。`make proto-python` 走 `grpcio-tools`，不需要系统 `protoc` |
+| Docker 与 Compose v2 | 任意受支持版本 | 跑依赖容器、集成测试和生产 Compose 验收 |
+
+### 依赖服务的平台等价
+
+裸机开发栈（`bash scripts/dev_up.sh` / `bash scripts/dev_down.sh`，运行时数据落在
+`.dev/`）在脚本层已经是跨平台的：`BREW_PREFIX` 会解析 `/opt/homebrew`、`/usr/local`
+和 `/home/linuxbrew/.linuxbrew`，pgvector 模块同时接受 Linux 的 `vector.so` 与 macOS
+的 `vector.dylib`，守护进程在 Linux 上用 `setsid` 脱离会话（`scripts/dev_up.sh:28-37`、
+`:96-140`）。它假设 PostgreSQL 来自 **Homebrew 布局**，所以 Linux/WSL2 上要么装
+Linuxbrew，要么改用依赖容器：
+
+| 步骤 | macOS | Linux / WSL2 |
+| --- | --- | --- |
+| PostgreSQL 17 + pgvector | `brew install postgresql@17 pgvector`（keg-only，不需要 sudo） | 装 [Linuxbrew](https://docs.brew.sh/Homebrew-on-Linux) 后同一条命令即可，`dev_up.sh` 的默认前缀就是 `/home/linuxbrew/.linuxbrew`。用 apt 的 `postgresql-17` + `postgresql-17-pgvector` 时 `dev_up.sh` 找不到 keg（`detect_pg` 只查 brew 前缀），改走下一行的依赖容器路径 |
+| 不装 Homebrew 的替代 | — | `make up` 起 `pgvector/pgvector:pg16`（`:5432`）、Redis（host `:6479`）、MinIO（host `:9100`），再按 `server/.env.example` 与 `worker/.env.example` 里的同一组默认值显式导出环境变量，用 `make server`、`make worker`、`make web` 以进程方式跑应用 |
+| MinIO + `mc` | `brew install minio minio-mc` | 直接取官方 Linux 二进制：`curl -fL -o .dev/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio`（`mc` 同理，然后 `chmod +x`）。`dev_up.sh` 依次在 `.dev/bin/`、brew、PATH 中查找 |
+| Redis | 可不装：`MEM_REDIS_URL` 留空时 memd 用进程内 fallback | 同左；要真队列或 SaaS 防重放时用 `make up` 里那个 `:6479` |
+| Worker 依赖 | `cd worker && uv sync --extra clip` | 同一条命令（`--extra clip` 只为可选的图搜图装 CLIP） |
+| `memd` / `mem` 二进制 | `make build-memd build-mem` | 同一条命令 |
+| Ollama（要验收语义检索时） | 本机监听 `localhost:11434` | WSL2 里 `localhost:11434` 只有在 Docker Desktop WSL2 集成、Windows 侧 Ollama 设了 `OLLAMA_HOST` 监听、或启用镜像网络时才可达。不可达时 `mem profile select local-fast-v2` 的 768 维 probe 会失败并且不写入配置——这不是回退，是 fail-closed |
+
+完整的日常开发流程、seed 数据、profile 边界与排查见 [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)；
+可重复的回归门槛见 [docs/TESTING.md](docs/TESTING.md)。
 
 ## 为什么是 Agent-Native
 
@@ -228,15 +298,18 @@ mem 的壁垒不是绑定某个更大的模型，而是长期积累的、用户�
 
 ---
 
-## 快速开始
+## CLI 闭环示例
 
-项目仍处于 Phase 1 MVP。当前开发体验：
+前提：已经有一个跑起来的 mem 实例（推荐按[开始使用](#开始使用)起单机容器），
+`mem` 与 `mem-mcp` 已构建，并且登录过：
 
 ```bash
-git clone https://github.com/fullstack-ai-infra/mem.git
-cd mem
-./scripts/dev_up.sh
-mem auth login
+mem auth login    # 或显式指定实例：mem --server http://127.0.0.1:8080 auth login
+```
+
+项目仍处于 Phase 1 MVP。导入、召回与交接的当前体验：
+
+```bash
 mem put ~/Photos --recursive
 # 可选：同步端附带可信的拍摄时间、位置和来源；AI 建议稍后在 Web 中确认
 mem put ~/Photos/IMG_0001.jpg \
@@ -256,8 +329,9 @@ mem resume photos/import
 mem workspace export --output agent-workspace.membundle
 ```
 
-生产部署同时提供单机 Compose 和多机 Helm 方案，完整的密钥、迁移、高可用、
-备份恢复与升级边界见 [生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
+单机 Compose（见上文[开始使用](#开始使用)）和多机 Helm 是同一份能力的两种部署
+形态；密钥、迁移、高可用、备份恢复与升级边界的完整口径见
+[生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
 [自然语言搜图基线](docs/acceptance/VISUAL_SEARCH_BASELINE.md)。
 
 ---
@@ -295,7 +369,8 @@ embedding，平台托管 embedding 则使用独立的 workspace 权益和额度�
 - 托管向量权益、幂等计费与隐私边界：[docs/MANAGED_EMBEDDINGS.md](docs/MANAGED_EMBEDDINGS.md)
 - 北极星可重复验收：[docs/acceptance/NORTH_STAR.md](docs/acceptance/NORTH_STAR.md)
 - Workspace bundle 决策：[docs/adr/0004-workspace-bundle.md](docs/adr/0004-workspace-bundle.md)
-- 本地运行与验证：[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)
+- 部署：单机 Compose 与多机 Helm：[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+- 开发用裸机进程栈与 smoke test：[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)
 - 项目开发边界：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 - 测试环境与回归门槛：[docs/TESTING.md](docs/TESTING.md)
 - 参与贡献：[组织贡献基线](https://github.com/fullstack-ai-infra/.github/blob/main/CONTRIBUTING.md)
@@ -318,8 +393,9 @@ mem/
 └── docker-compose.test.yml   ← 一次性 PostgreSQL 回归环境
 ```
 
-完整的本地启动、Worker、Web 和 smoke test 步骤见
-[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
+完整的本地进程栈启动、Worker、Web 和 smoke test 步骤（**仅开发**，需要
+Homebrew 布局的 PostgreSQL）见 [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)；要把 mem
+部署起来用，走[开始使用](#开始使用)与 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
 Web 开发模式可单独启动：
 

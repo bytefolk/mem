@@ -7,6 +7,22 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- Onboarding leads with the single-host Compose path: `README.md` gained a
+  getting-started section covering `generate-env.sh` → `docker compose up -d
+  --build --wait` → first-user registration → folder creation, and states the
+  model-stage boundaries of the default `local-fast-v2` profile on that path
+  (`#109`).
+
+### Changed
+
+- The bare-metal process stack is documented as development-only. `README.md`
+  and `docs/RUN_LOCAL.md` pin the toolchain to `server/go.mod`,
+  `worker/uv.lock`, and `web/package-lock.json`, and give a WSL/Linux
+  equivalent for every Homebrew-leaning step, including a dependency-container
+  route for hosts without a Homebrew PostgreSQL layout (`#109`).
+
 ### Fixed
 
 - Release validation now verifies that every immutable GitHub Action pin used

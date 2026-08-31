@@ -1,11 +1,17 @@
-# 本地运行 mem 全栈（裸机 · 无 Docker）
+# 本地运行 mem 全栈（裸机 · 无 Docker · 仅开发）
 
-本文用于启动完整开发栈和手工 smoke。可重复的单元、Race、PostgreSQL 集成、
-Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
+本文用于**开发**：启动完整开发栈和手工 smoke。只想把 mem 跑起来用，请走单机
+Compose 路径（[README 开始使用](../README.md#开始使用) 与
+[DEPLOYMENT.md](DEPLOYMENT.md)）；那里不需要 Homebrew，也不需要本地编译。
+可重复的单元、Race、PostgreSQL 集成、Web 浏览器验收及其通过标准统一见
+[TESTING.md](TESTING.md)。
 
-在没有 Docker 的 macOS 开发环境中，整套栈可用**本地进程**拉起，不走
-`docker compose`。
+在没有 Docker 的开发环境中，整套栈可用**本地进程**拉起，不走 `docker compose`。
 一条命令起、一条命令停，运行时数据全部落在 `.dev/`（已 gitignore）。
+`scripts/dev_up.sh` 是跨平台的（brew 前缀、pgvector 的 `vector.so`/`vector.dylib`、
+Linux 的 `setsid` 都有分支），但它按 **Homebrew 布局**找 PostgreSQL，所以 Linux 与
+WSL2 用户要么装 Linuxbrew，要么改用下面的依赖容器路径——每一步的平台等价见
+[依赖服务的平台等价](#依赖服务的平台等价)。
 
 ```
 ┌──────────┐   gRPC    ┌──────────┐   HTTP    ┌──────────┐
@@ -28,13 +34,21 @@ Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
      > 用 `@17` 而不是 `@16`：brew 的 pgvector bottle 只为 postgresql@17/@18
      > 编译了 `vector.so`，装在 @16 上 `CREATE EXTENSION vector` 会失败。
      > `dev_up.sh` 会自动探测 @17/@18/@16 中带匹配 pgvector 的版本。
+     >
+     > **Linux / WSL2 等价**：装 [Linuxbrew](https://docs.brew.sh/Homebrew-on-Linux)
+     > 后同一条命令可用，`dev_up.sh` 的默认前缀即 `/home/linuxbrew/.linuxbrew`，
+     > 并且 Linux bottle 的模块名是 `vector.so`（macOS 是 `vector.dylib`），脚本
+     > 两种都接受。apt 的 `postgresql-17` + `postgresql-17-pgvector` **不会**被
+     > `detect_pg` 找到（它只查 brew 前缀），走 apt 请用
+     > [依赖服务的平台等价](#依赖服务的平台等价) 里的容器依赖路径。
    - MinIO server + mc client。推荐用 brew（dl.min.io 在本网络偶发限流/TLS 断连，
      brew 走 ghcr.io 更稳）：
      ```bash
      brew install minio minio-mc
      ```
      `dev_up.sh` 会自动在 `.dev/bin/`、brew、PATH 中找 `minio`/`mc`。
-     也可手动下到 `.dev/bin/`（若 dl.min.io 可达）：
+     也可手动下到 `.dev/bin/`（若 dl.min.io 可达）——这也是 Linux / WSL2 的
+     推荐等价做法，无需 brew：
      ```bash
      mkdir -p .dev/bin
      curl -fL -o .dev/bin/minio https://dl.min.io/server/minio/release/linux-amd64/minio
@@ -42,6 +56,8 @@ Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
      chmod +x .dev/bin/minio .dev/bin/mc
      ```
      > `mc` 是可选的：memd 启动时会自己 `MakeBucket` 建桶，没有 mc 也能跑通。
+     > Linux 上 MinIO 官方包名按架构区分；ARM 机器把上面 URL 里的 `linux-amd64`
+     > 换成 `linux-arm64`。
    - worker Python 依赖（`--extra clip` 为**可选**的图搜图能力安装 CLIP）：
      ```bash
      cd worker && uv sync --extra clip && cd ..
@@ -101,6 +117,50 @@ Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
 
    结构化记忆的 `remember → context --source memory` 只依赖 PostgreSQL 和
    memd，不调用 Worker、embedding、VLM 或回答模型，可在这些模型全部离线时验证。
+
+## 依赖服务的平台等价
+
+macOS 与 Linux / WSL2 的差别只在于**依赖服务从哪来**；`make` 目标、CLI 语义和
+`.dev/` 布局两边一致。版本 pin 以 `server/go.mod`、`worker/uv.lock`、
+`web/package-lock.json` 与 [TESTING.md](TESTING.md) §1 为准。
+
+| 依赖 | 版本 pin | Linux / WSL2 等价与注意点 |
+| --- | --- | --- |
+| Go | 1.25.x（`server/go.mod` 要求 `go 1.25.0`） | 平台无关：任意安装方式，只要 `go version` 是 1.25.x；两个 protoc 插件用 `go install`，两系统同命令 |
+| Python + `uv` | 3.11 或 3.12，锁在 `worker/uv.lock` | 平台无关：`uv sync --locked` 按锁文件还原，Linux 上不需要额外编译依赖（Wheel 与 macOS 同源） |
+| Node.js + npm | 24.x，锁在 `web/package-lock.json` | 平台无关：`npm ci`。Playwright 在 Linux 上需系统依赖，`make bootstrap` 已按 `uname -s` 加 `--with-deps` |
+| `protoc` | 34.1（仅改 `worker/proto/*.proto` 时需要） | 取 protobuf releases 的 `linux-x86_64` 包解压即可；只改 Python stub 时不需要系统 `protoc`，`make proto-python` 走 `grpcio-tools` |
+| PostgreSQL 17 + pgvector | `postgresql@17`（`@16` 无匹配 pgvector bottle） | Linuxbrew 下与 macOS 同命令；apt 的 `postgresql-17` + `postgresql-17-pgvector` 不被 `dev_up.sh` 识别，走下面的容器依赖路径 |
+| MinIO + `mc` | 开发栈用 `minio/minio:latest`；生产单机 Compose pin 在 `RELEASE.2025-04-22T22-12-26Z` | 取 `linux-amd64`（ARM 用 `linux-arm64`）官方二进制放 `.dev/bin/`，随 dl.min.io 当前 release；或走容器依赖路径 |
+| Redis | 7.x | 可都不装：`MEM_REDIS_URL` 留空走进程内 fallback；要真队列时 `make up` 起的是 host `:6479` |
+| Ollama | `localhost:11434` | WSL2 需要 Docker Desktop WSL2 集成、Windows 侧设 `OLLAMA_HOST` 或启用镜像网络；不可达时 profile 选择的 768 维 probe 会 fail-closed，不会静默回退 |
+
+### 不装 Homebrew：依赖容器 + 进程应用
+
+`dev_up.sh` 按 Homebrew 布局找 PostgreSQL，因此 apt 路线改用根
+`docker-compose.yml` 提供的依赖（`pgvector/pgvector:pg16` → `:5432`，Redis →
+host `:6479`，MinIO → host `:9100`，凭据 `mem` / `mem-minio-password`，桶 `mem`），
+应用仍以进程方式跑，端口与上文裸机栈完全相同：
+
+```bash
+make up          # 只起依赖；memd/worker 在这个文件里是注释掉的，故意如此
+
+# memd 不读取 server/.env（Go 侧没有 dotenv），必须显式导出：
+set -a; . server/.env.example; set +a
+make server      # memd :8787
+
+# Worker 会读 worker/.env（mem_worker/config.py 的 env_file=".env"）：
+cp worker/.env.example worker/.env
+make worker      # gRPC :50051
+
+cd web && npm ci && npm run dev   # vite 代理 /v1 -> :8787
+```
+
+`server/.env.example` 里的 `MEM_REDIS_URL=` 是空值，memd 因此走进程内 fallback：
+开发足够，但没有崩溃恢复；生产必须接真 Redis（见
+[DEPLOYMENT.md](DEPLOYMENT.md)）。这条路径的依赖端口与
+`scripts/dev_up.sh` 用的默认值同源（脚本注释即写明"kept in sync with
+server/.env.example + worker/.env.example"）。
 
 ## 用户回来怎么用（日常）
 
@@ -329,11 +389,15 @@ npm run build      # 产物在 web/dist/
 
 | 服务      | 端口   | 进程                         | 日志                  |
 |-----------|--------|------------------------------|-----------------------|
-| PostgreSQL| 5432   | brew `postgresql@17`         | `.dev/logs/postgres.log` |
+| PostgreSQL| 5432   | brew `postgresql@17`（Linux 上同样是 brew keg） | `.dev/logs/postgres.log` |
 | MinIO     | 9100   | `.dev/bin/minio`             | `.dev/logs/minio.log` |
 | worker    | 50051  | `worker/.venv` python gRPC   | `.dev/logs/worker.log`|
 | memd      | 8787   | `bin/memd` (Go)              | `.dev/logs/memd.log`  |
 | Ollama    | 11434  | 系统已有                     | —                     |
+
+走[依赖容器路径](#不装-homebrew依赖容器--进程应用)时，端口不变，只是
+PostgreSQL / MinIO / Redis 变成容器：日志改用 `docker compose logs -f <svc>`，
+`.dev/` 里只剩应用侧产物。
 
 ## 关键设计点
 
@@ -368,7 +432,10 @@ AI profile 的私有 BYOM workspace。
 - `seed_demo_data.sh` 断言超时：CPU 跑 nomic/CLIP 较慢，调大
   `MEM_INGEST_TIMEOUT_SEC=600 bash scripts/seed_demo_data.sh`。
 - `CREATE EXTENSION vector failed`：当前 postgres 版本没有匹配的 pgvector
-  `.so`；装 `brew install postgresql@17` 并重跑 `dev_up.sh`。
+  模块（macOS 是 `vector.dylib`，Linux 是 `vector.so`）。brew/Linuxbrew 路线：
+  `brew install postgresql@17 pgvector` 并重跑 `dev_up.sh`；依赖容器路线不会出现
+  这个错误（`pgvector/pgvector:pg16` 镜像自带扩展），如果你手工把 `MEM_DB_URL`
+  指向了 apt 装的 PostgreSQL，请改回容器端口或改用 brew keg。
 - `idempotency_conflict`：同一幂等键已绑定另一份归一化请求；重试原请求或换一个
   能稳定标识新事件的 key，不要随机重试冲突请求。
 - `path_forbidden`：记忆路径或来源文件超出 Token `paths[]`；缩小目标路径或使用
