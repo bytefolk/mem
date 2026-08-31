@@ -14,15 +14,15 @@ runtime:
 images:
   server:
     repository: mem-server
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   worker:
     repository: mem-worker
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   web:
     repository: mem-web
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
 
 serviceAccount:

@@ -64,7 +64,7 @@ Use an immutable version for all three images. The example below builds the
 model-free Worker; optional heavy extras must be explicitly selected.
 
 ```bash
-export MEM_VERSION=0.1.0
+export MEM_VERSION=0.1.1
 export MEM_REGISTRY=registry.example.internal/mem
 
 docker build \
