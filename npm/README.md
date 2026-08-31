@@ -20,11 +20,21 @@ MEM_SERVER=http://localhost:8787 MEM_TOKEN=mem_... npx mem-mcp
 
 ## Download integrity
 
-The postinstall step downloads `mem-mcp-checksums.txt` from the same versioned
-GitHub Release as the platform binary. It accepts exactly one checksum row for
-that asset, verifies the binary with SHA-256, and only then makes it executable.
-Installation fails and removes partial or unverified files when the manifest,
-download, or checksum is invalid.
+Installing this package does not run a dependency lifecycle script or download
+an executable. On the first explicit `mem-mcp` invocation, the wrapper downloads
+`mem-mcp-checksums.txt` and the platform binary from the same versioned GitHub
+Release. It accepts exactly one checksum row for that asset, verifies the binary
+with SHA-256, and only then makes it executable and starts it.
+
+Later invocations download the small versioned checksum manifest and reverify
+the cached binary; they do not download the binary again when it still matches.
+A missing, corrupt, or substituted cache is replaced only after the new download
+passes verification. Manifest, download, or checksum failures remove unverified
+files and prevent the MCP child process from starting.
+
+Bootstrap and verification diagnostics use stderr. Stdout is inherited by the
+verified binary and remains clean for the MCP stdio protocol. This first-run
+bootstrap works with npm 12 without approving dependency install scripts.
 
 ### Claude Desktop config
 

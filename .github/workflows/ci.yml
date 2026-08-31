@@ -289,7 +289,7 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test checksum-verified installer
+      - name: Test checksum-verified installer and wrapper
         working-directory: npm
         run: npm test
 
@@ -299,7 +299,16 @@ jobs:
           node --check install.js
           node --check mem-mcp
           node --check platforms.js
-          npm pack --dry-run
+          npm pack --dry-run --ignore-scripts
+
+      - name: Set up npm 12 supported Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22.22.2"
+
+      - name: Test npm 12 clean-tarball first-run bootstrap
+        working-directory: npm
+        run: npx --yes npm@12.0.2 run test:tarball
 
   deployment:
     name: Deployment profiles

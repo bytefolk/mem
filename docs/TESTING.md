@@ -101,14 +101,33 @@ Run the dependency-free npm wrapper tests and inspect the package payload:
 
 ```bash
 (cd npm && npm test)
-(cd npm && npm pack --dry-run)
+(cd npm && npm pack --dry-run --ignore-scripts)
 ```
 
 The tests use deterministic local download doubles; they do not mutate a live
 Release or publish a package. They prove strict checksum-manifest parsing,
 SHA-256 verification before executable installation, verified cache reuse, and
-cleanup after manifest, checksum, and partial-download failures. The `npm
-wrapper` CI job runs these checks with Node 24.
+cleanup after manifest, checksum, and partial-download failures. Wrapper tests
+also prove verification-before-spawn, stderr-only bootstrap diagnostics,
+argument/environment/inherited-stdio propagation, child exit handling, and that
+installer failures never start a child. Run `npm test` with Node 18, 20, and 24
+when changing the wrapper; the `npm wrapper` CI job keeps Node 24 as the npm 11
+compatibility gate.
+
+The npm 12 clean-tarball acceptance test is an explicit additional gate:
+
+```bash
+(cd npm && npx --yes npm@12.0.2 run test:tarball)
+```
+
+It packs the documented six runtime files, installs the local tarball with npm
+12's default lifecycle-script policy and an empty user config, proves no binary
+appears during installation, then invokes the installed npm bin shim. A local
+HTTPS module double supplies deterministic manifest and binary bytes without a
+certificate, private key, live Release request, or registry mutation. The test
+requires bootstrap and cache verification logs on stderr, clean child-only MCP
+stdout, one verified binary download on first use, and manifest-only reuse on a
+subsequent invocation.
 
 ## 3.2 Production deployment assets
 
