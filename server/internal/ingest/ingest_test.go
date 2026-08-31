@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/PeterGuy326/mem/server/internal/apiclient"
@@ -228,6 +230,145 @@ func TestCursorOnDiskFormat(t *testing.T) {
 	}
 }
 
+// TestWalkCanonicalizesRelativeBase pins the identity rule: every path Walk
+// returns is absolute and symlink-resolved, so a caller-supplied relative root
+// cannot make two working directories share one cursor.
+func TestWalkCanonicalizesRelativeBase(t *testing.T) {
+	store := t.TempDir()
+	writeSource(t, store, "sessions/a.jsonl", "x")
+	absBase, err := CanonicalRoot(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(store)
+	got, err := Walk("sessions", HasJSONLExtension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(absBase, "sessions", "a.jsonl")
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("walk returned %v, want [%s]", got, want)
+	}
+
+	// A same-named source in another working directory is a different identity,
+	// so the two never share a cursor file.
+	storeB := t.TempDir()
+	writeSource(t, storeB, "sessions/a.jsonl", "x")
+	t.Chdir(storeB)
+	second, err := Walk("sessions", HasJSONLExtension)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 1 || second[0] == want {
+		t.Fatalf("relative bases from two directories collided on %v", second)
+	}
+	if CursorPath("states", want) == CursorPath("states", second[0]) {
+		t.Fatalf("cursor keys collide for %s and %s", want, second[0])
+	}
+
+	// A root that does not exist yet stays absolute instead of erroring, which
+	// is what the missing-root contract above needs.
+	absent := filepath.Join(store, "nope", "deep")
+	resolved, err := CanonicalRoot(absent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(resolved) {
+		t.Fatalf("CanonicalRoot of an absent path = %q, want absolute", resolved)
+	}
+	t.Chdir(store)
+	if paths, err := Walk("nope/deep", HasJSONLExtension); err != nil || len(paths) != 0 {
+		t.Fatalf("missing root: paths = %v, err = %v; want none, no error", paths, err)
+	}
+}
+
+func TestSaveCursorKeepsCommittedProgressAndLeavesNoTempFile(t *testing.T) {
+	states := t.TempDir()
+	abs := filepath.Join(t.TempDir(), "a.jsonl")
+
+	// A run that read the file earlier must not rewind one that finished first.
+	if err := SaveCursor(states, Cursor{Abs: abs, Size: 200, ModTime: "2026-08-30T06:14:01Z", LastLine: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveCursor(states, Cursor{Abs: abs, Size: 200, ModTime: "2026-08-30T06:14:02Z", LastLine: 7}); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadCursor(states, abs); got.LastLine != 10 || got.Size != 200 {
+		t.Fatalf("cursor = %+v, want the committed line 10 kept", got)
+	}
+
+	// A rewrite that shrank the file is the one case allowed to rewind.
+	if err := SaveCursor(states, Cursor{Abs: abs, Size: 40, ModTime: "2026-08-30T06:14:03Z", LastLine: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadCursor(states, abs).LastLine; got != 2 {
+		t.Fatalf("LastLine = %d, want 2 after the source shrank", got)
+	}
+
+	entries, err := os.ReadDir(states)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".json") {
+		t.Fatalf("state dir = %v, want only the cursor file", entries)
+	}
+}
+
+// TestSaveCursorDoesNotStageInASharedSlot pins the temporary naming. Reusing
+// <cursor>.tmp gives every process writing that cursor the same staging file,
+// so one run's write can land inside another's rename.
+func TestSaveCursorDoesNotStageInASharedSlot(t *testing.T) {
+	states := t.TempDir()
+	abs := filepath.Join(t.TempDir(), "a.jsonl")
+	leftover := CursorPath(states, abs) + ".tmp"
+	if err := os.WriteFile(leftover, []byte("another run's staging file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveCursor(states, Cursor{Abs: abs, Size: 20, ModTime: "2026-08-30T06:14:01Z", LastLine: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if got := LoadCursor(states, abs).LastLine; got != 4 {
+		t.Fatalf("LastLine = %d, want 4", got)
+	}
+	if b, err := os.ReadFile(leftover); err != nil || string(b) != "another run's staging file" {
+		t.Fatalf("save consumed the shared staging file: %q, err %v", b, err)
+	}
+}
+
+func TestConcurrentSaveCursorPublishesWholeCursors(t *testing.T) {
+	states := t.TempDir()
+	abs := filepath.Join(t.TempDir(), "a.jsonl")
+
+	var wg sync.WaitGroup
+	for i := 1; i <= 8; i++ {
+		wg.Add(1)
+		go func(line int) {
+			defer wg.Done()
+			if err := SaveCursor(states, Cursor{Abs: abs, Size: 100, ModTime: "2026-08-30T06:14:01Z", LastLine: line}); err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	b, err := os.ReadFile(CursorPath(states, abs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cp Cursor
+	if err := json.Unmarshal(b, &cp); err != nil {
+		t.Fatalf("cursor published half-written: %v (%s)", err, b)
+	}
+	if cp.LastLine < 1 || cp.LastLine > 8 {
+		t.Fatalf("cursor = %+v", cp)
+	}
+	if entries, err := os.ReadDir(states); err != nil || len(entries) != 1 {
+		t.Fatalf("state dir = %v, err = %v; want one cursor file", entries, err)
+	}
+}
+
 func TestWalkIsDeterministicAndSkipsUnreadable(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"c.jsonl", "nested/b.jsonl", "nested/deep/a.jsonl", "ignore.txt"} {
@@ -283,6 +424,17 @@ func TestClassifyCoversSharedCodes(t *testing.T) {
 		if got := Classify(tc.err); got != tc.want {
 			t.Errorf("Classify(%v) = %q, want %q", tc.err, got, tc.want)
 		}
+	}
+
+	// The rows above build PathErrors around sentinel errors. A real failed open
+	// carries a syscall.Errno instead, and Errno implements net.Error, so only
+	// this shape reproduces a file error being reported as a transport failure.
+	if _, err := os.Open(filepath.Join(t.TempDir(), "absent.jsonl")); err != nil {
+		if got := Classify(fmt.Errorf("open transcript: %w", err)); got != CodeRootMissing {
+			t.Errorf("Classify(real open failure) = %q, want %q", got, CodeRootMissing)
+		}
+	} else {
+		t.Fatal("opening a file that does not exist succeeded")
 	}
 }
 
