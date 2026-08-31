@@ -271,13 +271,16 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
 test("install verifies a temporary download before exposing it", async (t) => {
   const root = testDirectory(t);
   const cacheRoot = join(root, "user-cache");
-  const cacheDir = join(cacheRoot, "v0.1.1", "linux-x64");
+  const osPlatform = platform();
+  const osArch = arch();
+  const asset = assetFor(osPlatform, osArch);
+  const cacheDir = join(cacheRoot, "v0.1.1", `${osPlatform}-${osArch}`);
   const bytes = Buffer.from("trusted mem-mcp binary");
   const requested = [];
 
   const installed = await install({
-    osPlatform: "linux",
-    osArch: "x64",
+    osPlatform,
+    osArch,
     version: "0.1.1",
     repository: "example/mem",
     environment: { MEM_MCP_CACHE_DIR: cacheRoot },
@@ -285,7 +288,7 @@ test("install verifies a temporary download before exposing it", async (t) => {
     logger: QUIET_LOGGER,
     downloadText: async (url) => {
       requested.push(url);
-      return manifestFor(bytes);
+      return manifestFor(bytes, asset);
     },
     downloadFile: async (url, destination) => {
       requested.push(url);
@@ -293,13 +296,15 @@ test("install verifies a temporary download before exposing it", async (t) => {
     },
   });
 
-  assert.equal(installed, join(cacheDir, ASSET));
+  assert.equal(installed, join(cacheDir, asset));
   assert.deepEqual(readFileSync(installed), bytes);
-  assert.notEqual(statSync(installed).mode & 0o111, 0);
-  assert.deepEqual(readdirSync(cacheDir), [ASSET]);
+  if (platform() !== "win32") {
+    assert.notEqual(statSync(installed).mode & 0o111, 0);
+  }
+  assert.deepEqual(readdirSync(cacheDir), [asset]);
   assert.deepEqual(requested, [
     "https://github.com/example/mem/releases/download/v0.1.1/mem-mcp-checksums.txt",
-    `https://github.com/example/mem/releases/download/v0.1.1/${ASSET}`,
+    `https://github.com/example/mem/releases/download/v0.1.1/${asset}`,
   ]);
 });
 
@@ -328,7 +333,9 @@ test("install verifies and reuses a cached binary", async (t) => {
   assert.equal(installed, binPath);
   assert.equal(binaryDownloads, 0);
   assert.deepEqual(readFileSync(binPath), bytes);
-  assert.notEqual(statSync(binPath).mode & 0o111, 0);
+  if (platform() !== "win32") {
+    assert.notEqual(statSync(binPath).mode & 0o111, 0);
+  }
 });
 
 test("concurrent installers serialize and publish one verified binary", async (t) => {
