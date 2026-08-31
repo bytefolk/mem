@@ -12,17 +12,20 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
   to the canonical `bytefolk` organization while retaining the published npm
   scope, MCP identity, and existing cache paths.
-- Internal, behaviour-preserving: the local ingestion mechanics used by
+- Internal: the local ingestion mechanics used by
   `mem ingest qoder` — deterministic recursive transcript walk, per-path line
   cursors (atomic rename write, reset when a file is rewritten shorter), the
   `--dry-run` / `--limit` semantics, per-file degradation on an idempotency
   conflict, run-report aggregation and the closed failure-code vocabulary —
   moved out of `server/cmd/mem` into a new `server/internal/ingest` package
   (`#111`). The connector is now a thin call site that supplies the Qoder parser,
-  the memory payload and the HTTP upload. No observable change: memories
-  payloads, `Idempotency-Key` derivation, the stdout summary, and the cursor file
-  format and location under `~/.mem/ingest/qoder` are unchanged, so existing
-  cursors remain readable. The package is the shared core that `put --watch`
+  the memory payload and the HTTP upload. Memories payloads, the stdout summary,
+  and the cursor file format and location under `~/.mem/ingest/qoder` are
+  unchanged, and a root already given as a canonical absolute path keeps the
+  cursor keys and `Idempotency-Key` values it had before the move. A root given
+  relative, or one reached through a symlink, is now identified by its canonical
+  absolute path, so its cursor key and per-line `Idempotency-Key` differ from the
+  pre-refactor spelling. The package is the shared core that `put --watch`
   (`#110`) consumes instead of writing a second state layer.
 
 ### Security
@@ -57,6 +60,28 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- `mem ingest qoder` derives a transcript's checkpoint key, its per-line
+  `Idempotency-Key` values and its project/session memory path from one canonical
+  root identity. Previously the root was used exactly as the caller spelled it, so
+  two working directories that each contained `sessions/p.jsonl` and shared one
+  checkpoint directory collided on a single cursor: the second run saw an
+  up-to-date checkpoint and posted nothing, silently dropping that store. A
+  relative or symlinked root now re-keys its existing cursors, which replays those
+  files once instead of skipping them. Checkpoint writes stage through a distinct
+  temporary file per save and no longer rewind a checkpoint another run already
+  advanced, so a slower run finishing second can neither fail on a shared staging
+  name nor undo the faster run's progress.
+- An ingest cycle that aborted on a rejected write tallied the failure under the
+  network code whatever the server had answered, because the connector mapped the
+  typed API error to a CLI error before the shared core could classify it. The
+  core now sees the typed error and classifies authentication, plan, quota,
+  provider and timeout responses correctly, while the SPEC §7.1 exit codes stay
+  mapped at the command boundary that owns them. The same tally was wrong for
+  local reads: a failed `open` returns a `syscall.Errno`, which satisfies
+  `net.Error`, so an absent or unreadable transcript was reported as a network
+  failure instead of `root_missing` / `read_denied`, and a run that aborted while
+  reading recorded no failure at all. Both paths now classify before the transport
+  default and the aborted cycle reports the code it died on.
 - The npm installer now verifies the selected Release binary against the
   release's SHA-256 manifest before making it executable, rejects malformed or
   ambiguous manifest entries, verifies cached binaries, and removes partial or

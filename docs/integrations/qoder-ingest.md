@@ -20,7 +20,7 @@ mem ingest qoder --limit 200         # stop after 200 memories
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--root` | `~/.qoder/projects` | glob base scanned recursively for `*.jsonl` |
+| `--root` | `~/.qoder/projects` | glob base scanned recursively for `*.jsonl`, resolved to a canonical absolute path first |
 | `--path-root` | `/AgentTranscripts` | virtual path prefix for ingested memories |
 | `--state-dir` | `~/.mem/ingest/qoder` | checkpoint cursor directory |
 | `--dry-run` | `false` | parse and plan only; do not write |
@@ -35,7 +35,8 @@ Each parseable line becomes one memory:
 - **path** — `<path-root>/<project>/<session>`, where `<project>` is the first
   path segment under the ingest root and `<session>` is the transcript file name
   minus `.jsonl`
-- **source** — `{"type":"qoder","ref":<abs path>,"locator":{"line":N}}`
+- **source** — `{"type":"qoder","ref":<abs>,"locator":{"line":N}}`, where `<abs>`
+  is the transcript's canonical absolute path (symlinks resolved)
 - **producer** — `session_id` (session slug) and `agent_id` (the model/agent id
   recorded on the line, when present)
 - **event_at** — the message timestamp (RFC 3339 or epoch), when present
@@ -62,9 +63,14 @@ Ingestion is **incremental and idempotent**:
 
 - A per-file cursor (`~/.mem/ingest/qoder/<sha1(abs)>.json`) records the highest
   already-ingested line. A re-run parses only lines appended since the last run.
+  Because the key is the canonical path, one store shares one cursor however it is
+  reached, and two directories that each contain `sessions/p.jsonl` do not.
 - Even if the cursor is lost, the stable `Idempotency-Key` per line makes a
   re-post an idempotent replay (`replayed` responses are counted, not
   duplicated).
+- A `--root` previously spelled relative, or one behind a symlink, is keyed
+  differently than before: its existing cursor is orphaned and that store is
+  re-posted once under new keys.
 
 Deleting `~/.mem/ingest/qoder` resets all cursors (safe: ids remain idempotent).
 

@@ -128,6 +128,13 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 	if base == "" {
 		return newCliError(1, "cannot determine session store root", "set --root or $HOME")
 	}
+	// Walk, the checkpoint key and the project/session split must all see one
+	// identity. Left as the caller spelled it, a relative --root would make two
+	// working directories that each hold sessions/p.jsonl share a checkpoint.
+	base, err := ingest.CanonicalRoot(base)
+	if err != nil {
+		return newCliError(1, err.Error(), "set --root to an accessible path")
+	}
 	paths, err := expandTranscriptGlob(base)
 	if err != nil {
 		return err
@@ -162,7 +169,9 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 		o.uploadMemory(client, warn),
 	)
 	if err != nil {
-		return err
+		// Classify runs inside the core on the typed error, so the exit-code
+		// mapping belongs here, at the boundary that owns it.
+		return fromAPIError(err)
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(),
@@ -193,9 +202,10 @@ func (o ingestOptions) parseTranscript(base string) ingest.ParseFunc {
 	}
 }
 
-// uploadMemory posts one unit through the standard memories endpoint. The raw
-// client is used so a conflict stays typed: converting it to a cliError here
-// would lose the kind that the per-file degradation decision dispatches on.
+// uploadMemory posts one unit through the standard memories endpoint. Errors
+// stay typed on purpose: the core's Classify dispatches on *apiclient.APIError
+// for both the per-file degradation decision and the failure code in the report,
+// and the SPEC §7.1 exit-code mapping is applied by the calling command.
 func (o ingestOptions) uploadMemory(client *httpClient, warn func(string, ...any)) ingest.UploadFunc {
 	return func(ctx context.Context, abs string, u ingest.Unit) (ingest.Outcome, error) {
 		var resp map[string]any
@@ -216,7 +226,7 @@ func (o ingestOptions) uploadMemory(client *httpClient, warn func(string, ...any
 					abs, u.Line, filepath.Base(abs))
 				return ingest.Outcome{}, fmt.Errorf("%w: %s:%d", ingest.ErrDegradeFile, abs, u.Line)
 			}
-			return ingest.Outcome{}, fromAPIError(err)
+			return ingest.Outcome{}, err
 		}
 		if r, _ := resp["replayed"].(bool); r {
 			return ingest.Outcome{Deduplicated: true}, nil
