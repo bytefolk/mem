@@ -241,12 +241,21 @@ function ownedArtifactPaths(cacheDir, asset, nonce) {
   ];
 }
 
-function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs) {
+// Windows reports EPERM/EACCES rather than EEXIST when another process already
+// owns the lock directory or is mid-create on it, so either code is ordinary
+// contention there and must not be mistaken for a hard permission failure.
+function isLockContention(err, currentPlatform = platform()) {
+  if (err.code === "EEXIST") return true;
+  return currentPlatform === "win32" && (err.code === "EPERM" || err.code === "EACCES");
+}
+
+function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, osPlatform) {
   let info;
   try {
     info = lstatSync(lockPath);
   } catch (err) {
     if (err.code === "ENOENT") return true;
+    if (isLockContention(err, osPlatform)) return false;
     throw err;
   }
   if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -285,6 +294,7 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
   const staleMs = options.staleMs ?? LOCK_STALE_MS;
   const orphanGraceMs = options.orphanGraceMs ?? LOCK_ORPHAN_GRACE_MS;
   const pollMs = options.pollMs ?? LOCK_POLL_MS;
+  const osPlatform = options.osPlatform || platform();
   const signal = options.signal;
   const lockPath = path.join(cacheDir, `.${asset}.lock`);
   const deadline = Date.now() + waitTimeoutMs;
@@ -306,10 +316,10 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
       }
       return { lockPath, nonce };
     } catch (err) {
-      if (err.code !== "EEXIST") throw err;
+      if (!isLockContention(err, osPlatform)) throw err;
     }
 
-    if (reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs)) {
+    if (reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, osPlatform)) {
       continue;
     }
     if (Date.now() >= deadline) {
@@ -625,6 +635,7 @@ async function install(options = {}) {
   throwIfAborted(signal);
   ensureCacheDirectory(cacheDir);
   lock = await acquireAssetLock(cacheDir, asset, {
+    osPlatform,
     waitTimeoutMs: options.lockWaitTimeoutMs,
     staleMs: options.lockStaleMs,
     orphanGraceMs: options.lockOrphanGraceMs,
@@ -769,6 +780,7 @@ module.exports = {
   downloadText,
   ensureCacheDirectory,
   install,
+  isLockContention,
   openResponse,
   releaseAssetLock,
   sha256File,

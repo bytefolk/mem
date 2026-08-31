@@ -6,6 +6,7 @@ const { createHash } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,12 +22,15 @@ const { PassThrough } = require("node:stream");
 const test = require("node:test");
 const { assetFor } = require("./platforms");
 const {
+  acquireAssetLock,
   cacheDirectory,
   cacheRootFor,
   checksumForAsset,
   downloadText,
   install,
+  isLockContention,
   openResponse,
+  releaseAssetLock,
 } = require("./install");
 
 const ASSET = assetFor("linux", "x64");
@@ -762,4 +766,81 @@ test("a logger failure after atomic publish preserves only the verified final", 
 
   assert.deepEqual(readFileSync(binPath), bytes);
   assert.deepEqual(readdirSync(cacheDir), [ASSET]);
+});
+
+test("EEXIST is contention everywhere while a permission error is contention only on win32", () => {
+  const withCode = (code) => Object.assign(new Error(code), { code });
+  assert.equal(isLockContention(withCode("EEXIST"), "linux"), true);
+  assert.equal(isLockContention(withCode("EEXIST"), "darwin"), true);
+  assert.equal(isLockContention(withCode("EEXIST"), "win32"), true);
+  assert.equal(isLockContention(withCode("EPERM"), "win32"), true);
+  assert.equal(isLockContention(withCode("EACCES"), "win32"), true);
+  assert.equal(isLockContention(withCode("EPERM"), "linux"), false);
+  assert.equal(isLockContention(withCode("EACCES"), "darwin"), false);
+  assert.equal(isLockContention(withCode("ENOENT"), "win32"), false);
+  assert.equal(isLockContention(new Error("no code"), "win32"), false);
+});
+
+test("a contended lock reported as EPERM is retried instead of aborting the install", async (t) => {
+  // Windows raises EPERM, not EEXIST, when a competing process already holds the
+  // lock directory. install.js destructures mkdirSync at load time, so the patch
+  // has to be in place before the module is first required, which a child process
+  // gives us without disturbing the other tests in this file.
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const { join } = require("node:path");
+    const realMkdirSync = fs.mkdirSync;
+    let armed = true;
+    fs.mkdirSync = function (target, ...rest) {
+      if (armed && String(target).endsWith(".lock")) {
+        armed = false;
+        throw Object.assign(new Error("simulated Windows contention"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock, releaseAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    // The win32 gate is what turns this error into contention, so it is injected
+    // rather than taken from the host that happens to run the suite.
+    acquireAssetLock(cacheDir, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 5000,
+    })
+      .then((lock) => {
+        const owner = JSON.parse(fs.readFileSync(join(lock.lockPath, "owner.json"), "utf8"));
+        if (owner.pid !== process.pid) throw new Error("lock is not owned by this process");
+        releaseAssetLock(lock);
+      })
+      .catch((error) => {
+        console.error(error.stack || String(error));
+        process.exitCode = 1;
+      });
+  `);
+  assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
+});
+
+test("a permission failure that is not contention still fails closed", async (t) => {
+  if (typeof process.getuid === "function" && process.getuid() === 0) {
+    t.skip("root ignores the read-only cache directory mode");
+    return;
+  }
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  chmodSync(cacheDir, 0o500);
+  try {
+    await assert.rejects(
+      acquireAssetLock(cacheDir, ASSET, { osPlatform: "linux", pollMs: 1, waitTimeoutMs: 250 }),
+      (error) => error.code === "EACCES" || error.code === "EPERM",
+    );
+  } finally {
+    chmodSync(cacheDir, 0o700);
+  }
 });

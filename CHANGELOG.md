@@ -7,6 +7,15 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Fixed
+
+- The npm installer no longer aborts a concurrent first run on Windows. The
+  per-asset cache lock is taken with `mkdir` and treated only `EEXIST` as
+  contention, but a contended `mkdir` on Windows raises `EPERM` or `EACCES`, so
+  a process waiting for the lock holder failed outright instead of retrying.
+  Both codes now count as contention on Windows, and a permission error that is
+  not contention still fails closed.
+
 ## [0.1.1] - 2026-08-31
 
 ### Changed
