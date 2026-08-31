@@ -41,15 +41,23 @@ jobs:
           ./scripts/test_validate_release_action_pins_compat.sh
           ./scripts/validate_release_action_pins.sh
 
+      - name: Validate release guards
+        run: ./scripts/test_release_guards.sh
+
       - name: Validate project scripts
         run: |
           git ls-files -z 'scripts/*.sh' 'deploy/compose/*.sh' | xargs -0 -n1 bash -n
           shellcheck \
             scripts/verify.sh \
             scripts/acceptance_agent_memory.sh \
+            scripts/generate_release_checksums.sh \
+            scripts/render_release_notes.sh \
+            scripts/test_release_guards.sh \
             scripts/test_validate_release_action_pins_compat.sh \
             scripts/validate_release_action_pins.sh \
             scripts/validate_deploy.sh \
+            scripts/validate_release_source.sh \
+            scripts/validate_release_version.sh \
             deploy/compose/backup.sh \
             deploy/compose/generate-env.sh \
             deploy/compose/restore.sh

@@ -1,5 +1,7 @@
 name: Release
 
+run-name: Release ${{ inputs.version || github.ref_name }}
+
 on:
   push:
     tags:
@@ -7,16 +9,68 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version tag to create (e.g., v0.1.0)"
+        description: "Existing annotated tag to publish (for example, v0.1.1)"
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Validate immutable release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - name: Check out requested tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.version || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate annotated tag, commit and version surfaces
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-${REF_NAME}}"
+          if [[ "${EVENT_NAME}" == push && "${FULL_REF}" != "refs/tags/${version}" ]]; then
+            echo "push ref ${FULL_REF} does not match release tag ${version}" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main" \
+            "refs/tags/${version}:refs/tags/${version}"
+          commit="$(./scripts/validate_release_source.sh "${version}")"
+          printf 'tag=%s\n' "${version}" >> "${GITHUB_OUTPUT}"
+          printf 'commit=%s\n' "${commit}" >> "${GITHUB_OUTPUT}"
+
+      - name: Refuse an existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "GitHub Release ${RELEASE_TAG} already exists" >&2
+            exit 1
+          fi
+
   build:
     name: Build mem-mcp binaries
+    needs: [preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -42,10 +96,24 @@ jobs:
             goarch: arm64
             asset: mem-mcp-windows-arm64.exe
     steps:
-      - name: Check out repository
+      - name: Check out exact tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Revalidate release source
+        env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          actual_commit="$(./scripts/validate_release_source.sh "${RELEASE_TAG}")"
+          [[ "${actual_commit}" == "${EXPECTED_COMMIT}" ]]
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -56,13 +124,16 @@ jobs:
       - name: Build mem-mcp (${{ matrix.asset }})
         working-directory: server
         env:
-          # Scoped to the build step: job-level GOFLAGS breaks
-          # actions/setup-go's internal `go env` probes on Go >= 1.24.
-          GOFLAGS: "-trimpath -ldflags=-s -w"
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
         run: |
+          set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/assets"
+          output="${RUNNER_TEMP}/assets/${{ matrix.asset }}"
           CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
-            go build -o "${RUNNER_TEMP}/assets/${{ matrix.asset }}" ./cmd/mem-mcp
+            go build -buildvcs=true -trimpath -ldflags='-s -w' \
+            -o "${output}" ./cmd/mem-mcp
+          go version -m "${output}" | grep -F "vcs.revision=${EXPECTED_COMMIT}"
+          go version -m "${output}" | grep -F 'vcs.modified=false'
 
       - name: Upload asset
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -73,18 +144,34 @@ jobs:
           retention-days: 1
 
   release:
-    name: Create Release
-    needs: [build]
+    name: Create GitHub Release
+    needs: [preflight, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
-
     steps:
-      - name: Check out repository
+      - name: Check out exact tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Revalidate release source and render notes
+        env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          actual_commit="$(./scripts/validate_release_source.sh "${RELEASE_TAG}")"
+          [[ "${actual_commit}" == "${EXPECTED_COMMIT}" ]]
+          ./scripts/render_release_notes.sh "${RELEASE_TAG}" \
+            > "${RUNNER_TEMP}/release-notes.md"
+          test -s "${RUNNER_TEMP}/release-notes.md"
 
       - name: Download all assets
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -93,27 +180,47 @@ jobs:
           pattern: mem-mcp-*
           merge-multiple: true
 
-      - name: Generate checksums
-        working-directory: /tmp/release-assets
-        run: sha256sum mem-mcp-* > mem-mcp-checksums.txt
-
-      - name: Create Release
+      - name: Validate exact assets and generate checksums
         env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          ./scripts/generate_release_checksums.sh \
+            "${RELEASE_TAG}" "${EXPECTED_COMMIT}" /tmp/release-assets
+
+      - name: Revalidate tag and create Release
+        env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
           GH_TOKEN: ${{ github.token }}
-          GITHUB_TOKEN: ${{ github.token }}
-          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
         run: |
           set -euo pipefail
-          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME}}"
-          # The `v*` tag glob and the workflow_dispatch input are both
-          # caller-controlled, so the version is asserted before it reaches
-          # the release API and the asset paths.
-          if ! printf '%s' "${VERSION}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "refusing to release non-semver version: ${VERSION}" >&2
+          git fetch --no-tags origin \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          actual_commit="$(./scripts/validate_release_source.sh "${RELEASE_TAG}")"
+          [[ "${actual_commit}" == "${EXPECTED_COMMIT}" ]]
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "GitHub Release ${RELEASE_TAG} already exists" >&2
             exit 1
           fi
-          gh release create "${VERSION}" \
+
+          assets=(
+            /tmp/release-assets/mem-mcp-darwin-amd64
+            /tmp/release-assets/mem-mcp-darwin-arm64
+            /tmp/release-assets/mem-mcp-linux-amd64
+            /tmp/release-assets/mem-mcp-linux-arm64
+            /tmp/release-assets/mem-mcp-windows-amd64.exe
+            /tmp/release-assets/mem-mcp-windows-arm64.exe
+            /tmp/release-assets/mem-mcp-checksums.txt
+          )
+          release_flags=()
+          if [[ "${RELEASE_TAG}" == *-rc.* ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --title "${VERSION}" \
-            --generate-notes \
-            /tmp/release-assets/mem-mcp-*
+            --verify-tag \
+            --title "${RELEASE_TAG}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            "${release_flags[@]}" \
+            "${assets[@]}"
