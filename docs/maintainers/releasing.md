@@ -90,27 +90,33 @@ creates, moves, or replaces a tag.
    existing GitHub Release, or anything other than the exact six expected
    binaries. Each binary embeds the tag commit as Go VCS metadata. The checksum
    manifest contains exactly one GNU `sha256sum` row per binary so the npm
-   installer can parse it strictly.
-5. Verify the completed GitHub Release is non-draft, uses the expected tag and
-   exposes the six binaries plus `mem-mcp-checksums.txt`. Download all seven
-   assets into a clean directory, run `sha256sum --check --strict
-   mem-mcp-checksums.txt`, and inspect `go version -m` on each binary for the
-   recorded release commit before starting npm publication.
-6. In `npm/`, rerun `npm test`, the npm 12 clean-tarball test, and `npm pack
-   --dry-run --ignore-scripts`. Confirm `npm view
-   @fullstack-ai-infra/mem-mcp@VERSION version` does not find the version, then
-   publish it once with `npm publish --access public`.
+   installer can parse it strictly. It uploads all seven assets to a draft,
+   reads that draft back, and requires the exact seven names with non-zero
+   sizes before its final command changes the draft to a public Release. Any
+   earlier failure leaves the Release as a draft.
+5. Read the completed GitHub Release back again. It must be non-draft, use the
+   expected tag, and expose the six binaries plus `mem-mcp-checksums.txt`.
+   Download all seven assets into a clean directory, run
+   `sha256sum --check --strict mem-mcp-checksums.txt`, and inspect
+   `go version -m` on each binary for the recorded release commit before
+   starting npm publication.
+6. In `npm/`, rerun `npm test`, the npm 12 clean-tarball test, and
+   `npm pack --dry-run --ignore-scripts`. Confirm
+   `npm view @fullstack-ai-infra/mem-mcp@VERSION version` does not find the
+   version, then publish it once with
+   `npm publish --access public --tag latest`.
 7. Install the public package in a clean temporary consumer with lifecycle
    scripts disabled, invoke `mem-mcp`, and confirm the checksum-verified binary
    is fetched from the matching GitHub Release. Record the Release URL, npm
    package URL, checksum result, and smoke-test result on the release issue.
 
-Trusted Publishing is the target npm credential path. Until it is enabled, the
-bootstrap publication may use a short-lived granular npm token restricted to
-read/write access for `@fullstack-ai-infra/mem-mcp` only, with no unrelated
-package or organization access. Keep the token out of repository files, logs,
-workflow inputs, and issue comments, and revoke it immediately after the
-post-publication smoke test.
+Trusted Publishing is the target npm credential path. For the bootstrap
+publication, prefer interactive npm 2FA. If a token is required, use a one-day
+granular npm token restricted to read/write access for
+`@fullstack-ai-infra/mem-mcp` only, with no unrelated package or organization
+access. Keep it out of repository files, logs, workflow inputs, and issue
+comments. Read the published version back from the registry and complete the
+clean-install smoke test before revoking the token immediately.
 
 If GitHub asset upload fails, inspect and remove any incomplete draft before a
 reviewed retry; do not move the tag. If npm publication is wrong, deprecate the

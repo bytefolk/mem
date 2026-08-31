@@ -14,8 +14,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - The Release workflow now accepts only an existing annotated tag whose exact
   commit is on `main`, validates every public version surface, builds and
   checksums the explicit six-platform asset set from that commit, and renders
-  release notes from this versioned section before it can create a GitHub
-  Release.
+  release notes from this versioned section. Assets first upload to a draft;
+  the workflow verifies the exact seven non-empty remote assets before the
+  final step can publish the GitHub Release.
 
 ### Fixed
 

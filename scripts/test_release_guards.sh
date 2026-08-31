@@ -40,10 +40,29 @@ release_workflow="${repo_root}/.github/workflows/release.yml"
 
 [[ "$(grep -Fc -- 'gh release create' "${release_workflow}" || true)" == 1 ]] ||
   die "release workflow must contain exactly one Release creation call"
+[[ "$(grep -Fc -- 'gh release edit' "${release_workflow}" || true)" == 1 ]] ||
+  die "release workflow must contain exactly one Release publication call"
 grep -Fq -- 'needs: [preflight, build]' "${release_workflow}" ||
   die "Release creation must depend on preflight and every build"
 grep -Fq -- '--verify-tag' "${release_workflow}" ||
   die "Release creation must refuse an absent remote tag"
+grep -Fq -- '--draft \' "${release_workflow}" ||
+  die "Release assets must first upload to a draft"
+grep -Fq -- '--draft=false' "${release_workflow}" ||
+  die "the verified draft must be published explicitly"
+grep -Fq -- '(.assets | length == 7)' "${release_workflow}" ||
+  die "remote draft validation must require exactly seven assets"
+grep -Fq -- '(.size > 0)' "${release_workflow}" ||
+  die "remote draft validation must reject empty assets"
+
+create_line="$(grep -nF -- 'gh release create' "${release_workflow}" | cut -d: -f1)"
+draft_line="$(grep -nF -- '--draft \' "${release_workflow}" | cut -d: -f1)"
+verify_line="$(grep -nF -- '- name: Verify remote draft assets' "${release_workflow}" | cut -d: -f1)"
+edit_line="$(grep -nF -- 'gh release edit' "${release_workflow}" | cut -d: -f1)"
+((create_line < draft_line && draft_line < verify_line && verify_line < edit_line)) ||
+  die "draft creation, remote asset validation, and publication are out of order"
+[[ "$(sed '/^[[:space:]]*$/d' "${release_workflow}" | tail -n 1)" == \
+  *'--draft=false' ]] || die "draft publication must be the workflow's final command"
 if grep -Eq -- '(^|[[:space:]])git tag([[:space:]]|$)|npm publish|--generate-notes' \
   "${release_workflow}"; then
   die "release workflow must not create tags, publish npm, or synthesize notes"
