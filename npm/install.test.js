@@ -781,7 +781,7 @@ test("EEXIST is contention everywhere while a permission error is contention onl
   assert.equal(isLockContention(new Error("no code"), "win32"), false);
 });
 
-test("a contended lock reported as EPERM is retried instead of aborting the install", async (t) => {
+test("a contended Windows lock reported as EPERM waits for a proven lock", async (t) => {
   // Windows raises EPERM, not EEXIST, when a competing process already holds the
   // lock directory. install.js destructures mkdirSync at load time, so the patch
   // has to be in place before the module is first required, which a child process
@@ -791,8 +791,19 @@ test("a contended lock reported as EPERM is retried instead of aborting the inst
   mkdirSync(cacheDir, { recursive: true });
   await runWorker(t, `
     const fs = require("node:fs");
+    const { hostname } = require("node:os");
     const { join } = require("node:path");
     const realMkdirSync = fs.mkdirSync;
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    const lockPath = join(cacheDir, ".${ASSET}.lock");
+    // Model the Windows-only EPERM result while another process has a real
+    // lock directory. Without this directory, EPERM is a permission failure,
+    // not evidence of contention.
+    realMkdirSync(lockPath, { mode: 0o700 });
+    fs.writeFileSync(
+      join(lockPath, "owner.json"),
+      JSON.stringify({ pid: process.pid, hostname: hostname(), nonce: "a".repeat(24) }) + "\\n",
+    );
     let armed = true;
     fs.mkdirSync = function (target, ...rest) {
       if (armed && String(target).endsWith(".lock")) {
@@ -805,9 +816,7 @@ test("a contended lock reported as EPERM is retried instead of aborting the inst
       return realMkdirSync.call(this, target, ...rest);
     };
     const { acquireAssetLock, releaseAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
-    const cacheDir = ${JSON.stringify(cacheDir)};
-    // The win32 gate is what turns this error into contention, so it is injected
-    // rather than taken from the host that happens to run the suite.
+    setTimeout(() => fs.rmSync(lockPath, { recursive: true, force: true }), 25).unref();
     acquireAssetLock(cacheDir, ${JSON.stringify(ASSET)}, {
       osPlatform: "win32",
       pollMs: 1,
@@ -824,6 +833,82 @@ test("a contended lock reported as EPERM is retried instead of aborting the inst
       });
   `);
   assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
+});
+
+test("a persistent Windows EPERM without a lock fails promptly instead of retrying", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("simulated Windows permission failure"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    const startedAt = Date.now();
+    acquireAssetLock(${JSON.stringify(cacheDir)}, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 10_000,
+    })
+      .then(() => {
+        throw new Error("expected a permission failure");
+      })
+      .catch((error) => {
+        if (error.code !== "EPERM") throw error;
+        if (Date.now() - startedAt >= 1_000) throw new Error("permission error entered the retry loop");
+      });
+  `);
+});
+
+test("a Windows lock inspection permission error fails promptly", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    const realLstatSync = fs.lstatSync;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("simulated Windows contention"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    fs.lstatSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock")) {
+        throw Object.assign(new Error("simulated inspection permission failure"), {
+          code: "EACCES",
+          syscall: "lstat",
+        });
+      }
+      return realLstatSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    const startedAt = Date.now();
+    acquireAssetLock(${JSON.stringify(cacheDir)}, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 10_000,
+    })
+      .then(() => {
+        throw new Error("expected an inspection failure");
+      })
+      .catch((error) => {
+        if (error.code !== "EACCES") throw error;
+        if (Date.now() - startedAt >= 1_000) throw new Error("inspection error entered the retry loop");
+      });
+  `);
 });
 
 test("a non-contention error propagates immediately instead of entering the wait loop", async (t) => {

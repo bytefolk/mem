@@ -249,13 +249,18 @@ function isLockContention(err, currentPlatform = platform()) {
   return currentPlatform === "win32" && (err.code === "EPERM" || err.code === "EACCES");
 }
 
-function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, osPlatform) {
+function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkdirError) {
   let info;
   try {
     info = lstatSync(lockPath);
   } catch (err) {
-    if (err.code === "ENOENT") return true;
-    if (isLockContention(err, osPlatform)) return false;
+    // An EEXIST result followed by ENOENT means the competing owner released
+    // the lock before we inspected it, so retrying is safe. A Windows EPERM or
+    // EACCES is only provisional contention: without a lock to inspect it is a
+    // real mkdir failure and must not turn into an unbounded retry loop.
+    if (err.code === "ENOENT" && mkdirError.code === "EEXIST") return true;
+    if (err.code === "ENOENT") throw mkdirError;
+    // Never convert an inspection permission error into a lock timeout.
     throw err;
   }
   if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -302,6 +307,7 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
   for (;;) {
     throwIfAborted(signal);
     const nonce = randomBytes(12).toString("hex");
+    let mkdirError;
     try {
       mkdirSync(lockPath, { mode: 0o700 });
       try {
@@ -317,9 +323,10 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
       return { lockPath, nonce };
     } catch (err) {
       if (!isLockContention(err, osPlatform)) throw err;
+      mkdirError = err;
     }
 
-    if (reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, osPlatform)) {
+    if (reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkdirError)) {
       continue;
     }
     if (Date.now() >= deadline) {
