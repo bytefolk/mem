@@ -403,6 +403,32 @@ test("install replaces a cached binary that fails verification", async (t) => {
   assert.deepEqual(readdirSync(cacheDir), [ASSET]);
 });
 
+test("failed replacement cleans only the quarantined invalid cache and own temp", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const binPath = join(cacheDir, ASSET);
+  const expected = Buffer.from("expected replacement binary");
+  mkdirSync(cacheDir, { recursive: true });
+  writeFileSync(binPath, "invalid cached binary", { mode: 0o755 });
+
+  await assert.rejects(
+    install({
+      osPlatform: "linux",
+      osArch: "x64",
+      cacheDir,
+      logger: QUIET_LOGGER,
+      downloadText: async () => manifestFor(expected),
+      downloadFile: async (_url, destination) => {
+        writeFileSync(destination, "partial", { flag: "wx", mode: 0o600 });
+        throw new Error("replacement download failed");
+      },
+    }),
+    /replacement download failed/,
+  );
+
+  assert.deepEqual(readdirSync(cacheDir), []);
+});
+
 test(
   "install replaces a broken cached symlink without following or deleting its target",
   { skip: process.platform === "win32" },
