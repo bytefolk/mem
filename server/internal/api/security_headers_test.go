@@ -15,13 +15,43 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
+	assertSecurityHeaders(t, rec.Header())
+}
+
+// TestSecurityHeadersOnCORSPreflight is the regression for middleware ordering.
+// corsMiddleware answers an allowed-origin preflight with a 204 and never calls
+// next, so a security middleware registered after it is skipped on exactly the
+// responses an attacker can force a browser to make. The helper test above
+// cannot see this: it only passes because it wires the middleware by hand.
+func TestSecurityHeadersOnCORSPreflight(t *testing.T) {
+	const origin = "https://app.example"
+	h := (&Server{CORSOrigins: []string{origin}}).Router()
+
+	req := httptest.NewRequest(http.MethodOptions, "/v1/files", nil)
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q: the preflight must not "+
+			"have been answered past CORS", got, origin)
+	}
+	assertSecurityHeaders(t, rec.Header())
+}
+
+func assertSecurityHeaders(t *testing.T, headers http.Header) {
+	t.Helper()
 	for header, want := range map[string]string{
 		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":         "DENY",
 		"Referrer-Policy":         "no-referrer",
 		"Content-Security-Policy": "default-src 'none'",
 	} {
-		if got := rec.Header().Get(header); got != want {
+		if got := headers.Get(header); got != want {
 			t.Errorf("header %q = %q, want %q", header, got, want)
 		}
 	}
@@ -58,10 +88,21 @@ func TestContentResponseHeaders(t *testing.T) {
 		{"image/png;", "image/png", "inline"},
 		{"text/plain; charset=utf-8", "text/plain; charset=utf-8", "inline"},
 		{"TEXT/PLAIN; CHARSET=GBK", "text/plain; charset=gbk", "inline"},
+		// Parameters other than charset are part of the representation, not
+		// decoration: dropping a multipart boundary makes the payload
+		// unparsable by the recipient, so they must survive re-emission.
+		{"multipart/mixed; boundary=mem-boundary", "multipart/mixed; boundary=mem-boundary", "inline"},
+		{"video/mp4; codecs=avc1", "video/mp4; codecs=avc1", "inline"},
+		{"text/plain; format=flowed; charset=GBK", "text/plain; charset=gbk; format=flowed", "inline"},
+		{"application/example; note=\"safe value\"", "application/example; note=\"safe value\"", "inline"},
 		// ParseMediaType unquotes parameters, so a non-token charset is
-		// dropped rather than echoed back into the response.
+		// dropped rather than echoed back into the response. Other valid
+		// parameters are re-emitted through FormatMediaType's quoting.
 		{"text/plain; charset=\"utf 8\"", "text/plain", "inline"},
 		{"text/plain; charset=\"x\r\nY: 1\"", "text/plain", "inline"},
+		// A malformed parameter voids the whole parameter set, so nothing
+		// attacker-shaped is formatted back into the header.
+		{"image/png; note=\"x\r\nX-Injected: 1\"", "image/png", "inline"},
 		{"text/markdown", "text/markdown", "inline"},
 		{"application/octet-stream", "application/octet-stream", "inline"},
 		{"video/mp4", "video/mp4", "inline"},
@@ -110,6 +151,30 @@ func TestDispositionShouldDownloadDeclaredMIMEForms(t *testing.T) {
 		"application/x-javascript",
 		"text/ecmascript",
 		"application/ecmascript",
+		// RFC 9239 processing equivalents and the obsolete aliases engines
+		// retained. Each was observed to fall through to inline before the
+		// blocklist was completed.
+		"application/x-ecmascript",
+		"text/x-ecmascript",
+		"text/x-javascript",
+		"text/jscript",
+		"text/livescript",
+		"text/javascript1.0",
+		"text/javascript1.1",
+		"text/javascript1.2",
+		"text/javascript1.3",
+		"text/javascript1.4",
+		"text/javascript1.5",
+		// The registered font tree beyond the four woff/ttf spellings the
+		// original list enumerated, plus legacy server declarations.
+		"font/sfnt",
+		"font/collection",
+		"font/otf",
+		"font/woff",
+		"application/font-sfnt",
+		"application/font-woff",
+		"application/x-font-ttf",
+		"application/vnd.ms-fontobject",
 		// XML vocabularies reach the same parser-activated surface.
 		"application/atom+xml",
 		"application/rss+xml",
@@ -144,12 +209,21 @@ func TestDispositionShouldDownloadDeclaredMIMEForms(t *testing.T) {
 
 func TestSanitizeFilename(t *testing.T) {
 	cases := map[string]string{
-		"a;b\"c\r\nD: b":       "a_b_c_D: b",
-		"../../etc/passwd":     ".._.._etc_passwd",
-		"../evil.sh":           ".._evil.sh",
-		"normal.pdf":           "normal.pdf",
-		"":                     "download",
-		"\x01\x02":             "download",
+		"a;b\"c\r\nD: b":   "a_b_c_D: b",
+		"../../etc/passwd": ".._.._etc_passwd",
+		"../evil.sh":       ".._evil.sh",
+		"normal.pdf":       "normal.pdf",
+		"":                 "download",
+		"\x01\x02":         "download",
+		// C1 controls and the Unicode line separators: the previous test was
+		// `r < 0x20 || r == 0x7f`, so every one of these survived and reached
+		// the header. U+0085/U+009B are still line breaks or control functions
+		// to a terminal consumer, and U+2028/U+2029 break a JavaScript or JSON
+		// consumer that embeds the name.
+		"report\u0085next.pdf": "report_next.pdf",
+		"report\u009bnext.pdf": "report_next.pdf",
+		"report\u2028next.pdf": "report_next.pdf",
+		"report\u2029next.pdf": "report_next.pdf",
 		"report.final.v2.docx": "report.final.v2.docx",
 		"a: b;c=x - (1).pdf":   "a: b_c=x - (1).pdf",
 		// Bidi controls are written as UTF-8 bytes so nothing invisible lives

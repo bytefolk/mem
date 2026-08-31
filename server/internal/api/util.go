@@ -61,6 +61,55 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// activeMediaTypes are the normalized media types a browser can act on —
+// execute, render through a document parser, or hand to a font/graphics
+// subsystem — if it receives them inline. Every spelling a deployed engine
+// still honours has to appear, because the comparison is against the canonical
+// type/subtype and a missing alias silently falls through to inline.
+//
+// The JavaScript entries are RFC 9239's processing equivalents plus the
+// pre-standard spellings engines retained; text/javascript1.0 through 1.5 are
+// separately registered types, not parameters, so each one is listed.
+var activeMediaTypes = map[string]bool{
+	"text/html":                true,
+	"text/xhtml":               true,
+	"application/xhtml+xml":    true,
+	"image/svg+xml":            true,
+	"text/xml":                 true,
+	"application/xml":          true,
+	"application/json":         true,
+	"application/pdf":          true,
+	"text/javascript":          true,
+	"application/javascript":   true,
+	"application/ecmascript":   true,
+	"text/ecmascript":          true,
+	"text/js":                  true,
+	"text/jscript":             true,
+	"text/livescript":          true,
+	"text/javascript1.0":       true,
+	"text/javascript1.1":       true,
+	"text/javascript1.2":       true,
+	"text/javascript1.3":       true,
+	"text/javascript1.4":       true,
+	"text/javascript1.5":       true,
+	"application/x-javascript": true,
+	"application/x-ecmascript": true,
+	"text/x-javascript":        true,
+	"text/x-ecmascript":        true,
+	// Legacy server spellings for the font tree, kept alongside the prefixes
+	// below because vnd.ms-fontobject sits outside every font family.
+	"application/vnd.ms-fontobject": true,
+}
+
+// activeMediaTypePrefixes cover whole registered families. The IANA font tree
+// (font/woff, font/woff2, font/ttf, font/otf, font/collection, font/sfnt, …)
+// and the two legacy prefixes servers still emit for it.
+var activeMediaTypePrefixes = []string{
+	"font/",
+	"application/font-",
+	"application/x-font-",
+}
+
 // dispositionShouldDownload reports whether a stored MIME type must be served
 // as a forced download (attachment) rather than inline. Interpretable/active
 // types can execute in the browser or trigger parser-based attacks if a
@@ -77,19 +126,18 @@ func dispositionShouldDownload(declaredMIME string) bool {
 		// worst instead of defaulting to the permissive branch.
 		return true
 	}
-	switch {
-	case mediaType == "text/html", mediaType == "text/xhtml",
-		mediaType == "application/xhtml+xml",
-		mediaType == "image/svg+xml",
-		mediaType == "text/xml", mediaType == "application/xml",
-		strings.HasSuffix(mediaType, "+xml"),
-		mediaType == "text/javascript", mediaType == "application/javascript",
-		mediaType == "application/ecmascript", mediaType == "text/ecmascript",
-		mediaType == "application/x-javascript", mediaType == "text/js",
-		mediaType == "application/json", mediaType == "application/pdf",
-		mediaType == "font/ttf", mediaType == "font/otf",
-		mediaType == "font/woff", mediaType == "font/woff2":
+	if activeMediaTypes[mediaType] {
 		return true
+	}
+	// Any "+xml" structured syntax reaches the same XML parser already blocked
+	// for text/xml and application/xml.
+	if strings.HasSuffix(mediaType, "+xml") {
+		return true
+	}
+	for _, prefix := range activeMediaTypePrefixes {
+		if strings.HasPrefix(mediaType, prefix) {
+			return true
+		}
 	}
 	return false
 }
@@ -116,17 +164,33 @@ func normalizedMediaType(declaredMIME string) (mediaType string, params map[stri
 // files.mime holds whatever the uploader declared — file.Service.Put keeps the
 // value verbatim — so it is attacker input, not ground truth: a declaration the
 // server cannot bound is served as an opaque attachment and never echoed back
-// into a response header. A usable declaration is re-emitted canonically,
-// keeping only a charset that is a well-formed RFC 7230 token so text previews
-// retain their encoding.
+// into a response header.
+//
+// A usable declaration is re-emitted with every parameter it parsed, because
+// parameters such as a multipart boundary are part of the representation
+// contract and dropping them makes the bytes unreadable to the recipient.
+// FormatMediaType is what makes preserving them safe: it quotes or RFC 2231
+// percent-encodes a value rather than copying attacker bytes into the header,
+// and returns the empty string when the pair cannot be expressed at all.
+// ParseMediaType hands back no parameters when it reports a malformed
+// declaration, so those still fail closed to an opaque download.
 func contentResponseHeaders(storedMIME, name string) (contentType, disposition string) {
 	mediaType, params, ok := normalizedMediaType(storedMIME)
 	if !ok {
 		return "application/octet-stream", `attachment; filename="` + sanitizeFilename(name) + `"`
 	}
-	contentType = mediaType
-	if charset := params["charset"]; isHTTPToken(charset) {
-		contentType += "; charset=" + strings.ToLower(charset)
+	if charset, exists := params["charset"]; exists {
+		if isHTTPToken(charset) {
+			// FormatMediaType lowercases parameter names but not values, and a
+			// charset is conventionally served lowercased.
+			params["charset"] = strings.ToLower(charset)
+		} else {
+			delete(params, "charset")
+		}
+	}
+	contentType = mime.FormatMediaType(mediaType, params)
+	if contentType == "" {
+		return "application/octet-stream", `attachment; filename="` + sanitizeFilename(name) + `"`
 	}
 	disposition = "inline"
 	if dispositionShouldDownload(mediaType) {
@@ -136,8 +200,10 @@ func contentResponseHeaders(storedMIME, name string) (contentType, disposition s
 }
 
 // isHTTPToken reports whether s is a non-empty RFC 7230 token. ParseMediaType
-// unquotes parameter values, and charset is the one parameter echoed back into
-// a header, so it must not be able to carry delimiters.
+// unquotes parameter values, so charset reaches here as raw client bytes.
+// FormatMediaType would happily re-quote a value like "utf 8" and the client
+// would still be served a charset it cannot act on, so charset is restricted to
+// a token instead; every other parameter is left to FormatMediaType's quoting.
 func isHTTPToken(s string) bool {
 	if s == "" {
 		return false
@@ -172,11 +238,14 @@ func sanitizeFilename(name string) string {
 	b.Grow(len(name) + 1)
 	underscore := false
 	for _, r := range name {
-		// RFC 7230 §3.2.6: header field values must not contain C0 controls
-		// or DEL; CR/LF would enable response splitting.
-		if r == 0x7f || r < 0x20 ||
+		// The same character predicate pathx.ValidateName rejects on upload, so
+		// the two layers cannot disagree about what a name may contain.
+		// unicode.IsControl covers C0, DEL and the C1 range that the previous
+		// ASCII-only test let through; U+2028/U+2029 are line separators a
+		// consumer may still break on; bidi controls spoof the extension.
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' ||
 			r == '/' || r == '\\' || r == '"' || r == ';' ||
-			unicode.Is(bidiControl, r) {
+			(bidiControl != nil && unicode.Is(bidiControl, r)) {
 			underscore = true
 			continue
 		}

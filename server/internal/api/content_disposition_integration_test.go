@@ -171,6 +171,21 @@ func TestContentDispositionHTTPPostgres(t *testing.T) {
 		wantType:     "application/atom+xml",
 		wantDisp:     "attachment",
 	}, {
+		// Missed by the alias list at 267fd76 (an RFC 9239 processing
+		// equivalent): a browser executes this inline.
+		declaredMIME: "text/x-javascript",
+		name:         "legacy-script.js",
+		wantType:     "text/x-javascript",
+		wantDisp:     "attachment",
+	}, {
+		// The boundary is not decoration — without it a recipient cannot frame
+		// the multipart body — so it has to survive ingest, storage and
+		// normalization to reach the socket intact.
+		declaredMIME: "multipart/mixed; boundary=mem-boundary",
+		name:         "bundle.multipart",
+		wantType:     "multipart/mixed; boundary=mem-boundary",
+		wantDisp:     "inline",
+	}, {
 		declaredMIME: "image/png",
 		name:         "photo.png",
 		wantType:     "image/png",

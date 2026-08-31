@@ -190,6 +190,11 @@ type Server struct {
 // Router returns a chi.Router with all v1 routes wired.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
+	// Registered first so it wraps the CORS handler below: corsMiddleware
+	// answers an allowed-origin preflight with a 204 and returns without
+	// calling next, so a security middleware registered after it never sees
+	// that response.
+	r.Use(securityHeadersMiddleware)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	if len(s.CORSOrigins) > 0 {
@@ -197,7 +202,6 @@ func (s *Server) Router() http.Handler {
 	}
 	r.Use(s.logRequest)
 	r.Use(middleware.Recoverer)
-	r.Use(securityHeadersMiddleware)
 	r.Use(s.requestTimeoutMiddleware)
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
