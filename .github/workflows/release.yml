@@ -32,7 +32,7 @@ jobs:
       - name: Check out requested tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.version || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -46,6 +46,10 @@ jobs:
         run: |
           set -euo pipefail
           version="${INPUT_VERSION:-${REF_NAME}}"
+          if [[ ! "${version}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "expected an existing release tag such as v0.1.1, got: ${version:-<empty>}" >&2
+            exit 1
+          fi
           if [[ "${EVENT_NAME}" == push && "${FULL_REF}" != "refs/tags/${version}" ]]; then
             echo "push ref ${FULL_REF} does not match release tag ${version}" >&2
             exit 1

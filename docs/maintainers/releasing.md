@@ -84,7 +84,9 @@ creates, moves, or replaces a tag.
    tag.
 3. The tag push starts `.github/workflows/release.yml`. A manual retry must be
    dispatched from the current default branch and must name the same existing
-   annotated tag; the input is not permission to create a tag.
+   annotated tag. The workflow resolves that input as the full
+   `refs/tags/VERSION` ref, never as a short branch-or-tag name; the input is
+   not permission to create a tag.
 4. The workflow rejects a missing or lightweight tag, a tag not contained in
    `origin/main`, a checkout/tag mismatch, any public version mismatch, an
    existing GitHub Release, or anything other than the exact six expected

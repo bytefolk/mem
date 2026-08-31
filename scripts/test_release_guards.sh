@@ -38,6 +38,30 @@ current_tag="v${current_version}"
 same_commit=0123456789abcdef0123456789abcdef01234567
 release_workflow="${repo_root}/.github/workflows/release.yml"
 
+manual_tag_ref="          ref: \${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}"
+grep -Fxq -- "${manual_tag_ref}" "${release_workflow}" ||
+  die "manual releases must check out an explicit refs/tags/<version> ref"
+if grep -Fq -- "ref: \${{ inputs.version || github.ref }}" "${release_workflow}"; then
+  die "a short manual ref can be shadowed by a same-named branch"
+fi
+selected_manual_ref="refs/tags/${current_tag}"
+same_named_branch_ref="refs/heads/${current_tag}"
+[[ "${selected_manual_ref}" != "${same_named_branch_ref}" ]] ||
+  die "same-named branch fixture unexpectedly aliases the release tag"
+
+version_guard_line="$(
+  grep -nF -- "if [[ ! \"\${version}\" =~ ^v" "${release_workflow}" | cut -d: -f1
+)"
+first_fetch_line="$(
+  grep -nF -- 'git fetch --no-tags origin' "${release_workflow}" | head -n 1 | cut -d: -f1
+)"
+source_validator_line="$(
+  grep -nF -- "commit=\"\$(./scripts/validate_release_source.sh" "${release_workflow}" |
+    head -n 1 | cut -d: -f1
+)"
+((version_guard_line < first_fetch_line && first_fetch_line < source_validator_line)) ||
+  die "release input must be validated before fetch and repository scripts"
+
 [[ "$(grep -Fc -- 'gh release create' "${release_workflow}" || true)" == 1 ]] ||
   die "release workflow must contain exactly one Release creation call"
 [[ "$(grep -Fc -- 'gh release edit' "${release_workflow}" || true)" == 1 ]] ||
