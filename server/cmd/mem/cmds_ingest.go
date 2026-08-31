@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/PeterGuy326/mem/server/internal/apiclient"
+	"github.com/PeterGuy326/mem/server/internal/ingest"
 	"github.com/spf13/cobra"
 )
 
@@ -112,30 +112,14 @@ func cliStateRoot() string {
 	return filepath.Join(home, ".mem")
 }
 
-// expandTranscriptGlob recursively collects *.jsonl transcripts under base and
-// sorts the results, so ingestion order is deterministic across runs and
-// checkpoints are stable. (Go's filepath.Glob does not treat ** as recursive, so
-// we walk the tree explicitly.)
+// expandTranscriptGlob collects the transcripts to offer for ingestion. The walk
+// and its ordering belong to the shared core; this wrapper keeps the CLI's
+// exit-code contract for an unwalkable root.
 func expandTranscriptGlob(base string) ([]string, error) {
-	// A bare base that names a single existing file (not a directory) is
-	// accepted as a one-off transcript.
-	if fi, e := os.Stat(base); e == nil && !fi.IsDir() {
-		return []string{base}, nil
-	}
-	var paths []string
-	err := filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries rather than failing the walk
-		}
-		if !d.IsDir() && strings.EqualFold(filepath.Ext(p), ".jsonl") {
-			paths = append(paths, p)
-		}
-		return nil
-	})
+	paths, err := ingest.Walk(base, ingest.HasJSONLExtension)
 	if err != nil {
 		return nil, newCliError(1, fmt.Sprintf("walk %s: %v", base, err), "")
 	}
-	sort.Strings(paths)
 	return paths, nil
 }
 
@@ -161,106 +145,87 @@ func runIngestQoder(cmd *cobra.Command, o ingestOptions) error {
 		return newCliError(3, "not logged in", "run `mem auth login` first")
 	}
 	client := newHTTPClient(cfg)
-	stateDir := o.checkpointDir()
+	warn := func(format string, args ...any) {
+		fmt.Fprintf(cmd.ErrOrStderr(), format, args...)
+	}
 
-	var (
-		files       = 0
-		memories    int // written this run
-		replayed    int // server-reported idempotent replays
-		unparseable int // parsed lines yielded no ingestible text
-		remaining   = o.limit
+	report, err := ingest.Run(
+		context.Background(),
+		paths,
+		ingest.Options{
+			StateDir: o.checkpointDir(),
+			DryRun:   o.dryRun,
+			Limit:    o.limit,
+			Log:      warn,
+		},
+		o.parseTranscript(base),
+		o.uploadMemory(client, warn),
 	)
-
-	for _, abs := range paths {
-		files++
-		cp := loadQoderCheckpoint(stateDir, abs)
-		turns, skipped, perr := parseQoderTranscript(abs, cp.LastLine)
-		if perr != nil {
-			return perr
-		}
-		unparseable += skipped
-		project, session := splitTranscriptPath(base, abs)
-
-		newLast := cp.LastLine
-		for _, turn := range turns {
-			if o.limit > 0 && remaining <= 0 {
-				break
-			}
-			// parseQoderTranscript already skips <= cp.LastLine, so this
-			// guard is a belt-and-suspenders check against anomalies.
-			if turn.Line <= newLast {
-				continue
-			}
-
-			key := ingestIdempotencyKey(abs, turn.Line)
-			body := ingestMemoryBody(o, abs, project, session, turn)
-
-			if o.dryRun {
-				memories++
-				if remaining > 0 {
-					remaining--
-				}
-				continue
-			}
-
-			var resp map[string]any
-			// Use the raw client to detect 409 (Idempotency-Key conflict)
-			// without wrapping into cliError, which would lose the kind.
-			err := client.api.DoJSONWithHeaders(
-				context.Background(),
-				http.MethodPost,
-				"/v1/memories",
-				body,
-				&resp,
-				map[string]string{"Idempotency-Key": key},
-			)
-			if err != nil {
-				// 409 Idempotency-Key conflict: the file was rewritten with
-				// different content at the same line — skip the remainder of
-				// this file and continue with others rather than aborting the
-				// whole run. The checkpoint is NOT advanced for this file, so
-				// the operator can investigate and retry.
-				var ae *apiclient.APIError
-				if errors.As(err, &ae) && ae.Kind() == apiclient.KindConflict {
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"warn: %s line %d: idempotency conflict (file rewritten?); skipping remaining lines in %s\n",
-						abs, turn.Line, filepath.Base(abs))
-					break
-				}
-				return fromAPIError(err)
-			}
-			if r, _ := resp["replayed"].(bool); r {
-				replayed++
-			} else {
-				memories++
-			}
-			if remaining > 0 {
-				remaining--
-			}
-			newLast = turn.Line
-		}
-
-		if !o.dryRun {
-			if size, mtime, serr := fileState(abs); serr == nil {
-				if err := saveQoderCheckpoint(stateDir, qoderCheckpoint{
-					Abs:      abs,
-					Size:     size,
-					ModTime:  mtime,
-					LastLine: newLast,
-				}); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warn: save checkpoint for %s: %v\n", abs, err)
-				}
-			}
-		}
+	if err != nil {
+		return err
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"qoder ingest: %d file(s), %d memory written, %d server-replay, %d unparseable line%s\n",
-		files, memories, replayed, unparseable,
+		report.Scanned, report.Ingested, report.Deduped, report.Unparseable,
 		ingestModeNote(o.dryRun))
 	return nil
 }
 
+// parseTranscript adapts the Qoder transcript reader to the core's ParseFunc:
+// every turn becomes a unit carrying its own request body and stable key.
+func (o ingestOptions) parseTranscript(base string) ingest.ParseFunc {
+	return func(abs string, skipBefore int) ([]ingest.Unit, int, error) {
+		turns, skipped, err := parseQoderTranscript(abs, skipBefore)
+		if err != nil {
+			return nil, skipped, err
+		}
+		project, session := splitTranscriptPath(base, abs)
+		units := make([]ingest.Unit, 0, len(turns))
+		for _, turn := range turns {
+			units = append(units, ingest.Unit{
+				Line:           turn.Line,
+				Body:           ingestMemoryBody(o, abs, project, session, turn),
+				IdempotencyKey: ingestIdempotencyKey(abs, turn.Line),
+			})
+		}
+		return units, skipped, nil
+	}
+}
+
+// uploadMemory posts one unit through the standard memories endpoint. The raw
+// client is used so a conflict stays typed: converting it to a cliError here
+// would lose the kind that the per-file degradation decision dispatches on.
+func (o ingestOptions) uploadMemory(client *httpClient, warn func(string, ...any)) ingest.UploadFunc {
+	return func(ctx context.Context, abs string, u ingest.Unit) (ingest.Outcome, error) {
+		var resp map[string]any
+		err := client.api.DoJSONWithHeaders(
+			ctx,
+			http.MethodPost,
+			"/v1/memories",
+			u.Body,
+			&resp,
+			map[string]string{"Idempotency-Key": u.IdempotencyKey},
+		)
+		if err != nil {
+			var ae *apiclient.APIError
+			if errors.As(err, &ae) && ae.Kind() == apiclient.KindConflict {
+				// The file was rewritten with different content at the same
+				// line, so every later line keeps colliding on its stable key.
+				warn("warn: %s line %d: idempotency conflict (file rewritten?); skipping remaining lines in %s\n",
+					abs, u.Line, filepath.Base(abs))
+				return ingest.Outcome{}, fmt.Errorf("%w: %s:%d", ingest.ErrDegradeFile, abs, u.Line)
+			}
+			return ingest.Outcome{}, fromAPIError(err)
+		}
+		if r, _ := resp["replayed"].(bool); r {
+			return ingest.Outcome{Deduplicated: true}, nil
+		}
+		return ingest.Outcome{}, nil
+	}
+}
+
+// ingestModeNote is the stdout suffix that separates a plan from a write.
 func ingestModeNote(dryRun bool) string {
 	if dryRun {
 		return " (dry-run: no writes)"

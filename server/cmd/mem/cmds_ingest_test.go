@@ -13,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/PeterGuy326/mem/server/internal/ingest"
 )
 
 // writeTranscript writes a small valid JSONL transcript containing three
@@ -376,11 +378,11 @@ func TestIngestQoder409ConflictDegradesPerFile(t *testing.T) {
 	if !strings.Contains(stdout.String(), "idempotency conflict") {
 		t.Fatalf("expected conflict warning, got stdout = %q", stdout.String())
 	}
-	cp := loadQoderCheckpoint(cpDir, abs1)
+	cp := ingest.LoadCursor(cpDir, abs1)
 	if cp.LastLine != 1 {
 		t.Fatalf("project-a checkpoint LastLine = %d, want 1 (line 2 failed)", cp.LastLine)
 	}
-	cp2 := loadQoderCheckpoint(cpDir, abs2)
+	cp2 := ingest.LoadCursor(cpDir, abs2)
 	if cp2.LastLine != 3 {
 		t.Fatalf("project-b checkpoint LastLine = %d, want 3", cp2.LastLine)
 	}
@@ -418,7 +420,7 @@ func TestIngestQoderLimitCheckpoint(t *testing.T) {
 	if requests.Load() != 2 {
 		t.Fatalf("first run requests = %d, want 2", requests.Load())
 	}
-	cp := loadQoderCheckpoint(cpDir, abs)
+	cp := ingest.LoadCursor(cpDir, abs)
 	if cp.LastLine != 2 {
 		t.Fatalf("after limit checkpoint LastLine = %d, want 2", cp.LastLine)
 	}
@@ -433,7 +435,7 @@ func TestIngestQoderLimitCheckpoint(t *testing.T) {
 	if requests.Load() != 1 {
 		t.Fatalf("second run requests = %d, want 1", requests.Load())
 	}
-	cp2 := loadQoderCheckpoint(cpDir, abs)
+	cp2 := ingest.LoadCursor(cpDir, abs)
 	if cp2.LastLine != 3 {
 		t.Fatalf("after second run LastLine = %d, want 3", cp2.LastLine)
 	}
