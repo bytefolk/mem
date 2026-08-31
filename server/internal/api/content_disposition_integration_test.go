@@ -171,6 +171,18 @@ func TestContentDispositionHTTPPostgres(t *testing.T) {
 		wantType:     "application/atom+xml",
 		wantDisp:     "attachment",
 	}, {
+		declaredMIME: "text/x-javascript",
+		name:         "legacy-script.js",
+		wantType:     "text/x-javascript",
+		wantDisp:     "attachment",
+	}, {
+		// Boundary is required for a recipient to parse multipart content;
+		// normalizing the type must not discard it.
+		declaredMIME: "multipart/mixed; boundary=mem-boundary",
+		name:         "bundle.mime",
+		wantType:     "multipart/mixed; boundary=mem-boundary",
+		wantDisp:     "inline",
+	}, {
 		declaredMIME: "image/png",
 		name:         "photo.png",
 		wantType:     "image/png",

@@ -291,9 +291,11 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   to serve it: `GET /v1/files/{id}/content` now forces `attachment` for
   interpretable types in every spelling a browser accepts (`Text/HTML`,
   `text/html; charset=utf-8`), serves a declaration it cannot bound as opaque
-  `application/octet-stream` instead of echoing it back, strips Unicode
-  bidirectional controls from download names using the same property table the
-  upload validator rejects, and adds `nosniff`, `X-Frame-Options: DENY`,
+  `application/octet-stream` instead of echoing it back, preserves valid MIME
+  parameters such as multipart boundaries through safe canonical formatting,
+  strips Unicode controls, line separators, and bidirectional controls from
+  download names using the same character policy the upload validator rejects,
+  and adds `nosniff`, `X-Frame-Options: DENY`,
   `Referrer-Policy: no-referrer` and `Content-Security-Policy: default-src
   'none'` to every API response.
 

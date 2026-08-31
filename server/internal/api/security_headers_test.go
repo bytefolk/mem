@@ -14,14 +14,36 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
+	assertSecurityHeaders(t, rec.Header())
+}
 
+func TestSecurityHeadersOnCORSPreflight(t *testing.T) {
+	const origin = "https://app.example"
+	h := (&Server{CORSOrigins: []string{origin}}).Router()
+	req := httptest.NewRequest(http.MethodOptions, "/v1/files", nil)
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != origin {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, origin)
+	}
+	assertSecurityHeaders(t, rec.Header())
+}
+
+func assertSecurityHeaders(t *testing.T, headers http.Header) {
+	t.Helper()
 	for header, want := range map[string]string{
 		"X-Content-Type-Options":  "nosniff",
 		"X-Frame-Options":         "DENY",
 		"Referrer-Policy":         "no-referrer",
 		"Content-Security-Policy": "default-src 'none'",
 	} {
-		if got := rec.Header().Get(header); got != want {
+		if got := headers.Get(header); got != want {
 			t.Errorf("header %q = %q, want %q", header, got, want)
 		}
 	}
@@ -58,10 +80,18 @@ func TestContentResponseHeaders(t *testing.T) {
 		{"image/png;", "image/png", "inline"},
 		{"text/plain; charset=utf-8", "text/plain; charset=utf-8", "inline"},
 		{"TEXT/PLAIN; CHARSET=GBK", "text/plain; charset=gbk", "inline"},
+		// Valid non-charset parameters are part of the representation contract;
+		// multipart boundaries in particular are required by recipients.
+		{"multipart/mixed; boundary=mem-boundary", "multipart/mixed; boundary=mem-boundary", "inline"},
+		{"video/mp4; codecs=avc1", "video/mp4; codecs=avc1", "inline"},
+		{"text/plain; format=flowed; charset=GBK", "text/plain; charset=gbk; format=flowed", "inline"},
+		{"application/example; note=\"safe value\"", "application/example; note=\"safe value\"", "inline"},
 		// ParseMediaType unquotes parameters, so a non-token charset is
-		// dropped rather than echoed back into the response.
+		// dropped rather than echoed back into the response. Other valid
+		// parameters remain safely formatted.
 		{"text/plain; charset=\"utf 8\"", "text/plain", "inline"},
 		{"text/plain; charset=\"x\r\nY: 1\"", "text/plain", "inline"},
+		{"image/png; note=\"x\r\nX-Injected: 1\"", "image/png", "inline"},
 		{"text/markdown", "text/markdown", "inline"},
 		{"application/octet-stream", "application/octet-stream", "inline"},
 		{"video/mp4", "video/mp4", "inline"},
@@ -108,8 +138,26 @@ func TestDispositionShouldDownloadDeclaredMIMEForms(t *testing.T) {
 		// Legacy and alternative spellings browsers still honour.
 		"application/xhtml+xml",
 		"application/x-javascript",
+		"application/x-ecmascript",
 		"text/ecmascript",
 		"application/ecmascript",
+		"text/x-ecmascript",
+		"text/x-javascript",
+		"text/javascript1.0",
+		"text/javascript1.1",
+		"text/javascript1.2",
+		"text/javascript1.3",
+		"text/javascript1.4",
+		"text/javascript1.5",
+		"text/jscript",
+		"text/livescript",
+		// Registered font-tree types and deployed legacy aliases.
+		"font/sfnt",
+		"font/collection",
+		"application/font-sfnt",
+		"application/font-woff",
+		"application/x-font-ttf",
+		"application/vnd.ms-fontobject",
 		// XML vocabularies reach the same parser-activated surface.
 		"application/atom+xml",
 		"application/rss+xml",
@@ -150,6 +198,10 @@ func TestSanitizeFilename(t *testing.T) {
 		"normal.pdf":           "normal.pdf",
 		"":                     "download",
 		"\x01\x02":             "download",
+		"report\u0085next.pdf": "report_next.pdf",
+		"report\u009bnext.pdf": "report_next.pdf",
+		"report\u2028next.pdf": "report_next.pdf",
+		"report\u2029next.pdf": "report_next.pdf",
 		"report.final.v2.docx": "report.final.v2.docx",
 		"a: b;c=x - (1).pdf":   "a: b_c=x - (1).pdf",
 		// Bidi controls are written as UTF-8 bytes so nothing invisible lives

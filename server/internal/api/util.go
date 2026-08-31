@@ -77,6 +77,10 @@ func dispositionShouldDownload(declaredMIME string) bool {
 		// worst instead of defaulting to the permissive branch.
 		return true
 	}
+	// RFC 9239 defines the JavaScript aliases below as equivalent processing
+	// forms, including the obsolete spellings browsers retain for compatibility.
+	// The font prefixes cover the complete IANA font tree plus deployed legacy
+	// application/font-* and application/x-font-* declarations.
 	switch {
 	case mediaType == "text/html", mediaType == "text/xhtml",
 		mediaType == "application/xhtml+xml",
@@ -85,10 +89,18 @@ func dispositionShouldDownload(declaredMIME string) bool {
 		strings.HasSuffix(mediaType, "+xml"),
 		mediaType == "text/javascript", mediaType == "application/javascript",
 		mediaType == "application/ecmascript", mediaType == "text/ecmascript",
-		mediaType == "application/x-javascript", mediaType == "text/js",
+		mediaType == "application/x-ecmascript", mediaType == "application/x-javascript",
+		mediaType == "text/x-ecmascript", mediaType == "text/x-javascript",
+		mediaType == "text/javascript1.0", mediaType == "text/javascript1.1",
+		mediaType == "text/javascript1.2", mediaType == "text/javascript1.3",
+		mediaType == "text/javascript1.4", mediaType == "text/javascript1.5",
+		mediaType == "text/jscript", mediaType == "text/livescript",
+		mediaType == "text/js",
 		mediaType == "application/json", mediaType == "application/pdf",
-		mediaType == "font/ttf", mediaType == "font/otf",
-		mediaType == "font/woff", mediaType == "font/woff2":
+		strings.HasPrefix(mediaType, "font/"),
+		strings.HasPrefix(mediaType, "application/font-"),
+		strings.HasPrefix(mediaType, "application/x-font-"),
+		mediaType == "application/vnd.ms-fontobject":
 		return true
 	}
 	return false
@@ -116,17 +128,28 @@ func normalizedMediaType(declaredMIME string) (mediaType string, params map[stri
 // files.mime holds whatever the uploader declared — file.Service.Put keeps the
 // value verbatim — so it is attacker input, not ground truth: a declaration the
 // server cannot bound is served as an opaque attachment and never echoed back
-// into a response header. A usable declaration is re-emitted canonically,
-// keeping only a charset that is a well-formed RFC 7230 token so text previews
-// retain their encoding.
+// into a response header. A usable declaration is re-emitted canonically with
+// its valid parameters preserved; FormatMediaType quotes or encodes parameter
+// values instead of copying attacker-controlled bytes into the header. Charset
+// is additionally restricted to an RFC 7230 token so text previews retain only
+// a usable encoding declaration.
 func contentResponseHeaders(storedMIME, name string) (contentType, disposition string) {
 	mediaType, params, ok := normalizedMediaType(storedMIME)
 	if !ok {
 		return "application/octet-stream", `attachment; filename="` + sanitizeFilename(name) + `"`
 	}
-	contentType = mediaType
-	if charset := params["charset"]; isHTTPToken(charset) {
-		contentType += "; charset=" + strings.ToLower(charset)
+	if charset, exists := params["charset"]; exists {
+		if isHTTPToken(charset) {
+			params["charset"] = strings.ToLower(charset)
+		} else {
+			delete(params, "charset")
+		}
+	}
+	contentType = mime.FormatMediaType(mediaType, params)
+	if contentType == "" {
+		// ParseMediaType produced these values, so FormatMediaType should accept
+		// them. Keep the response fail-closed if that invariant ever changes.
+		return "application/octet-stream", `attachment; filename="` + sanitizeFilename(name) + `"`
 	}
 	disposition = "inline"
 	if dispositionShouldDownload(mediaType) {
@@ -172,11 +195,13 @@ func sanitizeFilename(name string) string {
 	b.Grow(len(name) + 1)
 	underscore := false
 	for _, r := range name {
-		// RFC 7230 §3.2.6: header field values must not contain C0 controls
-		// or DEL; CR/LF would enable response splitting.
-		if r == 0x7f || r < 0x20 ||
+		// Match the upload validator's complete Unicode control and line-break
+		// set. CR/LF would enable response splitting; C1 controls can still
+		// affect terminal/display consumers even though they are not HTTP line
+		// delimiters.
+		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' ||
 			r == '/' || r == '\\' || r == '"' || r == ';' ||
-			unicode.Is(bidiControl, r) {
+			(bidiControl != nil && unicode.Is(bidiControl, r)) {
 			underscore = true
 			continue
 		}
