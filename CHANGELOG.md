@@ -9,6 +9,17 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Security
 
+- Reconcile nginx and API security-header ownership so each header has exactly
+  one documented owner on every response path. nginx now owns `nosniff`,
+  `Referrer-Policy: no-referrer` and `X-Frame-Options: DENY` on all responses
+  (proxied `/v1/`, static assets, and nginx-generated errors), hiding upstream
+  copies with `proxy_hide_header` before adding its own. The API retains
+  `Content-Security-Policy`, `X-XSS-Protection` and resource-specific
+  `Content-Type` / `Content-Disposition`. This fixes the duplicate-header bug
+  where nginx's `same-origin` overwrote the API's `no-referrer` on proxied
+  responses, weakening the hardening from #107. Static assets now carry the edge
+  trio and a single `Cache-Control: public, max-age=31536000, immutable` line.
+  ([issue #136](https://github.com/fullstack-ai-infra/mem/issues/136))
 - Normalize the client-declared MIME type of a stored file before deciding how
   to serve it: `GET /v1/files/{id}/content` now forces `attachment` for
   interpretable types in every spelling a browser accepts (`Text/HTML`,

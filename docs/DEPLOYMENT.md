@@ -120,6 +120,28 @@ Terminate HTTPS at a maintained reverse proxy or load balancer. Forward to
 `http://127.0.0.1:8080`, preserve the `Host` and `X-Forwarded-*` headers, and
 set an upload-body limit at least as large as `MEM_MAX_BODY_SIZE`.
 
+### Edge security-header ownership
+
+The shipped nginx configuration owns exactly three transport-level headers on
+**every** response it serves or proxies. The Go API owns resource-specific
+headers. This split prevents duplicate headers and ordering-dependent policy
+weakening (see [issue #136](https://github.com/fullstack-ai-infra/mem/issues/136)).
+
+| Header | Owner | Value | Scope |
+| --- | --- | --- | --- |
+| `X-Content-Type-Options` | nginx | `nosniff` | all responses |
+| `Referrer-Policy` | nginx | `no-referrer` | all responses |
+| `X-Frame-Options` | nginx | `DENY` | all responses |
+| `Content-Security-Policy` | API | `default-src 'none'` | API responses only |
+| `X-XSS-Protection` | API | `0` | API responses only |
+| `Content-Type` / `Content-Disposition` | API | per resource | API responses only |
+| `Cache-Control` (static assets) | nginx | `public, max-age=31536000, immutable` | `/assets/` 200 only |
+
+nginx hides upstream copies of the trio with `proxy_hide_header` before adding
+its own, so proxied `/v1/` responses carry exactly one occurrence each. Static
+assets and nginx-generated errors (404, 413, 502) carry the edge-owned set
+without depending on the upstream state.
+
 ### Configure and start
 
 From the repository root:
