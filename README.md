@@ -180,6 +180,9 @@ forget 需要 `delete` 及允许删除的 workspace 角色。写入时关联
 
 ## 开发环境
 
+> 以下依赖用于**修改 mem 源码**。只想运行 mem 的用户请使用上方的
+> [Compose 启动](#通过-compose-启动推荐) 路径，无需安装任何开发工具。
+
 本地开发依赖：
 
 - Go 1.25
@@ -187,7 +190,22 @@ forget 需要 `delete` 及允许删除的 workspace 角色。写入时关联
 - Node.js 24 and npm
 - `protoc` 34.1, `protoc-gen-go` v1.36.11, and
   `protoc-gen-go-grpc` v1.6.2 when changing protobuf definitions
-- Docker with Compose
+- Docker with Compose（Compose 路径和回归测试均需要）
+
+裸机开发基础设施（PostgreSQL + pgvector、MinIO、Ollama）的平台安装：
+
+| 依赖 | macOS (brew) | Ubuntu / Debian | WSL2 (Ubuntu) |
+|---|---|---|---|
+| PostgreSQL 17 + pgvector | `brew install postgresql@17 pgvector` | `apt install postgresql-17 postgresql-17-pgvector` | 同 Ubuntu（在 WSL2 Ubuntu 中执行） |
+| MinIO | `brew install minio minio-mc` | 从 <https://min.io/download> 下载二进制 | 同 Ubuntu |
+| Ollama | `brew install ollama` 或从 <https://ollama.com> 下载 | `curl -fsSL https://ollama.com/install.sh \| sh` | 同 Ubuntu（需 Windows 侧 GPU 驱动） |
+
+版本说明：pgvector bottle 仅为 PostgreSQL 17/18 编译了 `vector.so`；使用 @16
+会导致 `CREATE EXTENSION vector` 失败。`scripts/dev_up.sh` 会自动探测带匹配
+pgvector 的版本。
+
+完整的裸机启动、Ollama 模型配置和 smoke 步骤见
+[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
 
 ## 为什么是 Agent-Native
 
@@ -230,25 +248,42 @@ mem 的壁垒不是绑定某个更大的模型，而是长期积累的、用户�
 
 ## 快速开始
 
-项目仍处于 Phase 1 MVP。当前开发体验：
+项目仍处于 Phase 1 MVP。推荐通过 Docker Compose 一键启动完整栈——这是经过运维
+验证的最短路径，一条命令拉起 Web、memd、Worker、PostgreSQL、Redis 和 MinIO。
+
+### 通过 Compose 启动（推荐）
+
+前置条件：Docker Engine 和 Docker Compose v2。
 
 ```bash
 git clone https://github.com/bytefolk/mem.git
 cd mem
-./scripts/dev_up.sh
+
+# 生成随机密钥并启动全部服务
+cd deploy/compose
+./generate-env.sh
+chmod 600 .env
+docker compose --env-file .env -f compose.yaml up -d --build --wait
+docker compose --env-file .env -f compose.yaml ps
+curl --fail http://127.0.0.1:8080/healthz
+```
+
+启动完成后，在浏览器打开 `http://localhost:8080`，完成首次注册（`first_user`
+模式仅允许一个账户），然后即可通过 CLI 或 MCP 使用：
+
+```bash
+# 配置 CLI 指向本地实例
+export MEM_SERVER=http://localhost:8080
 mem auth login
+
+# 上传、搜索、记忆和上下文
 mem put ~/Photos --recursive
-# 可选：同步端附带可信的拍摄时间、位置和来源；AI 建议稍后在 Web 中确认
-mem put ~/Photos/IMG_0001.jpg \
-  --captured-at 2026-07-29T08:00:00+08:00 \
-  --lat 31.2304 --lon 121.4737 --place Shanghai \
-  --source-kind mobile --source-name "camera sync"
 mem search "a golden retriever standing on green grass"
 mem remember "照片导入已完成" --kind task_state --path /Photos \
   --idempotency-key photos-imported-v1
 mem context "照片导入做到哪里了" --source memory --scope /Photos
 
-# 一个 Agent 交接，另一个 Agent/新会话按稳定 task key 恢复
+# Agent 交接：一个 Agent 写入 checkpoint，另一个按稳定 task key 恢复
 mem checkpoint --input handoff.json --idempotency-key photos-handoff-v1
 mem resume photos/import
 
@@ -256,9 +291,25 @@ mem resume photos/import
 mem workspace export --output agent-workspace.membundle
 ```
 
-生产部署同时提供单机 Compose 和多机 Helm 方案，完整的密钥、迁移、高可用、
-备份恢复与升级边界见 [生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
+完整的密钥管理、迁移、高可用、备份恢复与升级边界见
+[生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
 [自然语言搜图基线](docs/acceptance/VISUAL_SEARCH_BASELINE.md)。
+
+### 裸机开发环境（仅限开发）
+
+> 裸机路径面向需要修改 Go / Python / Web 代码的开发场景。首次体验或评估请使
+> 用上方的 Compose 路径。
+
+```bash
+git clone https://github.com/bytefolk/mem.git
+cd mem
+./scripts/dev_up.sh        # 自动拉起 PostgreSQL、MinIO、Worker、memd
+mem auth login
+mem put ~/Photos --recursive
+mem search "a golden retriever standing on green grass"
+```
+
+完整的裸机依赖、Ollama 配置和 smoke 步骤见 [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
 
 ---
 
@@ -318,7 +369,8 @@ mem/
 └── docker-compose.test.yml   ← 一次性 PostgreSQL 回归环境
 ```
 
-完整的本地启动、Worker、Web 和 smoke test 步骤见
+首次运行推荐使用 [Compose 路径](#通过-compose-启动推荐)。裸机开发环境的完整
+启动、Worker、Web 和 smoke test 步骤见
 [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
 
 Web 开发模式可单独启动：
@@ -330,8 +382,9 @@ npm run dev
 ```
 
 The service requires a development user and token before protected operations
-can be used. Follow [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md) for the complete
-local setup and smoke test. For agent integration, build `mem-mcp` and follow
+can be used. Follow the [Compose quick start](#通过-compose-启动推荐) for the
+recommended path, or [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md) for bare-metal
+development setup. For agent integration, build `mem-mcp` and follow
 the [MCP setup guide](docs/mcp.md).
 
 ## Verify a change
