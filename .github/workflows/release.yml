@@ -300,3 +300,31 @@ jobs:
           gh release edit "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --draft=false
+
+  npm-publish:
+    name: Publish npm package (OIDC Trusted Publishing)
+    needs: [release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out exact tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.version) || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Publish @fullstack-ai-infra/mem-mcp (OIDC)
+        working-directory: npm
+        # No NPM_TOKEN / NODE_AUTH_TOKEN: auth is exchanged from the GitHub
+        # OIDC id-token against the npmjs Trusted Publisher configured for
+        # org=fullstack-ai-infra / repo=mem / workflow=release.yml.
+        run: npm publish --provenance --access public
