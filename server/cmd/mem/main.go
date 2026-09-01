@@ -86,5 +86,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(newTimelineCmd())
 	root.AddCommand(newWorkspaceCmd())
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newDoctorCmd())
 	return root
 }

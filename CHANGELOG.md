@@ -7,6 +7,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- `mem doctor` read-only diagnostic command that checks server reachability,
+  credential presence, workspace selection, and CLI/server version skew. Supports
+  `--format text|json` output. Performs no writes and installs no dependencies
+  (`#112`).
+
 ### Changed
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
