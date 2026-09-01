@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: release-${{ inputs.version || github.ref_name }}
@@ -300,3 +301,106 @@ jobs:
           gh release edit "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --draft=false
+
+  npm-publish:
+    name: Publish npm package via Trusted Publishing
+    needs: [preflight, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate release source
+        env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          actual_commit="$(./scripts/validate_release_source.sh "${RELEASE_TAG}")"
+          [[ "${actual_commit}" == "${EXPECTED_COMMIT}" ]]
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify published Release before npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          release_json="$(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json tagName,isDraft,assets
+          )"
+          jq -e --arg tag "${RELEASE_TAG}" '
+            .tagName == $tag and
+            .isDraft == false and
+            (.assets | length == 7)
+          ' <<< "${release_json}" >/dev/null
+
+      - name: Validate npm package version matches release
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          actual_version="$(node -p 'require("./package.json").version')"
+          if [[ "${actual_version}" != "${expected_version}" ]]; then
+            echo "npm package.json version ${actual_version} does not match release ${expected_version}" >&2
+            exit 1
+          fi
+
+      - name: Run npm package tests
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm test
+          npm run test:tarball
+
+      - name: Verify version not already published
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          package_name="$(node -p 'require("./package.json").name')"
+          if npm view "${package_name}@${expected_version}" version >/dev/null 2>&1; then
+            echo "npm ${package_name}@${expected_version} already exists" >&2
+            exit 1
+          fi
+
+      - name: Publish to npm via Trusted Publishing
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          npm publish --access public --tag latest
+
+      - name: Verify npm publication
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          expected_version="${RELEASE_TAG#v}"
+          package_name="$(node -p 'require("./package.json").name')"
+          published_version="$(npm view "${package_name}" dist-tags.latest)"
+          if [[ "${published_version}" != "${expected_version}" ]]; then
+            echo "npm latest is ${published_version}, expected ${expected_version}" >&2
+            exit 1
+          fi
+          echo "Successfully published ${package_name}@${expected_version}"

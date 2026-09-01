@@ -7,6 +7,15 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- The Release workflow now publishes the npm package via Trusted Publishing
+  (OIDC) after the GitHub Release is verified. The `npm-publish` job requests
+  `id-token: write` to obtain a short-lived OIDC token, eliminating the need
+  for long-lived npm tokens in repository secrets. The job validates the
+  package version matches the release tag, runs the npm test suite, and
+  publishes with `npm publish --access public --tag latest`.
+
 ### Changed
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates

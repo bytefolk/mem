@@ -120,6 +120,32 @@ access. Keep it out of repository files, logs, workflow inputs, and issue
 comments. Read the published version back from the registry and complete the
 clean-install smoke test before revoking the token immediately.
 
+### npm Trusted Publishing (OIDC)
+
+The release workflow includes an `npm-publish` job that publishes the package
+using npm Trusted Publishing via GitHub OIDC. This requires:
+
+1. **npm-side configuration**: On npmjs.com, configure a Trusted Publisher for
+   the package with:
+   - Organization: `fullstack-ai-infra`
+   - Repository: `mem`
+   - Workflow filename: `release.yml`
+   - Environment: (none)
+   - Action: `npm publish`
+
+2. **Workflow permissions**: The workflow requests `id-token: write` at the
+   top level, which allows the `npm-publish` job to obtain an OIDC token from
+   GitHub and exchange it for npm publish credentials.
+
+3. **No long-lived tokens**: Trusted Publishing eliminates the need for npm
+   tokens in repository secrets. The OIDC token is short-lived and scoped to
+   the specific workflow run.
+
+The `npm-publish` job runs after the GitHub Release is verified and published.
+It validates the package version matches the release tag, runs the npm test
+suite, verifies the version is not already published, and then publishes with
+`npm publish --access public --tag latest`.
+
 If GitHub asset upload fails, inspect and remove any incomplete draft before a
 reviewed retry; do not move the tag. If npm publication is wrong, deprecate the
 bad version when possible and correct it with a new patch version rather than
