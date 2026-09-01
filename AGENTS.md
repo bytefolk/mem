@@ -1,7 +1,7 @@
 # Repository Instructions for Agents
 
 These instructions apply to the entire repository. They supplement the public
-[organization contribution rules](https://github.com/fullstack-ai-infra/.github/blob/main/CONTRIBUTING.md)
+[organization contribution rules](https://github.com/bytefolk/.github/blob/main/CONTRIBUTING.md)
 and the `mem`-specific contracts in `docs/DEVELOPMENT.md`.
 
 ## Required workflow

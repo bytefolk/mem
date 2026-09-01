@@ -7,6 +7,12 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Changed
+
+- Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
+  to the canonical `bytefolk` organization while retaining the published npm
+  scope, MCP identity, and existing cache paths.
+
 ### Security
 
 - Normalize the client-declared MIME type of a stored file before deciding how
@@ -258,7 +264,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   top-level paths remain hidden compatibility aliases with deprecation
   warnings.
 - Inherit organization-wide contribution, issue, pull-request, conduct, and
-  support defaults from `fullstack-ai-infra/.github`; keep only `mem`-specific
+  support defaults from `bytefolk/.github`; keep only `mem`-specific
   development, security, triage, ownership, release, and validation rules in
   this repository.
 - Align pull-request policy with the inherited controlled exceptions for
@@ -349,6 +355,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Preserve the primary Web acceptance failure when browser or Vite cleanup
   also fails.
 
-[Unreleased]: https://github.com/fullstack-ai-infra/mem/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/fullstack-ai-infra/mem/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/fullstack-ai-infra/mem/releases/tag/v0.1.0
+[Unreleased]: https://github.com/bytefolk/mem/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/bytefolk/mem/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/bytefolk/mem/releases/tag/v0.1.0
