@@ -48,6 +48,6 @@
     "mem_durable_context_recall"
   ],
   "categories": ["memory", "knowledge-management", "ai-agents"],
-  "repo": "https://github.com/fullstack-ai-infra/mem",
+  "repo": "https://github.com/bytefolk/mem",
   "license": "Apache-2.0"
 }

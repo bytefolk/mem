@@ -32,7 +32,7 @@ serviceAccount:
 
 memd:
   # memd coordinates indexing and embedding-provider switches in process.
-  # Keep one replica until https://github.com/fullstack-ai-infra/mem/issues/55
+  # Keep one replica until https://github.com/bytefolk/mem/issues/55
   # provides cross-replica index generations.
   replicaCount: 1
   resources:

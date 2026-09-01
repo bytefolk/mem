@@ -104,7 +104,7 @@ async function runProcess(options = {}) {
       `mem-mcp: failed to download and verify the platform binary: ${err.message}`,
     );
     logger.error(
-      `mem-mcp: retry the command, or build manually from https://github.com/fullstack-ai-infra/mem`,
+      `mem-mcp: retry the command, or build manually from https://github.com/bytefolk/mem`,
     );
     return { code: 1, signal: null };
   } finally {
