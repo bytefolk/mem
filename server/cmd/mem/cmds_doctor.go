@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -14,17 +15,30 @@ import (
 // cliVersion is the CLI build version, overridden by ldflags at release time.
 var cliVersion = "dev"
 
+const doctorSchemaVersion = "mem.doctor/v1"
+
+const deployComposeHint = "see deploy/compose/ for the recommended container deployment path"
+
 type doctorCheck struct {
 	Name    string `json:"name"`
+	Code    string `json:"code"`
 	Status  string `json:"status"`
 	Message string `json:"message,omitempty"`
+	Hint    string `json:"hint,omitempty"`
 }
 
 type doctorReport struct {
-	Checks  []doctorCheck `json:"checks"`
-	Summary string        `json:"summary"`
-	OK      bool          `json:"ok"`
+	SchemaVersion string          `json:"schema_version"`
+	Checks        []doctorCheck   `json:"checks"`
+	Summary       string          `json:"summary"`
+	OK            bool            `json:"ok"`
 }
+
+type doctorHTTPDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+var doctorHTTPClient doctorHTTPDoer = &http.Client{Timeout: 5 * time.Second}
 
 func newDoctorCmd() *cobra.Command {
 	return &cobra.Command{
@@ -54,9 +68,6 @@ and installs no dependencies.`,
 			} else {
 				printDoctorReport(cmd, report)
 			}
-			if !report.OK {
-				return newCliError(1, "diagnostics found issues", "see `mem doctor` output for details")
-			}
 			return nil
 		},
 	}
@@ -65,30 +76,38 @@ and installs no dependencies.`,
 func runDoctorChecks() doctorReport {
 	cfg, cfgErr := resolveConfig("")
 
-	checks := make([]doctorCheck, 0, 4)
+	checks := make([]doctorCheck, 0, 5)
 
 	checks = append(checks, checkConfigLoaded(cfg, cfgErr))
 
-	serverOK := false
-	if cfgErr == nil && cfg != nil {
-		checks = append(checks, checkServerReachable(cfg))
-		checks = append(checks, checkCredentials(cfg))
-		checks = append(checks, checkWorkspace(cfg))
-		serverOK = isServerReachable(cfg)
-		if serverOK {
-			checks = append(checks, checkVersionSkew(cfg))
-		}
-	} else {
+	if cfgErr != nil || cfg == nil {
+		checks = append(checks, doctorCheck{
+			Name:    "server",
+			Code:    "server_unreachable",
+			Status:  "fail",
+			Message: "server is not reachable",
+			Hint:    deployComposeHint,
+		})
 		checks = append(checks, doctorCheck{
 			Name:    "credentials",
-			Status:  "skip",
-			Message: "config unavailable",
+			Code:    "no_credential",
+			Status:  "fail",
+			Message: "not logged in",
+			Hint:    "run `mem auth login`; " + deployComposeHint,
 		})
 		checks = append(checks, doctorCheck{
 			Name:    "workspace",
-			Status:  "skip",
-			Message: "config unavailable",
+			Code:    "no_workspace",
+			Status:  "warn",
+			Message: "no workspace selected",
 		})
+	} else {
+		checks = append(checks, checkServerReachable(cfg))
+		checks = append(checks, checkCredentials(cfg))
+		checks = append(checks, checkWorkspace(cfg))
+		if isServerReachable(cfg) {
+			checks = append(checks, checkVersionSkew(cfg))
+		}
 	}
 
 	allOK := true
@@ -111,9 +130,10 @@ func runDoctorChecks() doctorReport {
 	}
 
 	return doctorReport{
-		Checks:  checks,
-		Summary: summary,
-		OK:      allOK,
+		SchemaVersion: doctorSchemaVersion,
+		Checks:        checks,
+		Summary:       summary,
+		OK:            allOK,
 	}
 }
 
@@ -121,6 +141,7 @@ func checkConfigLoaded(cfg *cliConfig, err error) doctorCheck {
 	if err != nil {
 		return doctorCheck{
 			Name:    "config",
+			Code:    "config_error",
 			Status:  "fail",
 			Message: "cannot read configuration",
 		}
@@ -128,12 +149,14 @@ func checkConfigLoaded(cfg *cliConfig, err error) doctorCheck {
 	if cfg == nil {
 		return doctorCheck{
 			Name:    "config",
+			Code:    "config_error",
 			Status:  "fail",
 			Message: "configuration is empty",
 		}
 	}
 	return doctorCheck{
 		Name:   "config",
+		Code:   "config_ok",
 		Status: "ok",
 	}
 }
@@ -142,12 +165,15 @@ func checkServerReachable(cfg *cliConfig) doctorCheck {
 	if !isServerReachable(cfg) {
 		return doctorCheck{
 			Name:    "server",
+			Code:    "server_unreachable",
 			Status:  "fail",
 			Message: "server is not reachable",
+			Hint:    deployComposeHint,
 		}
 	}
 	return doctorCheck{
 		Name:   "server",
+		Code:   "server_reachable",
 		Status: "ok",
 	}
 }
@@ -159,7 +185,7 @@ func isServerReachable(cfg *cliConfig) bool {
 	if err != nil {
 		return false
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doctorHTTPClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -171,12 +197,15 @@ func checkCredentials(cfg *cliConfig) doctorCheck {
 	if cfg.Token == "" {
 		return doctorCheck{
 			Name:    "credentials",
+			Code:    "no_credential",
 			Status:  "fail",
-			Message: "not logged in; run `mem auth login` to authenticate",
+			Message: "not logged in",
+			Hint:    "run `mem auth login`; " + deployComposeHint,
 		}
 	}
 	return doctorCheck{
 		Name:   "credentials",
+		Code:   "credential_present",
 		Status: "ok",
 	}
 }
@@ -185,12 +214,15 @@ func checkWorkspace(cfg *cliConfig) doctorCheck {
 	if strings.TrimSpace(cfg.Workspace) == "" {
 		return doctorCheck{
 			Name:    "workspace",
+			Code:    "no_workspace",
 			Status:  "warn",
-			Message: "no workspace selected; use `--workspace` or set MEM_WORKSPACE",
+			Message: "no workspace selected",
+			Hint:    "use `--workspace` or set MEM_WORKSPACE",
 		}
 	}
 	return doctorCheck{
 		Name:   "workspace",
+		Code:   "workspace_selected",
 		Status: "ok",
 	}
 }
@@ -202,14 +234,16 @@ func checkVersionSkew(cfg *cliConfig) doctorCheck {
 	if err != nil {
 		return doctorCheck{
 			Name:    "version",
+			Code:    "version_unknown",
 			Status:  "warn",
 			Message: "cannot check server version",
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := doctorHTTPClient.Do(req)
 	if err != nil {
 		return doctorCheck{
 			Name:    "version",
+			Code:    "version_unknown",
 			Status:  "warn",
 			Message: "cannot check server version",
 		}
@@ -218,16 +252,27 @@ func checkVersionSkew(cfg *cliConfig) doctorCheck {
 	if resp.StatusCode != http.StatusOK {
 		return doctorCheck{
 			Name:    "version",
+			Code:    "version_unknown",
 			Status:  "warn",
 			Message: "cannot check server version",
+		}
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return doctorCheck{
+			Name:    "version",
+			Code:    "version_unknown",
+			Status:  "warn",
+			Message: "cannot parse server version",
 		}
 	}
 	var versionResp struct {
 		Version string `json:"version"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&versionResp); err != nil {
+	if err := json.Unmarshal(body, &versionResp); err != nil {
 		return doctorCheck{
 			Name:    "version",
+			Code:    "version_unknown",
 			Status:  "warn",
 			Message: "cannot parse server version",
 		}
@@ -238,6 +283,7 @@ func checkVersionSkew(cfg *cliConfig) doctorCheck {
 	if cliV == "dev" || srvV == "dev" {
 		return doctorCheck{
 			Name:    "version",
+			Code:    "version_match",
 			Status:  "ok",
 			Message: "development build; version skew not checked",
 		}
@@ -245,12 +291,15 @@ func checkVersionSkew(cfg *cliConfig) doctorCheck {
 	if cliV != srvV {
 		return doctorCheck{
 			Name:    "version",
+			Code:    "version_skew",
 			Status:  "warn",
 			Message: fmt.Sprintf("CLI %s != server %s", cliV, srvV),
+			Hint:    "update CLI or server to matching versions",
 		}
 	}
 	return doctorCheck{
 		Name:   "version",
+		Code:   "version_match",
 		Status: "ok",
 	}
 }
@@ -274,6 +323,9 @@ func printDoctorReport(cmd *cobra.Command, report doctorReport) {
 			line += ": " + c.Message
 		}
 		fmt.Fprintln(out, line)
+		if c.Hint != "" {
+			fmt.Fprintf(out, "         hint: %s\n", c.Hint)
+		}
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, report.Summary)

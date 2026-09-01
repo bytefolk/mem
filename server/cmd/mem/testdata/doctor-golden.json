@@ -1,0 +1,33 @@
+{
+  "schema_version": "mem.doctor/v1",
+  "checks": [
+    {
+      "name": "config",
+      "code": "config_ok",
+      "status": "ok"
+    },
+    {
+      "name": "server",
+      "code": "server_reachable",
+      "status": "ok"
+    },
+    {
+      "name": "credentials",
+      "code": "credential_present",
+      "status": "ok"
+    },
+    {
+      "name": "workspace",
+      "code": "workspace_selected",
+      "status": "ok"
+    },
+    {
+      "name": "version",
+      "code": "version_match",
+      "status": "ok",
+      "message": "development build; version skew not checked"
+    }
+  ],
+  "summary": "all checks passed",
+  "ok": true
+}

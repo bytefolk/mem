@@ -24,6 +24,14 @@ func newCliError(code int, msg, hint string) *cliError {
 	return &cliError{code: code, msg: msg, hint: hint}
 }
 
+// errNotLoggedIn returns the standard auth error for unauthenticated CLI use.
+// The hint names the documented deploy/compose path so first-run users are
+// directed to the recommended container deployment (#112 REQ-002).
+func errNotLoggedIn() *cliError {
+	return newCliError(3, "not logged in",
+		"run `mem auth login`; see deploy/compose/ for the recommended deployment path")
+}
+
 // fromAPIError maps an *apiclient.APIError to a *cliError with the SPEC §7.1
 // exit code. Any other error is returned unchanged.
 func fromAPIError(err error) error {

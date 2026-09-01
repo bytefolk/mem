@@ -11,10 +11,14 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 - `mem doctor` read-only diagnostic command that checks server reachability,
   credential presence, workspace selection, and CLI/server version skew. Supports
-  `--format text|json` output. Performs no writes and installs no dependencies
-  (`#112`).
+  `--format text|json` output with `mem.doctor/v1` schema. Performs no writes and
+  installs no dependencies (`#112`).
 
 ### Changed
+
+- All CLI commands that require authentication now include the documented
+  `deploy/compose/` deployment path in their "not logged in" hint, directing
+  first-run users to the recommended container deployment (`#112` REQ-002).
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
   to the canonical `bytefolk` organization while retaining the published npm

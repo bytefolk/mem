@@ -162,7 +162,7 @@ func TestAuthStatusWithoutTokenReturnsAuthExitCode(t *testing.T) {
 	if !errors.As(err, &cliErr) {
 		t.Fatalf("error type = %T, want *cliError", err)
 	}
-	if cliErr.code != 3 || cliErr.hint != "run `mem auth login` first" {
+	if cliErr.code != 3 || cliErr.hint != "run `mem auth login`; see deploy/compose/ for the recommended deployment path" {
 		t.Fatalf("cli error = %#v", cliErr)
 	}
 }
