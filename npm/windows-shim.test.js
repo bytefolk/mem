@@ -150,7 +150,7 @@ https.get = (url, _options, callback) => {
       assert.match(invocation.stderr, /verified existing binary/);
       assert.deepEqual(
         readFileSync(requestLog, "utf8").trim().split("\n"),
-        [`https://github.com/fullstack-ai-infra/mem/releases/download/v${PACKAGE_VERSION}/mem-mcp-checksums.txt`],
+        [`https://github.com/bytefolk/mem/releases/download/v${PACKAGE_VERSION}/mem-mcp-checksums.txt`],
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

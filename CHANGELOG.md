@@ -7,6 +7,30 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Changed
+
+- Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
+  to the canonical `bytefolk` organization while retaining the published npm
+  scope, MCP identity, and existing cache paths.
+
+### Security
+
+- Normalize the client-declared MIME type of a stored file before deciding how
+  to serve it: `GET /v1/files/{id}/content` now forces `attachment` for
+  interpretable types in every spelling a browser accepts (`Text/HTML`,
+  `text/html; charset=utf-8`, the RFC 9239 JavaScript aliases such as
+  `text/x-javascript` and `text/javascript1.5`, and the whole registered font
+  tree including `font/sfnt` and `font/collection`), serves a declaration it
+  cannot bound as opaque `application/octet-stream` instead of echoing it back,
+  and re-emits a usable declaration with its parameters intact, so a required
+  `multipart/mixed; boundary=…` or `codecs=` still reaches the recipient.
+  Download names are filtered with the same control-character policy the upload
+  validator applies, covering C0, DEL, C1, the U+2028/U+2029 line separators and
+  Unicode bidi controls.
+- Add `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and
+  `Content-Security-Policy: default-src 'none'` to every API response, ordered
+  outside the CORS handler so a preflight reply carries them too.
+
 ## [0.1.1] - 2026-08-31
 
 ### Changed
@@ -240,7 +264,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   top-level paths remain hidden compatibility aliases with deprecation
   warnings.
 - Inherit organization-wide contribution, issue, pull-request, conduct, and
-  support defaults from `fullstack-ai-infra/.github`; keep only `mem`-specific
+  support defaults from `bytefolk/.github`; keep only `mem`-specific
   development, security, triage, ownership, release, and validation rules in
   this repository.
 - Align pull-request policy with the inherited controlled exceptions for
@@ -331,6 +355,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Preserve the primary Web acceptance failure when browser or Vite cleanup
   also fails.
 
-[Unreleased]: https://github.com/fullstack-ai-infra/mem/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/fullstack-ai-infra/mem/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/fullstack-ai-infra/mem/releases/tag/v0.1.0
+[Unreleased]: https://github.com/bytefolk/mem/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/bytefolk/mem/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/bytefolk/mem/releases/tag/v0.1.0

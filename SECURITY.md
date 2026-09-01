@@ -1,7 +1,7 @@
 # Security Policy
 
 The organization-wide
-[security policy](https://github.com/fullstack-ai-infra/.github/blob/main/SECURITY.md)
+[security policy](https://github.com/bytefolk/.github/blob/main/SECURITY.md)
 defines confidential reporting, coordinated disclosure, and safe-research
 requirements. This file adds only the versions, scope, response target, and
 private intake route specific to `mem`.
@@ -21,9 +21,9 @@ begin, the latest stable release will also receive security fixes.
 
 Do not disclose a suspected vulnerability in a public issue, discussion, or
 pull request. Use the
-[`mem` private vulnerability reporting form](https://github.com/fullstack-ai-infra/mem/security/advisories/new).
+[`mem` private vulnerability reporting form](https://github.com/bytefolk/mem/security/advisories/new).
 If the form is unavailable, follow the confidential fallback in the
-organization security policy and identify `fullstack-ai-infra/mem` as the
+organization security policy and identify `bytefolk/mem` as the
 affected repository.
 
 Maintainers aim to acknowledge a complete report within five business days.
