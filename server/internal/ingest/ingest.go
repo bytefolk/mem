@@ -290,38 +290,64 @@ func LoadCursor(stateDir, abs string) Cursor {
 // A save never rewinds a checkpoint that is already further along. A stored
 // cursor with a smaller Size is the truncation signal LoadCursor resets on, so
 // that case must still write; anything else that is ahead stays.
-func SaveCursor(stateDir string, cp Cursor) error {
+//
+// The per-cursor OS-backed lock covers the read/merge/write sequence so
+// independent ingest processes cannot move LastLine backwards or share a
+// staging path. Errors are returned (callers may warn without failing the
+// whole ingest).
+func SaveCursor(stateDir string, cp Cursor) (err error) {
 	p := CursorPath(stateDir, cp.Abs)
 	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create checkpoint dir: %w", err)
 	}
-	if stored, err := os.ReadFile(p); err == nil {
-		var prev Cursor
-		if json.Unmarshal(stored, &prev) == nil && prev.LastLine > cp.LastLine && prev.Size <= cp.Size {
-			return nil
+	lock, err := acquireCursorLock(p)
+	if err != nil {
+		return fmt.Errorf("lock cursor: %w", err)
+	}
+	defer func() {
+		if releaseErr := lock.release(); err == nil && releaseErr != nil {
+			err = fmt.Errorf("release cursor lock: %w", releaseErr)
 		}
+	}()
+
+	return saveCursorLocked(stateDir, p, cp)
+}
+
+// saveCursorLocked commits cp while the caller owns p's cursor lock. Keeping
+// this small inner operation separate lets the lock span the current-cursor
+// read as well as the atomic replacement.
+func saveCursorLocked(stateDir, p string, cp Cursor) error {
+	current := LoadCursor(stateDir, cp.Abs)
+	if current.LastLine > cp.LastLine && current.Size <= cp.Size {
+		return nil
 	}
 	b, err := json.Marshal(cp)
 	if err != nil {
 		return fmt.Errorf("encode checkpoint: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, ".cursor-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(p), ".cursor-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create checkpoint: %w", err)
 	}
 	tmpName := tmp.Name()
-	if _, err := tmp.Write(b); err != nil {
+	defer func() {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure checkpoint staging file: %w", err)
+	}
+	if _, err := tmp.Write(b); err != nil {
 		return fmt.Errorf("write checkpoint: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync checkpoint staging file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("write checkpoint: %w", err)
+		return fmt.Errorf("close checkpoint: %w", err)
 	}
 	if err := os.Rename(tmpName, p); err != nil {
-		_ = os.Remove(tmpName)
 		return fmt.Errorf("commit checkpoint: %w", err)
 	}
 	return nil

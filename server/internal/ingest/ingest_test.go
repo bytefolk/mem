@@ -310,8 +310,20 @@ func TestSaveCursorKeepsCommittedProgressAndLeavesNoTempFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".json") {
-		t.Fatalf("state dir = %v, want only the cursor file", entries)
+	if len(entries) != 2 {
+		t.Fatalf("state dir = %v, want cursor file and lock sidecar", entries)
+	}
+	var hasJSON, hasLock bool
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			hasJSON = true
+		}
+		if strings.HasSuffix(e.Name(), ".json.lock") {
+			hasLock = true
+		}
+	}
+	if !hasJSON || !hasLock {
+		t.Fatalf("state dir = %v, want .json cursor and .json.lock sidecar", entries)
 	}
 }
 
@@ -364,8 +376,8 @@ func TestConcurrentSaveCursorPublishesWholeCursors(t *testing.T) {
 	if cp.LastLine < 1 || cp.LastLine > 8 {
 		t.Fatalf("cursor = %+v", cp)
 	}
-	if entries, err := os.ReadDir(states); err != nil || len(entries) != 1 {
-		t.Fatalf("state dir = %v, err = %v; want one cursor file", entries, err)
+	if entries, err := os.ReadDir(states); err != nil || len(entries) != 2 {
+		t.Fatalf("state dir = %v, err = %v; want cursor file and lock sidecar", entries, err)
 	}
 }
 
