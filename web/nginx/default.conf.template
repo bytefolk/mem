@@ -7,6 +7,15 @@ server {
     index index.html;
     client_max_body_size ${MEM_MAX_BODY_SIZE};
 
+    # Header ownership rule:
+    #   - The API (memd) is authoritative for /v1/ responses. It sets its own
+    #     security headers and is reachable without nginx in bare-metal or
+    #     alternative-ingress deployments. nginx suppresses the inherited
+    #     server-level duplicates below so only the API's values reach the
+    #     client (nginx add_header appends; empty-value entries are skipped).
+    #   - nginx owns security headers for /assets/ and the SPA document (/).
+    #     Because add_header inheritance is suppressed when a nested block
+    #     defines any add_header of its own, /assets/ repeats the trio.
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "same-origin" always;
     add_header X-Frame-Options "DENY" always;
@@ -18,6 +27,13 @@ server {
     }
 
     location /v1/ {
+        # Suppress inherited security headers: the API sets its own values.
+        # An empty add_header value prevents nginx from emitting the header,
+        # leaving the upstream response untouched.
+        add_header X-Content-Type-Options "" always;
+        add_header Referrer-Policy "" always;
+        add_header X-Frame-Options "" always;
+
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -32,6 +48,11 @@ server {
     location /assets/ {
         try_files $uri =404;
         expires 1y;
+        # This block defines its own add_header, which breaks inheritance from
+        # the server level. Repeat the security header trio explicitly.
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "same-origin" always;
+        add_header X-Frame-Options "DENY" always;
         add_header Cache-Control "public, immutable";
     }
 

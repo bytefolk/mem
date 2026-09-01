@@ -7,6 +7,16 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Fixed
+
+- nginx no longer drops security headers on `/assets/` responses or duplicates
+  `Referrer-Policy` on proxied API responses. The `/assets/` location repeats
+  the security header trio explicitly (its own `Cache-Control` `add_header`
+  breaks server-level inheritance), and the `/v1/` location suppresses the
+  inherited trio with empty-value `add_header` entries so only the API's own
+  security headers reach the client. A header ownership rule is documented in
+  the config template.
+
 ### Changed
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
