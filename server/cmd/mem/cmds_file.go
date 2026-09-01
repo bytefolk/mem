@@ -31,6 +31,8 @@ func newPutCmd() *cobra.Command {
 		place      string
 		sourceKind string
 		sourceName string
+		watch      bool
+		interval   time.Duration
 	)
 	cmd := &cobra.Command{
 		Use:   "put <path|-|--url=URL>",
@@ -77,9 +79,22 @@ func newPutCmd() *cobra.Command {
 
 			st, err := os.Stat(target)
 			if err != nil {
+				if watch {
+					return newCliError(2, fmt.Sprintf("watch root: %v", err), "")
+				}
 				return err
 			}
 			if st.IsDir() {
+				if watch {
+					opts := watchOptions{
+						root:     target,
+						interval: interval,
+						toFolder: toFolder,
+						tags:     tag,
+						format:   format,
+					}
+					return runWatchDaemon(cmd, c, opts, sourceMetadata)
+				}
 				if !recursive {
 					return errors.New("path is a directory; pass --recursive to upload its contents")
 				}
@@ -102,6 +117,8 @@ func newPutCmd() *cobra.Command {
 	cmd.Flags().StringVar(&place, "place", "", "human-readable capture location (requires --lat/--lon)")
 	cmd.Flags().StringVar(&sourceKind, "source-kind", "cli", "api|web|cli|mcp|mobile|ai_device|import|other")
 	cmd.Flags().StringVar(&sourceName, "source-name", "", "non-sensitive source/device description")
+	cmd.Flags().BoolVar(&watch, "watch", false, "watch directory for new files and upload continuously")
+	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "poll interval for --watch (e.g. 10s, 1m)")
 	return cmd
 }
 
