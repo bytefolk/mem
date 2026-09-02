@@ -7,11 +7,18 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-02
+
 ### Changed
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
   to the canonical `bytefolk` organization while retaining the published npm
   scope, MCP identity, and existing cache paths.
+
+- Rename `@fullstack-ai-infra/mem-mcp` to `@bytefolk/mem-mcp`. The npm package
+  scope, MCP metadata identity (`io.github.bytefolk/mem-mcp`), and default
+  cache directory now use `bytefolk`. The old `@fullstack-ai-infra/mem-mcp@0.1.1`
+  package remains installable until migration is complete.
 
 ### Security
 
@@ -355,6 +362,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Preserve the primary Web acceptance failure when browser or Vite cleanup
   also fails.
 
-[Unreleased]: https://github.com/bytefolk/mem/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/bytefolk/mem/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/bytefolk/mem/releases/tag/v0.1.2
 [0.1.1]: https://github.com/bytefolk/mem/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/bytefolk/mem/releases/tag/v0.1.0

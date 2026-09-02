@@ -30,7 +30,7 @@ const { pipeline } = require("stream/promises");
 const { TextDecoder } = require("util");
 const { assetFor } = require("./platforms");
 
-const PACKAGE = "@fullstack-ai-infra/mem-mcp";
+const PACKAGE = "@bytefolk/mem-mcp";
 const REPO = "bytefolk/mem";
 const CHECKSUM_ASSET = "mem-mcp-checksums.txt";
 const MAX_CHECKSUM_BYTES = 64 * 1024;
@@ -120,7 +120,7 @@ function cacheRootFor(options = {}) {
     if (environment.LOCALAPPDATA) {
       return pathApi.join(
         absolutePath(environment.LOCALAPPDATA, osPlatform, "LOCALAPPDATA"),
-        "fullstack-ai-infra",
+        "bytefolk",
         "mem-mcp",
       );
     }
@@ -128,7 +128,7 @@ function cacheRootFor(options = {}) {
       absolutePath(homeDirectory, osPlatform, "home directory"),
       "AppData",
       "Local",
-      "fullstack-ai-infra",
+      "bytefolk",
       "mem-mcp",
     );
   }
@@ -138,7 +138,7 @@ function cacheRootFor(options = {}) {
       absolutePath(homeDirectory, osPlatform, "home directory"),
       "Library",
       "Caches",
-      "fullstack-ai-infra",
+      "bytefolk",
       "mem-mcp",
     );
   }
@@ -146,14 +146,14 @@ function cacheRootFor(options = {}) {
   if (environment.XDG_CACHE_HOME) {
     return pathApi.join(
       absolutePath(environment.XDG_CACHE_HOME, osPlatform, "XDG_CACHE_HOME"),
-      "fullstack-ai-infra",
+      "bytefolk",
       "mem-mcp",
     );
   }
   return pathApi.join(
     absolutePath(homeDirectory, osPlatform, "home directory"),
     ".cache",
-    "fullstack-ai-infra",
+    "bytefolk",
     "mem-mcp",
   );
 }

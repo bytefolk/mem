@@ -222,7 +222,7 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
       environment: { XDG_CACHE_HOME: "/var/cache/example" },
       homeDirectory: "/home/example",
     }),
-    "/var/cache/example/fullstack-ai-infra/mem-mcp",
+    "/var/cache/example/bytefolk/mem-mcp",
   );
   assert.equal(
     cacheRootFor({
@@ -230,7 +230,7 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
       environment: {},
       homeDirectory: "/Users/example",
     }),
-    "/Users/example/Library/Caches/fullstack-ai-infra/mem-mcp",
+    "/Users/example/Library/Caches/bytefolk/mem-mcp",
   );
   assert.equal(
     cacheRootFor({
@@ -238,17 +238,17 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
       environment: { LOCALAPPDATA: "C:\\Users\\example\\AppData\\Local" },
       homeDirectory: "C:\\Users\\example",
     }),
-    "C:\\Users\\example\\AppData\\Local\\fullstack-ai-infra\\mem-mcp",
+    "C:\\Users\\example\\AppData\\Local\\bytefolk\\mem-mcp",
   );
   assert.equal(
     cacheDirectory({
       osPlatform: "linux",
       osArch: "arm64",
-      version: "0.1.1",
+      version: "0.1.2",
       environment: { MEM_MCP_CACHE_DIR: "/var/cache/mem-mcp-test" },
       homeDirectory: "/home/example",
     }),
-    "/var/cache/mem-mcp-test/v0.1.1/linux-arm64",
+    "/var/cache/mem-mcp-test/v0.1.2/linux-arm64",
   );
   assert.throws(
     () => cacheRootFor({
@@ -274,14 +274,14 @@ test("install verifies a temporary download before exposing it", async (t) => {
   const osPlatform = platform();
   const osArch = arch();
   const asset = assetFor(osPlatform, osArch);
-  const cacheDir = join(cacheRoot, "v0.1.1", `${osPlatform}-${osArch}`);
+  const cacheDir = join(cacheRoot, "v0.1.2", `${osPlatform}-${osArch}`);
   const bytes = Buffer.from("trusted mem-mcp binary");
   const requested = [];
 
   const installed = await install({
     osPlatform,
     osArch,
-    version: "0.1.1",
+    version: "0.1.2",
     environment: { MEM_MCP_CACHE_DIR: cacheRoot },
     homeDirectory: join(root, "read-only-package-home-must-not-be-used"),
     logger: QUIET_LOGGER,
@@ -302,8 +302,8 @@ test("install verifies a temporary download before exposing it", async (t) => {
   }
   assert.deepEqual(readdirSync(cacheDir), [asset]);
   assert.deepEqual(requested, [
-    "https://github.com/bytefolk/mem/releases/download/v0.1.1/mem-mcp-checksums.txt",
-    `https://github.com/bytefolk/mem/releases/download/v0.1.1/${asset}`,
+    "https://github.com/bytefolk/mem/releases/download/v0.1.2/mem-mcp-checksums.txt",
+    `https://github.com/bytefolk/mem/releases/download/v0.1.2/${asset}`,
   ]);
 });
 

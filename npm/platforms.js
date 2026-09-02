@@ -35,7 +35,7 @@ function assetFor(osPlatform, osArch) {
   if (!asset) {
     throw new Error(
       `Unsupported platform: ${key}. ${
-        "@fullstack-ai-infra/mem-mcp"
+        "@bytefolk/mem-mcp"
       } publishes: ${Object.keys(ASSETS).join(", ")}.`
     );
   }

@@ -7,7 +7,7 @@ This package distributes the `mem-mcp` stdio MCP server binary so it can be inst
 ## Install
 
 ```bash
-npm install @fullstack-ai-infra/mem-mcp
+npm install @bytefolk/mem-mcp
 ```
 
 ## Usage
@@ -39,7 +39,7 @@ a later diagnostic sink fails.
 The executable cache is outside the installed npm package and is isolated by
 package version and platform. Defaults are `$XDG_CACHE_HOME` (or `~/.cache`) on
 Linux, `~/Library/Caches` on macOS, and `%LOCALAPPDATA%` on Windows, below
-`fullstack-ai-infra/mem-mcp`. Set `MEM_MCP_CACHE_DIR` to an absolute path to use
+`bytefolk/mem-mcp`. Set `MEM_MCP_CACHE_DIR` to an absolute path to use
 a different writable cache root. A per-asset cross-process lock serializes
 verification and atomic replacement, so concurrent hosts cannot expose or
 delete each other's downloads. Stale-lock recovery removes only artifacts named
@@ -59,7 +59,7 @@ bounded shutdown grace period.
   "mcpServers": {
     "mem": {
       "command": "npx",
-      "args": ["-y", "@fullstack-ai-infra/mem-mcp"],
+      "args": ["-y", "@bytefolk/mem-mcp"],
       "env": {
         "MEM_SERVER": "http://localhost:8787",
         "MEM_TOKEN": "mem_..."
@@ -75,7 +75,7 @@ bounded shutdown grace period.
 claude mcp add --scope project --transport stdio \
   --env MEM_SERVER=http://localhost:8787 \
   --env MEM_TOKEN=mem_... \
-  mem -- npx -y @fullstack-ai-infra/mem-mcp
+  mem -- npx -y @bytefolk/mem-mcp
 ```
 
 ## Configuration

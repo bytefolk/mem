@@ -134,7 +134,7 @@ test(
       const packageRoot = join(
         consumer,
         "node_modules",
-        "@fullstack-ai-infra",
+        "@bytefolk",
         "mem-mcp",
       );
       const packageJson = JSON.parse(

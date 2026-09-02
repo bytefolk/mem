@@ -1,8 +1,8 @@
 {
-  "name": "@fullstack-ai-infra/mem-mcp",
-  "version": "0.1.1",
+  "name": "@bytefolk/mem-mcp",
+  "version": "0.1.2",
   "description": "MCP server for mem — a portable, self-hosted memory plane for AI agents",
-  "mcpName": "io.github.fullstack-ai-infra/mem-mcp",
+  "mcpName": "io.github.bytefolk/mem-mcp",
   "keywords": [
     "mcp",
     "model-context-protocol",

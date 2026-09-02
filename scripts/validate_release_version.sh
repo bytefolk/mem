@@ -38,7 +38,7 @@ fi
 require_exact_line npm/package.json "  \"version\": \"${version}\","
 require_exact_line npm/server.json "  \"version\": \"${version}\","
 require_exact_line server/cmd/mem-mcp/main.go \
-  $'\t\"version\": \"'"${version}"$'\", // synced with npm/@fullstack-ai-infra/mem-mcp version'
+  $'\t\"version\": \"'"${version}"$'\", // synced with npm/@bytefolk/mem-mcp version'
 
 require_exact_line worker/pyproject.toml "version = \"${version}\""
 require_exact_line worker/mem_worker/__init__.py "__version__ = \"${version}\""
