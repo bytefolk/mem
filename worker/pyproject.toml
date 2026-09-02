@@ -28,7 +28,7 @@ dependencies = [
     # Imaging
     "pillow>=10.2",
     # PDF (placeholder — W2 actually uses)
-    "pypdf>=4.0",
+    "pypdf>=6.16.1",
     # HTTP
     "requests>=2.31",
     "httpx>=0.27",
