@@ -31,6 +31,14 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   `Content-Security-Policy: default-src 'none'` to every API response, ordered
   outside the CORS handler so a preflight reply carries them too.
 
+### Fixed
+
+- Concurrent `mem ingest qoder` processes now serialize each transcript's
+  checkpoint through an OS-backed sidecar lock, use unique private staging
+  files, and retain the highest successfully committed line cursor. A process
+  crash releases its advisory lock automatically, so a later ingest can resume
+  rather than being blocked by an orphaned lock.
+
 ## [0.1.1] - 2026-08-31
 
 ### Changed

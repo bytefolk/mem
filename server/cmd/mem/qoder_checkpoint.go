@@ -58,22 +58,62 @@ func loadQoderCheckpoint(stateDir, abs string) qoderCheckpoint {
 	return cp
 }
 
-// saveQoderCheckpoint atomically persists a transcript cursor. Errors are
+// saveQoderCheckpoint atomically persists a transcript cursor. The per-cursor
+// OS-backed lock covers the read/merge/write sequence so independent ingest
+// processes cannot move LastLine backwards or share a staging path. Errors are
 // returned (callers may warn without failing the whole ingest).
-func saveQoderCheckpoint(stateDir string, cp qoderCheckpoint) error {
+func saveQoderCheckpoint(stateDir string, cp qoderCheckpoint) (err error) {
 	p := qoderCheckpointPath(stateDir, cp.Abs)
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return fmt.Errorf("create checkpoint dir: %w", err)
+	}
+	lock, err := acquireQoderCheckpointLock(p)
+	if err != nil {
+		return fmt.Errorf("lock checkpoint: %w", err)
+	}
+	defer func() {
+		if releaseErr := lock.release(); err == nil && releaseErr != nil {
+			err = fmt.Errorf("release checkpoint lock: %w", releaseErr)
+		}
+	}()
+
+	return saveQoderCheckpointLocked(stateDir, p, cp)
+}
+
+// saveQoderCheckpointLocked commits cp while the caller owns p's checkpoint
+// lock. Keeping this small inner operation separate lets the lock span the
+// current-cursor read as well as the atomic replacement.
+func saveQoderCheckpointLocked(stateDir, p string, cp qoderCheckpoint) error {
+	current := loadQoderCheckpoint(stateDir, cp.Abs)
+	if current.LastLine > cp.LastLine {
+		cp = current
 	}
 	b, err := json.Marshal(cp)
 	if err != nil {
 		return fmt.Errorf("encode checkpoint: %w", err)
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create checkpoint staging file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure checkpoint staging file: %w", err)
+	}
+	if _, err := tmp.Write(b); err != nil {
 		return fmt.Errorf("write checkpoint: %w", err)
 	}
-	if err := os.Rename(tmp, p); err != nil {
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync checkpoint staging file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close checkpoint staging file: %w", err)
+	}
+	if err := os.Rename(tmpName, p); err != nil {
 		return fmt.Errorf("commit checkpoint: %w", err)
 	}
 	return nil
