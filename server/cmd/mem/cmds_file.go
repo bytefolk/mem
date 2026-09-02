@@ -496,10 +496,13 @@ func newVersionCmd() *cobra.Command {
 			if cfg != nil && cfg.Server != "" {
 				c := newHTTPClient(cfg)
 				var resp struct {
-					Version string `json:"version"`
+					Version  string `json:"version"`
+					Revision string `json:"revision"`
+					Contract string `json:"contract"`
 				}
 				if err := c.doJSON(http.MethodGet, "/v1/version", nil, &resp); err == nil {
-					fmt.Printf("server: %s (%s)\n", resp.Version, cfg.Server)
+					fmt.Printf("server: %s (revision %s, contract %s, %s)\n",
+						resp.Version, resp.Revision, resp.Contract, cfg.Server)
 				}
 			}
 			return nil

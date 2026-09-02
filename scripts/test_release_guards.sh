@@ -66,7 +66,7 @@ source_validator_line="$(
   die "release workflow must contain exactly one Release creation call"
 [[ "$(grep -Fc -- 'gh release edit' "${release_workflow}" || true)" == 1 ]] ||
   die "release workflow must contain exactly one Release publication call"
-grep -Fq -- 'needs: [preflight, build]' "${release_workflow}" ||
+grep -Fq -- 'needs: [preflight, build-mcp, build-server]' "${release_workflow}" ||
   die "Release creation must depend on preflight and every build"
 grep -Fq -- '--verify-tag' "${release_workflow}" ||
   die "Release creation must refuse an absent remote tag"
@@ -74,8 +74,8 @@ grep -Eq -- '^[[:space:]]+--draft([[:space:]]|$)' "${release_workflow}" ||
   die "Release assets must first upload to a draft"
 grep -Fq -- '--draft=false' "${release_workflow}" ||
   die "the verified draft must be published explicitly"
-grep -Fq -- '(.assets | length == 7)' "${release_workflow}" ||
-  die "remote draft validation must require exactly seven assets"
+grep -Fq -- '(.assets | length == 23)' "${release_workflow}" ||
+  die "remote draft validation must require exactly 23 assets"
 grep -Fq -- '(.size > 0)' "${release_workflow}" ||
   die "remote draft validation must reject empty assets"
 
@@ -193,6 +193,22 @@ expect_failure "annotated tag version mismatch" env \
 asset_dir="${tmp_dir}/assets"
 mkdir -p -- "${asset_dir}"
 assets=(
+  memd-darwin-amd64
+  memd-darwin-arm64
+  memd-linux-amd64
+  memd-linux-arm64
+  mem-migrate-darwin-amd64
+  mem-migrate-darwin-arm64
+  mem-migrate-linux-amd64
+  mem-migrate-linux-arm64
+  mem-healthcheck-darwin-amd64
+  mem-healthcheck-darwin-arm64
+  mem-healthcheck-linux-amd64
+  mem-healthcheck-linux-arm64
+  mem-darwin-amd64
+  mem-darwin-arm64
+  mem-linux-amd64
+  mem-linux-arm64
   mem-mcp-darwin-amd64
   mem-mcp-darwin-arm64
   mem-mcp-linux-amd64
@@ -206,17 +222,20 @@ done
 "${repo_root}/scripts/generate_release_checksums.sh" \
   "${current_tag}" "${same_commit}" "${asset_dir}" >/dev/null
 
-manifest="${asset_dir}/mem-mcp-checksums.txt"
-[[ "$(wc -l < "${manifest}")" == 6 ]] || die "checksum manifest must have six rows"
+mcp_manifest="${asset_dir}/mem-mcp-checksums.txt"
+server_manifest="${asset_dir}/mem-checksums.txt"
+[[ "$(wc -l < "${mcp_manifest}")" == 6 ]] || die "mcp checksum manifest must have six rows"
+[[ "$(wc -l < "${server_manifest}")" == 16 ]] || die "server checksum manifest must have 16 rows"
 (
   cd -- "${asset_dir}"
-  sha256sum --check --strict "$(basename -- "${manifest}")" >/dev/null
+  sha256sum --check --strict "$(basename -- "${mcp_manifest}")" >/dev/null
+  sha256sum --check --strict "$(basename -- "${server_manifest}")" >/dev/null
 )
 
 printf 'tampered\n' >> "${asset_dir}/${assets[0]}"
 expect_failure "tampered asset" verify_manifest "${asset_dir}"
 
-rm -f -- "${manifest}" "${asset_dir}/${assets[0]}"
+rm -f -- "${mcp_manifest}" "${server_manifest}" "${asset_dir}/${assets[0]}"
 expect_failure "missing asset" \
   "${repo_root}/scripts/generate_release_checksums.sh" \
   "${current_tag}" "${same_commit}" "${asset_dir}"

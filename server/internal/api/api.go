@@ -50,8 +50,21 @@ import (
 	"github.com/PeterGuy326/mem/server/internal/workspacetransfer"
 )
 
-// Version is overridden by ldflags at release-build time.
-var Version = "dev"
+// Version coordinate set for client/server preflight (mem#151).
+// All three are overridden by ldflags at build time:
+//
+//	-X github.com/PeterGuy326/mem/server/internal/api.Version=${SEMVER}
+//	-X github.com/PeterGuy326/mem/server/internal/api.Revision=${GIT_COMMIT}
+//	-X github.com/PeterGuy326/mem/server/internal/api.ContractVersion=${CONTRACT}
+//
+// Version is the semver release tag (e.g. "0.1.1").
+// Revision is the 40-hex git commit the binary was built from.
+// ContractVersion is the durable-context wire contract the server speaks.
+var (
+	Version         = "dev"
+	Revision        = "unknown"
+	ContractVersion = "durable-context.v1"
+)
 
 // MemoryService is the write/read port used by HTTP handlers. Keeping the
 // handlers behind an interface makes authorization and error mapping testable
@@ -209,7 +222,11 @@ func (s *Server) Router() http.Handler {
 	})
 	r.Get("/readyz", s.handleReadiness)
 	r.Get("/v1/version", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"version": Version})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"version":  Version,
+			"revision": Revision,
+			"contract": ContractVersion,
+		})
 	})
 
 	// Public auth

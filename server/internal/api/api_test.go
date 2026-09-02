@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -77,5 +78,43 @@ func TestCORSDisabledByDefault(t *testing.T) {
 
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("CORS should be off when unconfigured, got Allow-Origin %q", got)
+	}
+}
+
+func TestVersionEndpointExposesAllCoordinates(t *testing.T) {
+	prev_version := Version
+	prev_revision := Revision
+	prev_contract := ContractVersion
+	t.Cleanup(func() {
+		Version = prev_version
+		Revision = prev_revision
+		ContractVersion = prev_contract
+	})
+	Version = "0.2.0"
+	Revision = "abcdef0123456789abcdef0123456789abcdef01"
+	ContractVersion = "durable-context.v1"
+
+	s := &Server{Auth: auth.New(nil), Log: slog.Default()}
+	h := s.Router()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/version", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got["version"] != "0.2.0" {
+		t.Errorf("version = %q, want %q", got["version"], "0.2.0")
+	}
+	if got["revision"] != "abcdef0123456789abcdef0123456789abcdef01" {
+		t.Errorf("revision = %q, want 40-hex commit", got["revision"])
+	}
+	if got["contract"] != "durable-context.v1" {
+		t.Errorf("contract = %q, want %q", got["contract"], "durable-context.v1")
 	}
 }

@@ -72,8 +72,8 @@ jobs:
             exit 1
           fi
 
-  build:
-    name: Build mem-mcp binaries
+  build-mcp:
+    name: Build mem-mcp (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: [preflight]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -147,9 +147,88 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  build-server:
+    name: Build server (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Check out exact tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate release source
+        env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "refs/heads/main:refs/remotes/origin/main" \
+            "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          actual_commit="$(./scripts/validate_release_source.sh "${RELEASE_TAG}")"
+          [[ "${actual_commit}" == "${EXPECTED_COMMIT}" ]]
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Build server binaries (${{ matrix.goos }}/${{ matrix.goarch }})
+        working-directory: server
+        env:
+          EXPECTED_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          semver="${RELEASE_TAG#v}"
+          revision="${EXPECTED_COMMIT}"
+          contract="durable-context.v1"
+          ldflags="-s -w -buildvcs=true"
+          ldflags="${ldflags} -X github.com/PeterGuy326/mem/server/internal/api.Version=${semver}"
+          ldflags="${ldflags} -X github.com/PeterGuy326/mem/server/internal/api.Revision=${revision}"
+          ldflags="${ldflags} -X github.com/PeterGuy326/mem/server/internal/api.ContractVersion=${contract}"
+
+          mkdir -p "${RUNNER_TEMP}/assets"
+          suffix="${{ matrix.goos }}-${{ matrix.goarch }}"
+
+          for target in memd mem-migrate mem-healthcheck mem; do
+            output="${RUNNER_TEMP}/assets/${target}-${suffix}"
+            CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+              go build -buildvcs=true -trimpath \
+              -ldflags="${ldflags}" \
+              -o "${output}" "./cmd/${target}"
+            go version -m "${output}" | grep -F "vcs.revision=${revision}"
+            go version -m "${output}" | grep -F 'vcs.modified=false'
+          done
+
+      - name: Upload server assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: server-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/assets/*
+          if-no-files-found: error
+          retention-days: 1
+
   release:
     name: Create GitHub Release
-    needs: [preflight, build]
+    needs: [preflight, build-mcp, build-server]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -181,7 +260,6 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           path: /tmp/release-assets
-          pattern: mem-mcp-*
           merge-multiple: true
 
       - name: Validate exact assets and generate checksums
@@ -209,13 +287,29 @@ jobs:
           fi
 
           assets=(
+            /tmp/release-assets/memd-darwin-amd64
+            /tmp/release-assets/memd-darwin-arm64
+            /tmp/release-assets/memd-linux-amd64
+            /tmp/release-assets/memd-linux-arm64
+            /tmp/release-assets/mem-migrate-darwin-amd64
+            /tmp/release-assets/mem-migrate-darwin-arm64
+            /tmp/release-assets/mem-migrate-linux-amd64
+            /tmp/release-assets/mem-migrate-linux-arm64
+            /tmp/release-assets/mem-healthcheck-darwin-amd64
+            /tmp/release-assets/mem-healthcheck-darwin-arm64
+            /tmp/release-assets/mem-healthcheck-linux-amd64
+            /tmp/release-assets/mem-healthcheck-linux-arm64
+            /tmp/release-assets/mem-darwin-amd64
+            /tmp/release-assets/mem-darwin-arm64
+            /tmp/release-assets/mem-linux-amd64
+            /tmp/release-assets/mem-linux-arm64
             /tmp/release-assets/mem-mcp-darwin-amd64
             /tmp/release-assets/mem-mcp-darwin-arm64
             /tmp/release-assets/mem-mcp-linux-amd64
             /tmp/release-assets/mem-mcp-linux-arm64
             /tmp/release-assets/mem-mcp-windows-amd64.exe
             /tmp/release-assets/mem-mcp-windows-arm64.exe
-            /tmp/release-assets/mem-mcp-checksums.txt
+            /tmp/release-assets/mem-checksums.txt
           )
           release_flags=()
           if [[ "${RELEASE_TAG}" == *-rc.* ]]; then
@@ -244,21 +338,38 @@ jobs:
           jq -e --arg tag "${RELEASE_TAG}" '
             .tagName == $tag and
             .isDraft == true and
-            (.assets | length == 7) and
+            (.assets | length == 23) and
             all(.assets[]; ((.size | type) == "number") and (.size > 0))
           ' <<< "${release_json}" >/dev/null
 
           expected_assets="$(printf '%s\n' \
+            mem-checksums.txt \
+            mem-darwin-amd64 \
+            mem-darwin-arm64 \
+            mem-linux-amd64 \
+            mem-linux-arm64 \
+            mem-healthcheck-darwin-amd64 \
+            mem-healthcheck-darwin-arm64 \
+            mem-healthcheck-linux-amd64 \
+            mem-healthcheck-linux-arm64 \
             mem-mcp-checksums.txt \
             mem-mcp-darwin-amd64 \
             mem-mcp-darwin-arm64 \
             mem-mcp-linux-amd64 \
             mem-mcp-linux-arm64 \
             mem-mcp-windows-amd64.exe \
-            mem-mcp-windows-arm64.exe | LC_ALL=C sort)"
+            mem-mcp-windows-arm64.exe \
+            mem-migrate-darwin-amd64 \
+            mem-migrate-darwin-arm64 \
+            mem-migrate-linux-amd64 \
+            mem-migrate-linux-arm64 \
+            memd-darwin-amd64 \
+            memd-darwin-arm64 \
+            memd-linux-amd64 \
+            memd-linux-arm64 | LC_ALL=C sort)"
           actual_assets="$(jq -r '.assets[].name' <<< "${release_json}" | LC_ALL=C sort)"
           if [[ "${actual_assets}" != "${expected_assets}" ]]; then
-            echo "draft Release asset inventory does not match the expected seven files" >&2
+            echo "draft Release asset inventory does not match the expected files" >&2
             printf 'expected:\n%s\nactual:\n%s\n' "${expected_assets}" "${actual_assets}" >&2
             exit 1
           fi
@@ -283,17 +394,34 @@ jobs:
           jq -e --arg tag "${RELEASE_TAG}" '
             .tagName == $tag and
             .isDraft == true and
-            (.assets | length == 7) and
+            (.assets | length == 23) and
             all(.assets[]; ((.size | type) == "number") and (.size > 0))
           ' <<< "${release_json}" >/dev/null
           expected_assets="$(printf '%s\n' \
+            mem-checksums.txt \
+            mem-darwin-amd64 \
+            mem-darwin-arm64 \
+            mem-linux-amd64 \
+            mem-linux-arm64 \
+            mem-healthcheck-darwin-amd64 \
+            mem-healthcheck-darwin-arm64 \
+            mem-healthcheck-linux-amd64 \
+            mem-healthcheck-linux-arm64 \
             mem-mcp-checksums.txt \
             mem-mcp-darwin-amd64 \
             mem-mcp-darwin-arm64 \
             mem-mcp-linux-amd64 \
             mem-mcp-linux-arm64 \
             mem-mcp-windows-amd64.exe \
-            mem-mcp-windows-arm64.exe | LC_ALL=C sort)"
+            mem-mcp-windows-arm64.exe \
+            mem-migrate-darwin-amd64 \
+            mem-migrate-darwin-arm64 \
+            mem-migrate-linux-amd64 \
+            mem-migrate-linux-arm64 \
+            memd-darwin-amd64 \
+            memd-darwin-arm64 \
+            memd-linux-amd64 \
+            memd-linux-arm64 | LC_ALL=C sort)"
           actual_assets="$(jq -r '.assets[].name' <<< "${release_json}" | LC_ALL=C sort)"
           [[ "${actual_assets}" == "${expected_assets}" ]]
 

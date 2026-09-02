@@ -9,7 +9,13 @@ ARG GOPROXY=https://proxy.golang.org,direct
 RUN GOPROXY="${GOPROXY}" go mod download
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/PeterGuy326/mem/server/internal/api.Version=${VERSION}" \
+ARG REVISION=unknown
+ARG CONTRACT_VERSION=durable-context.v1
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w \
+      -X github.com/PeterGuy326/mem/server/internal/api.Version=${VERSION} \
+      -X github.com/PeterGuy326/mem/server/internal/api.Revision=${REVISION} \
+      -X github.com/PeterGuy326/mem/server/internal/api.ContractVersion=${CONTRACT_VERSION}" \
     -o /out/memd  ./cmd/memd  && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
     -o /out/mem-migrate ./cmd/mem-migrate && \

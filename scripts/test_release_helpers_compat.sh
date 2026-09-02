@@ -30,6 +30,22 @@ fi
 asset_dir="${tmp_dir}/assets"
 mkdir -p -- "${asset_dir}"
 assets=(
+  memd-darwin-amd64
+  memd-darwin-arm64
+  memd-linux-amd64
+  memd-linux-arm64
+  mem-migrate-darwin-amd64
+  mem-migrate-darwin-arm64
+  mem-migrate-linux-amd64
+  mem-migrate-linux-arm64
+  mem-healthcheck-darwin-amd64
+  mem-healthcheck-darwin-arm64
+  mem-healthcheck-linux-amd64
+  mem-healthcheck-linux-arm64
+  mem-darwin-amd64
+  mem-darwin-arm64
+  mem-linux-amd64
+  mem-linux-arm64
   mem-mcp-darwin-amd64
   mem-mcp-darwin-arm64
   mem-mcp-linux-amd64
@@ -76,5 +92,6 @@ if ! (
 fi
 
 [[ "$(wc -l < "${asset_dir}/mem-mcp-checksums.txt")" == 6 ]]
+[[ "$(wc -l < "${asset_dir}/mem-checksums.txt")" == 16 ]]
 
 printf 'PASS: release version and checksum helpers run without Bash 4-only collection builtins\n'

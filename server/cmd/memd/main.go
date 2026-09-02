@@ -70,6 +70,8 @@ func run() error {
 		"s3_endpoint", cfg.S3Endpoint,
 		"s3_bucket", cfg.S3Bucket,
 		"version", api.Version,
+		"revision", api.Revision,
+		"contract", api.ContractVersion,
 		"workspace_bundle_max_bytes", cfg.WorkspaceBundleMaxBytes,
 		"workspace_transfer_max_concurrent", cfg.WorkspaceTransferMaxConcurrent,
 		"workspace_transfer_timeout", cfg.WorkspaceTransferTimeout,

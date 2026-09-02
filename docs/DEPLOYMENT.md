@@ -65,10 +65,12 @@ model-free Worker; optional heavy extras must be explicitly selected.
 
 ```bash
 export MEM_VERSION=0.1.1
+export MEM_REVISION="$(git rev-parse HEAD)"
 export MEM_REGISTRY=registry.example.internal/mem
 
 docker build \
   --build-arg VERSION="$MEM_VERSION" \
+  --build-arg REVISION="$MEM_REVISION" \
   -t "$MEM_REGISTRY/server:$MEM_VERSION" server
 docker build \
   -t "$MEM_REGISTRY/worker:$MEM_VERSION" worker
@@ -95,6 +97,117 @@ MEM_VALIDATE_BUILD_IMAGES=1 make test-deploy
 
 The first command validates Compose and Helm. The second also builds all three
 images from the current checkout.
+
+## Version coordinate and client preflight
+
+Every release publishes a single version grammar that clients pin against. The
+`/v1/version` endpoint returns three distinct fields:
+
+| Field | Example | Meaning |
+| --- | --- | --- |
+| `version` | `"0.1.1"` | Semver release tag (without the `v` prefix) |
+| `revision` | `"10d4bf7a48fd5ab0ce6fc67caa407a717f81830e"` | 40-hex git commit the binary was built from |
+| `contract` | `"durable-context.v1"` | Durable-context wire contract the server speaks |
+
+Both build paths — the release workflow and the Docker image — inject all three
+fields at build time via `-ldflags`. A binary produced by either path answers
+`/v1/version` with the same shape. A client may pin either the `revision` (exact
+commit) or accept a `version` range; the `contract` field is informational and
+changes only when the durable-context wire format breaks compatibility.
+
+The release workflow verifies that every published binary embeds the exact
+release commit via `go version -m`. The Dockerfile accepts `VERSION`, `REVISION`
+and `CONTRACT_VERSION` build args; the Compose and Helm deployment paths pass
+the release tag as `VERSION` and the tag commit as `REVISION`.
+
+No step in the documented deployment path requires hand-editing a build flag to
+become compatible with a pinned client.
+
+## First-run path
+
+After starting memd from a release artifact (Compose, Docker image or bare
+binary), complete these steps to reach a working endpoint with a workspace, a
+token and the scopes needed for both write and recall operations.
+
+### 1. Verify the server is reachable
+
+```bash
+curl --fail "$(mem config get server)/healthz"
+curl --fail "$(mem config get server)/v1/version"
+```
+
+The `/v1/version` response must contain `version`, `revision` and `contract`
+fields. If the endpoint is unreachable, the server is not running or the
+configured URL is wrong. Run `mem doctor` to diagnose common preconditions.
+
+### 2. Register the first user
+
+With `MEM_REGISTRATION_MODE=first_user` (the Compose default), the first
+registration creates the owner account and disables further registration
+automatically:
+
+```bash
+mem auth login
+```
+
+Follow the interactive prompt. The CLI saves the session token to
+`~/.mem/config.yaml`. Verify with:
+
+```bash
+mem auth status
+```
+
+### 3. Create an API token with write and recall scopes
+
+The durable-context recall endpoint requires a token whose scopes cover both
+`write` and `read`. Create one:
+
+```bash
+mem auth token create \
+  --name "digital-employee" \
+  --scope "read,write"
+```
+
+Store the returned token. It is shown exactly once.
+
+### 4. Create a durable-context grant
+
+Recall operations require an admin-created grant that binds a principal to an
+approved set of memories. From the admin session:
+
+```bash
+curl -X POST "$(mem config get server)/v1/durable-context/grants" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"contract":"durable-context.v1","principal":"digital-employee","memory_ids":["<id>"]}'
+```
+
+The grant ties the principal name to the specific memories the recall scope is
+allowed to read. Without this grant, recall returns `scope_denied` even with a
+valid token.
+
+### 5. Verify end-to-end
+
+With the token and grant in place, a client adapter can complete one write and
+one recall:
+
+```bash
+# Write a memory
+curl -X POST "$(mem config get server)/v1/memories" \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"test memory","tags":["smoke-test"]}'
+
+# Recall durable context
+curl -X POST "$(mem config get server)/v1/durable-context/recall" \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"contract":"durable-context.v1","principal":"digital-employee"}'
+```
+
+If any step fails with a named precondition error (`scope_denied`,
+`contract_unsupported`, `registration_disabled`), the error message identifies
+the missing configuration rather than a generic connection failure.
 
 ## Single-node Compose
 
