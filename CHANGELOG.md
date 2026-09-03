@@ -30,6 +30,17 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Add `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and
   `Content-Security-Policy: default-src 'none'` to every API response, ordered
   outside the CORS handler so a preflight reply carries them too.
+- Make the web proxy the single authority for `X-Content-Type-Options`,
+  `X-Frame-Options` and `Referrer-Policy` on every response it serves, with one
+  `Referrer-Policy: no-referrer` instead of the `same-origin` it shipped before,
+  which contradicted the API's own value and let both reach a client on the
+  proxied path. The API's copies are hidden at the proxy rather than removed
+  from the API, so a `memd` running without a proxy keeps its defense in depth.
+  Cached assets carried none of the three: a local `add_header` for
+  `Cache-Control` replaced the inherited set entirely, so the set is now
+  restated in that location. `scripts/test_nginx_security_headers.sh` measures
+  the headers off a running nginx, since neither failure mode is visible by
+  reading the configuration.
 
 ## [0.1.1] - 2026-08-31
 

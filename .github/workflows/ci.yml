@@ -364,3 +364,20 @@ jobs:
 
       - name: Validate deployment configuration and production images
         run: make test-deploy-build
+
+      - name: Validate web security response headers
+        run: |
+          # The header contract is measured against the nginx that actually ships,
+          # so it runs on the image the step above built. That image carries no
+          # test tooling, so the tools are added to a throwaway child image
+          # instead of installing them as root at run time -- the harness then
+          # still runs as the image's unprivileged user.
+          printf 'FROM mem-web:deploy-validation\nRUN apk add --no-cache bash curl python3 gettext\n' \
+            >"${RUNNER_TEMP}/headers.Dockerfile"
+          docker build --tag mem-web-headers:validation \
+            -f "${RUNNER_TEMP}/headers.Dockerfile" "${RUNNER_TEMP}"
+          docker run --rm \
+            --volume "${GITHUB_WORKSPACE}:/src:ro" \
+            --env NGINX_BIN=/usr/sbin/nginx \
+            mem-web-headers:validation \
+            bash /src/scripts/test_nginx_security_headers.sh
