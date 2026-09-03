@@ -771,6 +771,7 @@ module.exports = {
   install,
   openResponse,
   releaseAssetLock,
+  REPO,
   sha256File,
   verifyFile,
 };
