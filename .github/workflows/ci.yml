@@ -368,11 +368,12 @@ jobs:
       - name: Validate web security response headers
         run: |
           # The header contract is measured against the nginx that actually ships,
-          # so it runs on the image the step above built. That image carries no
-          # test tooling, so the tools are added to a throwaway child image
-          # instead of installing them as root at run time -- the harness then
-          # still runs as the image's unprivileged user.
-          printf 'FROM mem-web:deploy-validation\nRUN apk add --no-cache bash curl python3 gettext\n' \
+          # so it runs on the image the step above built. That image ends its own
+          # build at USER 101, which cannot install packages, so the tools go into
+          # a throwaway child image that returns to that user id afterwards -- the
+          # harness then still runs unprivileged, as the container does in
+          # production.
+          printf 'FROM mem-web:deploy-validation\nUSER root\nRUN apk add --no-cache bash curl python3 gettext\nUSER 101\n' \
             >"${RUNNER_TEMP}/headers.Dockerfile"
           docker build --tag mem-web-headers:validation \
             -f "${RUNNER_TEMP}/headers.Dockerfile" "${RUNNER_TEMP}"
