@@ -11,7 +11,16 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
   to the canonical `bytefolk` organization while retaining the published npm
-  scope, MCP identity, and existing cache paths.
+  scope and the existing cache paths.
+- Follow the registry identifier after that rename: `mcpName` becomes
+  `io.github.bytefolk/mem-mcp`, because the official MCP Registry namespace is
+  derived from the repository owner and the previous value, naming the
+  organization this repository used to belong to, cannot resolve. The npm
+  package name and the installer's cache directory are deliberately unchanged,
+  so an existing installation keeps working and keeps its cache.
+  `npm/registry-identity.test.js` now asserts the identifier against the
+  repository coordinate the installer itself uses, so the next rename cannot
+  leave a stale identifier behind unnoticed.
 
 ### Security
 
