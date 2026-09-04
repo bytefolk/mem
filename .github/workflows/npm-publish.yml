@@ -1,0 +1,71 @@
+name: NPM Publish
+
+# G4 (npm publish) lives in its own workflow because scripts/test_release_guards.sh
+# forbids `npm publish` inside release.yml and requires the draft publication to
+# remain release.yml's final command. G1 (GitHub Release) must exist first:
+# install.js pulls the platform binaries from the Release at install time.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing published release tag to publish to npm (e.g., v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ inputs.version || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  npm-publish:
+    name: Publish npm package (OIDC Trusted Publishing)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Resolve release tag
+        id: tag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_VERSION:-${RELEASE_TAG_NAME}}"
+          if [[ ! "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "expected a release tag such as v0.1.0, got: ${TAG:-<empty>}" >&2
+            exit 1
+          fi
+          printf 'tag=%s\n' "${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out exact tag commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the GitHub Release (G1) to exist before npm publish (G4)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Publish @fullstack-ai-infra/mem-mcp (OIDC)
+        working-directory: npm
+        # No NPM_TOKEN / NODE_AUTH_TOKEN: auth is exchanged from the GitHub OIDC
+        # id-token against the npmjs Trusted Publisher configured for
+        # org=fullstack-ai-infra / repo=mem / workflow=npm-publish.yml.
+        run: npm publish --provenance --access public

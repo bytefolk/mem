@@ -117,6 +117,11 @@ run_web() {
   (cd "${REPO_ROOT}/web" && npm run test:transfer)
 }
 
+run_web_headers() {
+  log "Web reverse-proxy security headers"
+  "${REPO_ROOT}/scripts/test_nginx_security_headers.sh"
+}
+
 validate_test_database() {
   [[ -n "${MEM_TEST_DB:-}" ]] \
     || die "MEM_TEST_DB is required; run: make test-env-up"
@@ -423,6 +428,7 @@ case "$MODE" in
     run_server
     run_worker
     run_web
+    run_web_headers
     ;;
   race) run_race ;;
   integration) run_integration ;;
@@ -431,6 +437,7 @@ case "$MODE" in
     run_server
     run_worker
     run_web
+    run_web_headers
     run_race
     run_integration
     run_integration_race
