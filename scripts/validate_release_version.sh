@@ -85,7 +85,7 @@ heading_count="$(grep -Fc -- "## [${version}] - " "${changelog}" || true)"
 [[ "${heading_count}" == 1 ]] ||
   die "CHANGELOG.md: expected exactly one ${version} release heading"
 require_exact_line CHANGELOG.md \
-  "[Unreleased]: https://github.com/fullstack-ai-infra/mem/compare/v${version}...HEAD"
+  "[Unreleased]: https://github.com/bytefolk/mem/compare/v${version}...HEAD"
 
 version_links=()
 while IFS= read -r version_link; do
@@ -94,9 +94,9 @@ done < <(grep -F -- "[${version}]: " "${changelog}" || true)
 [[ "${#version_links[@]}" == 1 ]] ||
   die "CHANGELOG.md: expected exactly one [${version}] comparison link"
 if [[ "${version_links[0]}" != \
-    "[${version}]: https://github.com/fullstack-ai-infra/mem/releases/tag/v${version}" &&
+    "[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}" &&
   "${version_links[0]}" != \
-    "[${version}]: https://github.com/fullstack-ai-infra/mem/compare/"*"...v${version}" ]]; then
+    "[${version}]: https://github.com/bytefolk/mem/compare/"*"...v${version}" ]]; then
   die "CHANGELOG.md: [${version}] link must terminate at v${version}"
 fi
 

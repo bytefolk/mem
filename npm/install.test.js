@@ -286,7 +286,6 @@ test("install verifies a temporary download before exposing it", async (t) => {
     osPlatform,
     osArch,
     version: "0.1.1",
-    repository: "example/mem",
     environment: { MEM_MCP_CACHE_DIR: cacheRoot },
     homeDirectory: join(root, "read-only-package-home-must-not-be-used"),
     logger: QUIET_LOGGER,
@@ -307,8 +306,8 @@ test("install verifies a temporary download before exposing it", async (t) => {
   }
   assert.deepEqual(readdirSync(cacheDir), [asset]);
   assert.deepEqual(requested, [
-    "https://github.com/example/mem/releases/download/v0.1.1/mem-mcp-checksums.txt",
-    `https://github.com/example/mem/releases/download/v0.1.1/${asset}`,
+    "https://github.com/bytefolk/mem/releases/download/v0.1.1/mem-mcp-checksums.txt",
+    `https://github.com/bytefolk/mem/releases/download/v0.1.1/${asset}`,
   ]);
 });
 

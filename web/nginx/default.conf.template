@@ -7,9 +7,16 @@ server {
     index index.html;
     client_max_body_size ${MEM_MAX_BODY_SIZE};
 
+    # nginx is the single authority for these three headers on every response
+    # that leaves this container, so the values below are the values a client
+    # sees. The API sets the same three itself for deployments that run memd
+    # without a proxy in front; /v1/ hides those copies so they cannot arrive
+    # alongside these ones. Content-Security-Policy, X-XSS-Protection and
+    # Content-Disposition stay the API's, because they depend on what the
+    # response actually is and nginx cannot know that.
     add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "same-origin" always;
     add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
 
     location = /healthz {
         access_log off;
@@ -18,6 +25,9 @@ server {
     }
 
     location /v1/ {
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Referrer-Policy;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -32,6 +42,12 @@ server {
     location /assets/ {
         try_files $uri =404;
         expires 1y;
+        # An add_header in this block replaces the inherited set rather than
+        # adding to it, so the three headers above have to be restated here or
+        # every cached bundle ships without them.
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "no-referrer" always;
         add_header Cache-Control "public, immutable";
     }
 

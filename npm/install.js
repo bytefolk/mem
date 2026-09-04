@@ -31,7 +31,7 @@ const { TextDecoder } = require("util");
 const { assetFor } = require("./platforms");
 
 const PACKAGE = "@fullstack-ai-infra/mem-mcp";
-const REPO = "fullstack-ai-infra/mem";
+const REPO = "bytefolk/mem";
 const CHECKSUM_ASSET = "mem-mcp-checksums.txt";
 const MAX_CHECKSUM_BYTES = 64 * 1024;
 const MAX_REDIRECTS = 5;
