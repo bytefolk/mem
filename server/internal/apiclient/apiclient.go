@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/PeterGuy326/mem/server/internal/redact"
 )
 
 const sourceMetadataHeader = "X-Mem-Source-Metadata"
@@ -99,7 +101,7 @@ func (c *Client) DoJSONWithHeaders(ctx context.Context, method, path string, bod
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, rdr)
 	if err != nil {
-		return err
+		return requestBuildError(method, c.baseURL+path, err)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -110,7 +112,7 @@ func (c *Client) DoJSONWithHeaders(ctx context.Context, method, path string, bod
 	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return err
+		return gateTransportError(err)
 	}
 	defer resp.Body.Close()
 	return decode(resp, out)
@@ -169,13 +171,13 @@ func (c *Client) UploadMultipartWithSourceMetadata(ctx context.Context, name, mi
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/files", pr)
 	if err != nil {
-		return err
+		return requestBuildError(http.MethodPost, c.baseURL+"/v1/files", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return err
+		return gateTransportError(err)
 	}
 	defer resp.Body.Close()
 	if werr := <-errCh; werr != nil {
@@ -214,9 +216,10 @@ func (c *Client) UploadStreamWithSourceMetadata(ctx context.Context, name, mimeT
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/files?"+q.Encode(), body)
+	target := c.baseURL + "/v1/files?" + q.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
 	if err != nil {
-		return err
+		return requestBuildError(http.MethodPost, target, err)
 	}
 	if sourceJSON != "" {
 		req.Header.Set(sourceMetadataHeader, sourceJSON)
@@ -230,7 +233,7 @@ func (c *Client) UploadStreamWithSourceMetadata(ctx context.Context, name, mimeT
 	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return err
+		return gateTransportError(err)
 	}
 	defer resp.Body.Close()
 	return decode(resp, out)
@@ -239,14 +242,15 @@ func (c *Client) UploadStreamWithSourceMetadata(ctx context.Context, name, mimeT
 // DownloadStream returns a streaming reader for GET /v1/files/{id}/content.
 // Callers MUST close the returned ReadCloser.
 func (c *Client) DownloadStream(ctx context.Context, fileID string) (io.ReadCloser, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/files/"+fileID+"/content", nil)
+	dlTarget := c.baseURL + "/v1/files/" + fileID + "/content"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, dlTarget, nil)
 	if err != nil {
-		return nil, "", err
+		return nil, "", requestBuildError(http.MethodGet, dlTarget, err)
 	}
 	c.attachAuth(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, "", err
+		return nil, "", gateTransportError(err)
 	}
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
@@ -267,6 +271,40 @@ func marshalSourceMetadata(sourceMetadata *FileSourceMetadata) (string, error) {
 	}
 	return string(raw), nil
 }
+
+// requestBuildError and gateTransportError are the two halves of one rule: the
+// configured base URL can carry credentials, and both http.NewRequestWithContext
+// and http.Client.Do put that URL into the error they return. Go masks the
+// password there but not the username, and masks nothing for a value it parses
+// as an opaque scheme, so the URL goes through the shared gate instead.
+//
+// The wrappers keep the cause reachable through Unwrap so callers can still
+// classify a timeout with errors.Is after the text has been rewritten.
+func requestBuildError(method, target string, err error) error {
+	return &redactErr{
+		cause:   err,
+		message: fmt.Sprintf("%s %s: %s", method, redact.URL(target, redact.APIURLs), redact.Text(err.Error(), redact.APIURLs)),
+	}
+}
+
+func gateTransportError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &redactErr{
+		cause:   err,
+		message: redact.TransportError(err, redact.APIURLs),
+	}
+}
+
+type redactErr struct {
+	cause   error
+	message string
+}
+
+func (e *redactErr) Error() string { return e.message }
+
+func (e *redactErr) Unwrap() error { return e.cause }
 
 func (c *Client) attachAuth(req *http.Request) {
 	if c.token != "" {

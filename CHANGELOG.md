@@ -42,6 +42,24 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   the headers off a running nginx, since neither failure mode is visible by
   reading the configuration.
 
+### Fixed
+
+- A configured URL that carries credentials in a shape `url.Parse` does not
+  report as userinfo no longer reaches output. `admin:pw@host` parses as
+  `Scheme="admin"` with the credential in `Opaque` and `User` unset, so an
+  implementation that gates on `User != nil` echoes it verbatim. On this base it
+  leaked from the CLI API client — at request construction and at all four
+  `http.Client.Do` sites, which the previous error path did not cover — and from
+  `memd`'s startup log line and its fatal log line, the last of which additionally
+  carries third-party errors that embed a whole DSN. Both now route through one
+  shared gate that redacts a value it can prove is a transport URL and
+  **withholds the value whole** otherwise. It does not scrub credentials out of
+  error text, which cannot be made tight: `url.Error` renders with `%q`, so a
+  quote inside a password arrives escaped and a scanner that pairs quotes
+  mis-pairs and replaces nothing. Withholding costs some diagnosability by design;
+  why a request failed is still reported. A credential supplied as a query
+  parameter (`?password=`) is still echoed and is tracked separately.
+
 ## [0.1.1] - 2026-08-31
 
 ### Changed
