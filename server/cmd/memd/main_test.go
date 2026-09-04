@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/PeterGuy326/mem/server/internal/redact"
 	"github.com/PeterGuy326/mem/server/internal/workspacebundle"
 )
 
@@ -15,14 +16,36 @@ func TestRedactURLCredentials(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  string
+		want string
 	}{
 		{
 			name: "postgres",
 			raw:  "postgres://mem:database-secret@postgres:5432/mem?sslmode=disable",
+			want: "postgres://REDACTED@postgres:5432/mem?sslmode=disable",
 		},
 		{
 			name: "redis",
 			raw:  "redis://:redis-secret@redis:6379/0",
+			want: "redis://REDACTED@redis:6379/0",
+		},
+		{
+			// The old scrubber echoed this raw because it only masked values with a
+			// password; the gate treats any userinfo as a credential.
+			name: "username only",
+			raw:  "postgres://mem@postgres:5432/mem?sslmode=disable",
+			want: "postgres://REDACTED@postgres:5432/mem?sslmode=disable",
+		},
+		{
+			// url.Parse reads the scheme as "redis" and parks the rest in Opaque,
+			// so a u.User check never fires.
+			name: "redis without a transport scheme",
+			raw:  "redis:redis-secret@redis:6379/0",
+			want: redact.Placeholder,
+		},
+		{
+			name: "postgres that fails to parse",
+			raw:  "postgres://mem:database-secret@post gres:5432/mem",
+			want: redact.Placeholder,
 		},
 	}
 	for _, test := range tests {
@@ -30,26 +53,42 @@ func TestRedactURLCredentials(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			got := redactURLCredentials(test.raw)
+			if got != test.want {
+				t.Fatalf("redactURLCredentials(%q) = %q, want %q", test.raw, got, test.want)
+			}
 			if strings.Contains(got, "secret") {
 				t.Fatalf("credentials leaked from %q: %q", test.raw, got)
-			}
-			if !strings.Contains(got, "@") {
-				t.Fatalf("redacted URL lost its endpoint: %q", got)
 			}
 		})
 	}
 }
 
-func TestRedactURLCredentialsLeavesPasswordlessValuesAlone(t *testing.T) {
+func TestRedactURLCredentialsLeavesCredentialFreeValuesAlone(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []string{
 		"redis://redis:6379/0",
-		"redis:6379",
-		"://not-a-url",
+		"http://mem.internal:8787",
 	} {
 		if got := redactURLCredentials(raw); got != raw {
 			t.Fatalf("redactURLCredentials(%q) = %q", raw, got)
+		}
+	}
+}
+
+// TestRedactURLCredentialsWithholdsWhatItCannotVerify pins the fail-closed half:
+// these shapes carry no visible password today, but the gate cannot prove that
+// from a parse it either failed or had to attribute to an unknown scheme, so
+// logging them at all would be guessing.
+func TestRedactURLCredentialsWithholdsWhatItCannotVerify(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []string{
+		"redis:6379",
+		"://not-a-url",
+	} {
+		if got := redactURLCredentials(raw); got != redact.Placeholder {
+			t.Fatalf("redactURLCredentials(%q) = %q, want %q", raw, got, redact.Placeholder)
 		}
 	}
 }

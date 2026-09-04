@@ -155,3 +155,63 @@ func TestUploadStreamWithSourceMetadata(t *testing.T) {
 		t.Fatal("source_metadata leaked into the request URL")
 	}
 }
+
+func TestRequestBuildErrorRedactsCredentialedURL(t *testing.T) {
+	const secret = "bad-token-xyz"
+	err := New("http://admin:"+secret+"@ho st.example.com:1", "token").DoJSON(
+		context.Background(),
+		http.MethodGet,
+		"/v1/test",
+		nil,
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected request construction to fail for malformed URL")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("request-build error leaked credential: %v", err)
+	}
+	if !strings.Contains(err.Error(), "REDACTED") {
+		t.Fatalf("request-build error should redact credentials: %v", err)
+	}
+}
+
+// A URL whose scheme is really a username parses, so request construction
+// succeeds and the failure comes from the transport instead. Every entry point
+// has its own http.Client.Do site, so each needs its own case: covering request
+// construction does not cover request execution.
+func TestTransportErrorRedactsCredentialedURL(t *testing.T) {
+	const secret = "bad-token-xyz"
+	schemeless := "admin:" + secret + "@mem.invalid:8787"
+
+	cases := []struct {
+		name string
+		call func(*Client) error
+	}{
+		{"DoJSON", func(c *Client) error {
+			return c.DoJSON(context.Background(), http.MethodGet, "/v1/test", nil, nil)
+		}},
+		{"UploadMultipart", func(c *Client) error {
+			return c.UploadMultipart(context.Background(), "f.txt", "text/plain", "", strings.NewReader("x"), nil, nil)
+		}},
+		{"UploadStream", func(c *Client) error {
+			return c.UploadStream(context.Background(), "f.txt", "text/plain", "", 1, nil, strings.NewReader("x"), nil)
+		}},
+		{"DownloadStream", func(c *Client) error {
+			_, _, err := c.DownloadStream(context.Background(), "file-1")
+			return err
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.call(New(schemeless, "token"))
+			if err == nil {
+				t.Fatal("expected the transport to fail for a schemeless base URL")
+			}
+			if strings.Contains(err.Error(), secret) {
+				t.Errorf("%s transport error leaked credential: %v", tc.name, err)
+			}
+		})
+	}
+}
