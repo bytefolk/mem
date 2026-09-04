@@ -120,6 +120,14 @@ Terminate HTTPS at a maintained reverse proxy or load balancer. Forward to
 `http://127.0.0.1:8080`, preserve the `Host` and `X-Forwarded-*` headers, and
 set an upload-body limit at least as large as `MEM_MAX_BODY_SIZE`.
 
+The web container is itself a reverse proxy and is the authority for
+`X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`; it sets them
+on every response it serves and drops the copies `memd` sends so they do not
+arrive twice. `Content-Security-Policy`, `X-XSS-Protection` and
+`Content-Disposition` come from `memd`, because they depend on what the response
+actually is. If your terminating proxy sets the first three as well, set them
+there or here, not both, or a client receives two values for one header.
+
 ### Configure and start
 
 From the repository root:
