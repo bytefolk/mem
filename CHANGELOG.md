@@ -42,6 +42,16 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   the headers off a running nginx, since neither failure mode is visible by
   reading the configuration.
 
+### Fixed
+
+- The npm installer no longer aborts a concurrent first run on Windows. The
+  per-asset cache lock previously treated only `EEXIST` as contention, but a
+  contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
+  waiting for the lock holder failed outright instead of retrying. The retry
+  path now proves a lock can be inspected before treating those Windows errors
+  as contention, preserves prompt failure for unrelated permission errors, and
+  observes its deadline when a competing lock disappears during inspection.
+
 ## [0.1.1] - 2026-08-31
 
 ### Changed
