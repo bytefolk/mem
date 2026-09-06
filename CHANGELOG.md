@@ -18,8 +18,11 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   impossible is reported as `skipped` instead of guessed. It issues only `GET`
   requests and never writes configuration, starts a container, or installs a
   dependency; `--format json` emits the `mem.doctor` v1 document described by
-  `docs/schemas/mem-doctor.v1.schema.json`, with no secret value in it (the
-  configured URL is reported with credentials removed). See
+  `docs/schemas/mem-doctor.v1.schema.json`. A token is described only by where it
+  came from, and a configured URL carrying credentials in its userinfo is
+  redacted or, when it cannot be proven to be a credential-free transport URL,
+  withheld whole. The document is not guaranteed free of every secret: a
+  credential supplied as a URL query parameter is still reported verbatim. See
   `docs/DEPLOYMENT.md`.
 - First-run guidance: a command that fails because no credential exists now says
   so on a machine with no configuration at all by naming the documented

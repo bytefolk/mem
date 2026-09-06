@@ -190,9 +190,17 @@ computable in builds that do not inject a CLI version, which today includes
 release builds, so the check reports that limit instead of claiming agreement.
 
 `--format json` emits the `mem.doctor` v1 document validated by
-[`schemas/mem-doctor.v1.schema.json`](schemas/mem-doctor.v1.schema.json). It
-contains no secret value: the configured URL is reported with any credentials
-removed, and a token is described only by where it came from.
+[`schemas/mem-doctor.v1.schema.json`](schemas/mem-doctor.v1.schema.json), and a
+token is described only by where it came from. A configured URL carrying
+credentials in its userinfo is reported with those credentials replaced by
+`REDACTED`, and a URL that cannot be proven to be a credential-free transport URL
+is withheld whole as `[withheld]` rather than partially trimmed.
+
+This is not a guarantee that the document contains no secret. A credential
+supplied as a URL **query parameter** — for example
+`http://mem.internal:8787?password=…` — parses as a clean URL with no userinfo,
+so it is reported verbatim. Do not treat a doctor report as safe to publish
+without reading it first if your server URL carries a secret outside userinfo.
 
 ### First account and login
 

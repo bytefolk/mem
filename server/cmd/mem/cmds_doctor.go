@@ -28,9 +28,11 @@ import (
 //	version_skew         GET /v1/version
 //
 // REQ-003 keeps this strictly diagnostic: every request is a GET, nothing is
-// created, no dependency is installed, no Docker or compose command is issued,
-// and no secret value or DSN is ever printed (the configured URL is reported
-// with any userinfo removed).
+// created, no dependency is installed, no Docker or compose command is issued.
+// URLs pass through internal/redact on the way out: userinfo is redacted, and a
+// URL that cannot be proven credential-free is withheld whole. That covers
+// secrets in userinfo and DSNs, not a credential placed in the query string,
+// which parses as a clean URL and is still printed.
 
 // doctorContract and doctorSchemaVersion follow the repo convention of naming a
 // machine-readable surface and versioning it, mirroring docs/schemas.
