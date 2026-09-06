@@ -93,11 +93,19 @@ while IFS= read -r version_link; do
 done < <(grep -F -- "[${version}]: " "${changelog}" || true)
 [[ "${#version_links[@]}" == 1 ]] ||
   die "CHANGELOG.md: expected exactly one [${version}] comparison link"
-if [[ "${version_links[0]}" != \
-    "[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}" &&
-  "${version_links[0]}" != \
-    "[${version}]: https://github.com/bytefolk/mem/compare/"*"...v${version}" ]]; then
-  die "CHANGELOG.md: [${version}] link must terminate at v${version}"
+# The compare base is the field that decides which commits a release holds,
+# so a wildcard there would let the gate pass a section that quietly widens
+# or narrows the release. The heading above already pins ${version} as the
+# first versioned section, making the second one the release it follows.
+previous_version="$(sed -nE 's/^## \[([0-9][^]]*)\].*/\1/p' "${changelog}" | awk 'NR == 2')"
+release_tag_link="[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}"
+compare_link="[${version}]: https://github.com/bytefolk/mem/compare/v${previous_version}...v${version}"
+if [[ "${version_links[0]}" == "${release_tag_link}" ]]; then
+  :
+elif [[ -z "${previous_version}" ]]; then
+  die "CHANGELOG.md: cannot derive the previous release heading for [${version}]"
+elif [[ "${version_links[0]}" != "${compare_link}" ]]; then
+  die "CHANGELOG.md: [${version}] link must be ${compare_link}"
 fi
 
 printf 'PASS: all release version surfaces match %s\n' "${version}"
