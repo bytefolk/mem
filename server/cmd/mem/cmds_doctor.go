@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/PeterGuy326/mem/server/internal/apiclient"
+	"github.com/PeterGuy326/mem/server/internal/redact"
 	"github.com/spf13/cobra"
 )
 
@@ -348,65 +348,19 @@ func deployPathHint() string {
 	return "start the documented container path: deploy/compose, see docs/DEPLOYMENT.md"
 }
 
-// redactURL strips userinfo so a URL that carries credentials cannot be echoed
-// into a report that an operator will paste into an issue. The marker uses only
-// unreserved characters, because url.User("***") would percent-encode it.
+// redactURL gates a configured URL on its way into a report an operator
+// will paste into an issue. The policy lives in internal/redact so the CLI, the
+// API client and memd share one implementation: a URL that can be positively
+// proven to be a credential-free transport URL is echoed with its userinfo
+// replaced, and one that cannot is withheld whole rather than scrubbed.
 func redactURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err == nil && u.User != nil {
-		u.User = url.User("REDACTED")
-		return u.String()
-	}
-
-	// If url.Parse fails, malformed credential URLs can still slip through
-	// unchanged unless we fall back to a simple schema/userinfo splitter.
-	if err != nil {
-		if redacted := redactMalformedURL(raw); redacted != raw {
-			return redacted
-		}
-		return raw
-	}
-	return raw
+	return redact.URL(raw, redact.APIURLs)
 }
 
-func redactMalformedURL(raw string) string {
-	sep := "://"
-	if i := strings.Index(raw, sep); i >= 0 {
-		prefix := raw[:i+len(sep)]
-		rest := raw[i+len(sep):]
-		at := strings.Index(rest, "@")
-		if at > 0 {
-			return prefix + "REDACTED@" + rest[at+1:]
-		}
-	}
-	return raw
-}
-
+// sanitizeProbeError renders a probe failure without letting the configured URL
+// out, including the shapes url.Parse reports as neither an error nor userinfo.
 func sanitizeProbeError(err error) string {
-	if err == nil {
-		return ""
-	}
-	msg := err.Error()
-	const quoted = "\""
-	for start := 0; ; {
-		left := strings.Index(msg[start:], quoted)
-		if left < 0 {
-			return msg
-		}
-		left += start
-		right := strings.Index(msg[left+1:], quoted)
-		if right < 0 {
-			return msg
-		}
-		right += left + 1
-		token := msg[left+1 : right]
-		if strings.Contains(token, "://") {
-			if redacted := redactURL(token); redacted != token {
-				msg = msg[:left+1] + redacted + msg[right:]
-			}
-		}
-		start = right + 1
-	}
+	return redact.TransportError(err, redact.APIURLs)
 }
 
 func printDoctorReport(cmd *cobra.Command, r doctorReport) {

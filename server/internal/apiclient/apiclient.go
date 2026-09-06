@@ -287,6 +287,17 @@ func requestBuildError(method, target string, err error) error {
 	}
 }
 
+// newRequest is the construction site for the requests that are issued outside
+// the DoJSON and Upload helpers, so a base URL that cannot be parsed fails
+// through the same gate here as it does there.
+func (c *Client) newRequest(ctx context.Context, method, target string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, target, body)
+	if err != nil {
+		return nil, requestBuildError(method, target, err)
+	}
+	return req, nil
+}
+
 func gateTransportError(err error) error {
 	if err == nil {
 		return nil

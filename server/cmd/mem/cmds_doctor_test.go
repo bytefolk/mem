@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/PeterGuy326/mem/server/internal/redact"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -414,8 +415,9 @@ func TestRedactURLStripsUserinfo(t *testing.T) {
 	if strings.Contains(got, secret) {
 		t.Errorf("redactURL = %q, still carries the malformed-password value", got)
 	}
-	if !strings.Contains(got, "REDACTED@ho st.example.com:8787") {
-		t.Errorf("redactURL = %q, want malformed URLs to redact their userinfo", got)
+	if got != redact.Placeholder && !strings.Contains(got, "REDACTED@ho st.example.com:8787") {
+		t.Errorf("redactURL = %q, want userinfo replaced, or the whole value withheld "+
+			"once it can no longer be proven a transport URL", got)
 	}
 	plain := "http://localhost:8787"
 	if redactURL(plain) != plain {
@@ -451,8 +453,42 @@ func TestDoctorMalformedServerURLDoesNotLeakCredentials(t *testing.T) {
 			if strings.Contains(reach.Detail, malformed) {
 				t.Errorf("server_reachability detail leaked raw URL: %s", reach.Detail)
 			}
-			if !strings.Contains(reach.Detail, "REDACTED") {
-				t.Errorf("server_reachability detail should redact credentials: %s", reach.Detail)
+			if !strings.Contains(reach.Detail, redact.UserMarker) &&
+				!strings.Contains(reach.Detail, redact.Placeholder) {
+				t.Errorf("server_reachability detail should redact or withhold credentials: %s", reach.Detail)
+			}
+		}
+	}
+}
+
+// TestDoctorSchemelessServerURLDoesNotLeakCredentials covers the shape the
+// previous scrubber could not see: url.Parse succeeds on it and reports no
+// userinfo, because "admin" is read as the scheme and the credential lands in
+// Opaque. A gate that keys on User != nil echoes it verbatim.
+func TestDoctorSchemelessServerURLDoesNotLeakCredentials(t *testing.T) {
+	const secret = "schemeless-psswd"
+	schemeless := "admin:" + secret + "@mem.invalid:8787"
+	configureDoctor(t, schemeless, "tok", true)
+
+	for _, format := range []string{"json", "text"} {
+		stdout, stderr, err := execDoctor(t, "--format", format)
+		if err == nil {
+			t.Fatalf("doctor should fail against an unreachable schemeless URL in %s format\n%s", format, stdout)
+		}
+		if strings.Contains(stdout, secret) || strings.Contains(stderr, secret) {
+			t.Errorf("%s output leaked the credential: stdout=%s stderr=%s", format, stdout, stderr)
+		}
+		if strings.Contains(stdout, schemeless) || strings.Contains(stderr, schemeless) {
+			t.Errorf("%s output echoed the raw schemeless URL: stdout=%s stderr=%s", format, stdout, stderr)
+		}
+		if format == "json" {
+			rep := decodeReport(t, stdout)
+			if strings.Contains(rep.Server, secret) {
+				t.Errorf("report server field leaked the credential: %s", rep.Server)
+			}
+			reach := checkByName(t, rep, "server_reachability")
+			if strings.Contains(reach.Detail, secret) || strings.Contains(reach.Hint, secret) {
+				t.Errorf("detail/hint leaked the credential: detail=%s hint=%s", reach.Detail, reach.Hint)
 			}
 		}
 	}
