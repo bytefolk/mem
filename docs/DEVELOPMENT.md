@@ -3,7 +3,7 @@
 This document contains rules that are specific to the `mem` product and code
 base. The active organization-wide contribution lifecycle, issue and pull
 request forms, review rules, conduct policy, and support defaults come from
-[`fullstack-ai-infra/.github`](https://github.com/fullstack-ai-infra/.github).
+[`bytefolk/.github`](https://github.com/bytefolk/.github).
 This repository owns only `mem`-specific product, validation, security,
 ownership, triage, and release rules. Do not copy organization defaults back
 into this repository: GitHub treats local community files as whole-file or

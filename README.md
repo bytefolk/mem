@@ -4,7 +4,7 @@
 >
 > 开源 · 自托管 · 模型可插拔 · API / MCP / CLI / UI 共用一套记忆内核。
 
-[![CI](https://github.com/fullstack-ai-infra/mem/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fullstack-ai-infra/mem/actions/workflows/ci.yml)
+[![CI](https://github.com/bytefolk/mem/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bytefolk/mem/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#project-status)
 [![MCP Server](https://img.shields.io/badge/MCP%20Server-26%20tools-blue?logo=modelcontextprotocol)](docs/mcp.md)
@@ -233,7 +233,7 @@ mem 的壁垒不是绑定某个更大的模型，而是长期积累的、用户�
 项目仍处于 Phase 1 MVP。当前开发体验：
 
 ```bash
-git clone https://github.com/fullstack-ai-infra/mem.git
+git clone https://github.com/bytefolk/mem.git
 cd mem
 ./scripts/dev_up.sh
 mem auth login
@@ -298,7 +298,7 @@ embedding，平台托管 embedding 则使用独立的 workspace 权益和额度�
 - 本地运行与验证：[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)
 - 项目开发边界：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 - 测试环境与回归门槛：[docs/TESTING.md](docs/TESTING.md)
-- 参与贡献：[组织贡献基线](https://github.com/fullstack-ai-infra/.github/blob/main/CONTRIBUTING.md)
+- 参与贡献：[组织贡献基线](https://github.com/bytefolk/.github/blob/main/CONTRIBUTING.md)
   与 [mem 开发契约](docs/DEVELOPMENT.md)
 - 版本变化：[CHANGELOG.md](CHANGELOG.md)
 
@@ -415,7 +415,7 @@ All changes follow an issue-first, pull-request-only workflow:
 5. Obtain an independent review and pass required CI checks before merge.
 
 Read the
-[organization contribution baseline](https://github.com/fullstack-ai-infra/.github/blob/main/CONTRIBUTING.md)
+[organization contribution baseline](https://github.com/bytefolk/.github/blob/main/CONTRIBUTING.md)
 and the [mem-specific development contract](docs/DEVELOPMENT.md), then use
 [docs/maintainers/triage.md](docs/maintainers/triage.md) for the issue
 taxonomy. Security reports must follow [SECURITY.md](SECURITY.md), not a

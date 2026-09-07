@@ -8,7 +8,7 @@ only in where stateful dependencies run and which workloads can scale.
 > The deployment assets are suitable for private self-hosting. Do not expose a
 > `mem` installation as a public multi-tenant service until the hosted
 > authentication and abuse-control work in
-> [issue #65](https://github.com/fullstack-ai-infra/mem/issues/65) is complete.
+> [issue #65](https://github.com/bytefolk/mem/issues/65) is complete.
 > The Helm profile is the intended foundation for that service, but
 > horizontal scaling alone does not make the current login/session model
 > Internet-service grade.
@@ -119,6 +119,14 @@ the firewall source to that load balancer. Never publish ports 5432, 6379,
 Terminate HTTPS at a maintained reverse proxy or load balancer. Forward to
 `http://127.0.0.1:8080`, preserve the `Host` and `X-Forwarded-*` headers, and
 set an upload-body limit at least as large as `MEM_MAX_BODY_SIZE`.
+
+The web container is itself a reverse proxy and is the authority for
+`X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy`; it sets them
+on every response it serves and drops the copies `memd` sends so they do not
+arrive twice. `Content-Security-Policy`, `X-XSS-Protection` and
+`Content-Disposition` come from `memd`, because they depend on what the response
+actually is. If your terminating proxy sets the first three as well, set them
+there or here, not both, or a client receives two values for one header.
 
 ### Configure and start
 
@@ -394,7 +402,7 @@ boundary and object store. memd must stay at one replica and uses a `Recreate`
 rollout so old and new pods never overlap: its indexing and embedding-provider
 switch coordination is process-local. Keep `memd.replicaCount=1` and
 `memd.autoscaling.enabled=false` until
-[issue #55](https://github.com/fullstack-ai-infra/mem/issues/55) provides
+[issue #55](https://github.com/bytefolk/mem/issues/55) provides
 cross-replica index generations. `Recreate` trades availability for correctness:
 plan a brief memd API interruption during upgrades. The migration stays
 single-run.
@@ -439,7 +447,7 @@ The hosted service should reuse the multi-node topology, not the single-node
 Compose profile:
 
 - replicated Web and Worker across failure domains; keep one memd until
-  [issue #55](https://github.com/fullstack-ai-infra/mem/issues/55) enables
+  [issue #55](https://github.com/bytefolk/mem/issues/55) enables
   safe cross-replica indexing;
 - external HA PostgreSQL, Redis and S3;
 - managed secrets and immutable images;

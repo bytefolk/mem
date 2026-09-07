@@ -190,6 +190,11 @@ type Server struct {
 // Router returns a chi.Router with all v1 routes wired.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
+	// Registered first so it wraps the CORS handler below: corsMiddleware
+	// answers an allowed-origin preflight with a 204 and returns without
+	// calling next, so a security middleware registered after it never sees
+	// that response.
+	r.Use(securityHeadersMiddleware)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	if len(s.CORSOrigins) > 0 {
@@ -1136,11 +1141,16 @@ func (s *Server) handleGetContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rc.Close()
-	w.Header().Set("Content-Type", f.MIME)
+	// files.mime is declared by the uploader, so normalize it before deciding
+	// anything: interpretable types download rather than execute in this
+	// origin, and the stored string is never echoed into a response header.
+	contentType, disposition := contentResponseHeaders(f.MIME, f.Name)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if f.Size > 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
 	}
-	w.Header().Set("Content-Disposition", `inline; filename="`+f.Name+`"`)
+	w.Header().Set("Content-Disposition", disposition)
 	w.WriteHeader(http.StatusOK)
 	// best-effort copy; client may disconnect
 	_, _ = copyTo(w, rc)

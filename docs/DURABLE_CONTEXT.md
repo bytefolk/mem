@@ -3,7 +3,7 @@
 Status: additive read-only contract for resuming explicitly approved,
 workspace-scoped active memory across sessions and channels.
 
-Requirement: [mem#70](https://github.com/fullstack-ai-infra/mem/issues/70)
+Requirement: [mem#70](https://github.com/bytefolk/mem/issues/70)
 REQ-001 / AC-001.
 
 ## Why one pinned contract

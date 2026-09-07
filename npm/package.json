@@ -13,13 +13,13 @@
     "mcp-server"
   ],
   "license": "Apache-2.0",
-  "homepage": "https://github.com/fullstack-ai-infra/mem",
+  "homepage": "https://github.com/bytefolk/mem",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fullstack-ai-infra/mem.git"
+    "url": "git+https://github.com/bytefolk/mem.git"
   },
   "bugs": {
-    "url": "https://github.com/fullstack-ai-infra/mem/issues"
+    "url": "https://github.com/bytefolk/mem/issues"
   },
   "bin": {
     "mem-mcp": "./mem-mcp"

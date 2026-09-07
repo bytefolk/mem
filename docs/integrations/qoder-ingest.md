@@ -52,7 +52,7 @@ carry no ingestible text, or are JSON-LD continuations are skipped rather than
 failing the run. Undocumented fields do not block ingestion.
 
 > The connector targets the transcript store described in
-> [fullstack-ai-infra/mem#103](https://github.com/fullstack-ai-infra/mem/issues/103).
+> [bytefolk/mem#103](https://github.com/bytefolk/mem/issues/103).
 > If your CLI emits a materially different shape, the parser keys live in
 > `server/cmd/mem/qoder_transcript.go` and are trivially extended.
 
@@ -98,7 +98,7 @@ mem search "recruit rubric" --path /AgentTranscripts
 
 ## MyContext interop (follow-up, not a blocker)
 
-[#103](https://github.com/fullstack-ai-infra/mem/issues/103) accepts MyContext
+[#103](https://github.com/bytefolk/mem/issues/103) accepts MyContext
 interop as a deferred follow-up (AC-003). The connector is structured so a
 MyContext bridge can reuse the same normalize-and-write path later:
 
