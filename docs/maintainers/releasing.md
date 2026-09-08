@@ -61,6 +61,8 @@ and an independent reviewer approves it.
 
 Before creating a tag or GitHub Release, a maintainer must verify:
 
+- Ruleset 21899500 has a bypass actor configured for the release tag push.
+  See [`GOVERNANCE.md`](../../GOVERNANCE.md) for the sanctioned path.
 - The release pull request is merged into `main`.
 - `CI`, `PR Policy`, and every required repository check passed for the exact
   release commit.
@@ -81,7 +83,9 @@ creates, moves, or replaces a tag.
    `main`, then record its full commit ID and the successful required checks.
 2. From an up-to-date, clean checkout of that exact commit, create one annotated
    tag and push only that new tag. Never reuse a version or move an existing
-   tag.
+   tag. This push requires a bypass actor on ruleset 21899500; see
+   [`GOVERNANCE.md`](../../GOVERNANCE.md) for the sanctioned tag-cut path and
+   the admin action required to configure it.
 3. The tag push starts `.github/workflows/release.yml`. A manual retry must be
    dispatched from the current default branch and must name the same existing
    annotated tag. The workflow resolves that input as the full
