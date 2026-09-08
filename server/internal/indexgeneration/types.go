@@ -41,7 +41,8 @@ var (
 	ErrInvalidTransition  = errors.New("invalid index generation state transition")
 	ErrQualityGate        = errors.New("index generation quality gate is not satisfied")
 	ErrDimensionMismatch  = errors.New("index generation vector dimension mismatch")
-	ErrTargetUnavailable  = errors.New("index generation target is unavailable")
+	ErrTargetUnavailable    = errors.New("index generation target is unavailable")
+	ErrExecutionUnavailable = errors.New("index generation execution is not wired")
 )
 
 // Build is one profile migration. Its route generations activate together so
