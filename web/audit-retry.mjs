@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 10_000;
-// At most six attempts and four backoffs across both audit thresholds (6m40s).
+// At most six attempts and four backoffs across both audit thresholds (~5m10s with 45s fetch timeout).
 const ATTEMPT_TIMEOUT_MS = 60_000;
 
 const NETWORK_PATTERNS = [
@@ -23,11 +23,11 @@ const VULNERABILITY_PATTERNS = [
 const COMMANDS = [
   {
     label: "production dependencies (moderate threshold)",
-    args: ["audit", "--omit=dev", "--audit-level=moderate"],
+    args: ["audit", "--omit=dev", "--audit-level=moderate", "--fetch-timeout=45000"],
   },
   {
     label: "all dependencies (high threshold)",
-    args: ["audit", "--audit-level=high"],
+    args: ["audit", "--audit-level=high", "--fetch-timeout=45000"],
   },
 ];
 

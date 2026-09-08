@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runAudits } from "./audit-retry.mjs";
 
 const PASS = { status: 0, stdout: "", stderr: "" };
-const PROD_ARGS = ["audit", "--omit=dev", "--audit-level=moderate"];
-const ALL_ARGS = ["audit", "--audit-level=high"];
+const PROD_ARGS = ["audit", "--omit=dev", "--audit-level=moderate", "--fetch-timeout=45000"];
+const ALL_ARGS = ["audit", "--audit-level=high", "--fetch-timeout=45000"];
 
 function harness(results, overrides = {}) {
   let stdout = "";
