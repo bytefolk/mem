@@ -11,8 +11,8 @@
 //  4. Insert embeddings_face (file_id, entity_id, bbox, embedding).
 //
 // This is intentionally O(n) per insert — fine for a personal drive up to
-// thousands of faces. For larger corpora swap in pgvector HNSW + offline
-// re-clustering.
+// thousands of faces. The HNSW index (migration 0024) is available for future
+// SQL-based face search queries.
 package face
 
 import (
