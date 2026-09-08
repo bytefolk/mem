@@ -138,7 +138,7 @@ The canonical product surface is:
 | `mem_checkpoint_list` | List newest-first bounded checkpoint summaries for one task |
 | `mem_checkpoint_get` | Get one immutable checkpoint and its full handoff payload |
 | `mem_resume` | Restore the current task head or a selected historical checkpoint, including resolved and missing evidence |
-| `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets |
+| `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets. `route=lexical` is model-free (FTS + trigram over file names, no worker needed) |
 | `mem_context` | Build an evidence-backed context pack for the calling Agent |
 | `mem_related` | Top-K files related to a `file_id` by embedding similarity |
 | `mem_face` | Person clusters: `action=list` / `name` / `merge` |
@@ -295,7 +295,8 @@ same logical request should supply and retain a stable key so a committed
 result can replay without another provider invocation or charge. A `504`
 means the provider outcome is uncertain: do not automatically retry, and do
 not invent a new key. `mem_context` with `source=memory` stays lexical and
-model-independent.
+model-independent. `mem_search` with `route=lexical` is likewise model-free:
+it uses FTS + trigram over file names and works without a configured worker.
 
 Its target output is structured for an Agent to consume:
 

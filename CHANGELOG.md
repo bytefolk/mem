@@ -7,6 +7,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- File search gains a model-free lexical route (`route=lexical`). FTS + trigram
+  over `files.name` — same tier shape as memory Recall — so a deployment with
+  no embedding worker can still find files by name. CLI: `mem search "query"
+  --route lexical`.
+
 ### Changed
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates

@@ -1334,9 +1334,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Route {
-	case "", search.RouteAuto, search.RouteText, search.RouteVisual:
+	case "", search.RouteAuto, search.RouteText, search.RouteVisual, search.RouteLexical:
 	default:
-		writeError(w, http.StatusBadRequest, "bad_route", "route must be auto, text, or visual")
+		writeError(w, http.StatusBadRequest, "bad_route", "route must be auto, text, visual, or lexical")
 		return
 	}
 	scope, err := pathx.Normalize(req.Scope)

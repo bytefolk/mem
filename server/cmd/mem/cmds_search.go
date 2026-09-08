@@ -101,7 +101,7 @@ func newSearchCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&typ, "type", "", "mime prefix filter: image|text|application|audio|video")
-	cmd.Flags().StringVar(&route, "route", "", "search route: text|visual|auto (default auto)")
+	cmd.Flags().StringVar(&route, "route", "", "search route: text|visual|auto|lexical (default auto)")
 	cmd.Flags().StringVar(&since, "since", "", "YYYY-MM-DD inclusive lower bound on timeline_at")
 	cmd.Flags().StringVar(&until, "until", "", "YYYY-MM-DD inclusive upper bound on timeline_at")
 	cmd.Flags().IntVar(&limit, "limit", 0, "max results (default 10, max 100)")

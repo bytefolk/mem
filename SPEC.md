@@ -146,7 +146,7 @@
 | F5.1 | `mem context "..."` → 返回有大小预算的文件/结构化记忆证据包 |
 | F5.2 | 每条 evidence 必须含 source kind/id、稳定 citation、内容哈希、片段和 locator |
 | F5.3 | mem 只走 recall → context pack；回答与行动由调用方 Agent 完成 |
-| F5.4 | `source=all|file|memory`；结构化记忆在无 Worker、无模型时也必须可立即召回 |
+| F5.4 | `source=all|file|memory`；结构化记忆在无 Worker、无模型时也必须可立即召回；文件词法路由（`route=lexical`）同样无需 Worker |
 | F5.5 | 联合召回单路失败但仍有证据时返回 `200 + partial=true + warnings[]`；无幸存证据时返回 `502 context_unavailable` |
 
 ### F5A · 结构化 Agent 记忆
@@ -534,6 +534,7 @@ embeddings_face (
 - `folders (user_id, path)` UNIQUE — 路径唯一性约束
 - `memories (workspace_id, idempotency_key_sha256)` UNIQUE — 不落明文幂等键的幂等写入
 - `memories` FTS + trigram — 无模型的确定性立即召回
+- `files` FTS + trigram — 文件名无模型词法召回（worker 不可用时降级至此）
 - `embeddings_* (embedding)` — pgvector HNSW
 - `file_entities (entity_id)` — 反查"和某人有关的所有文件"
 
