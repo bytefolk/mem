@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 from .errors import BenchmarkError
+from .live_producer import produce_rankings
 from .runner import (
     compare_artifacts,
     comparison_summary,
@@ -66,6 +67,24 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=PACKAGE_ROOT / "fixtures" / "external-rankings.leak.v1.json",
     )
+
+    produce = subparsers.add_parser(
+        "produce",
+        help="query a live memd and emit mem.recall-rankings.v1",
+    )
+    produce.add_argument("--memd-url", required=True, help="base URL of memd")
+    produce.add_argument("--token", required=True, help="bearer token for auth")
+    produce.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    produce.add_argument("--output", type=Path, required=True)
+    produce.add_argument("--limit", type=int, default=10)
+    produce.add_argument("--timeout", type=float, default=30.0)
+    produce.add_argument("--engine", default="live-memd")
+    produce.add_argument("--dimension", type=int, default=1536)
+    produce.add_argument(
+        "--mode", default="hybrid", choices=["lexical", "vector", "hybrid"]
+    )
+    produce.add_argument("--provider", default="memd")
+    produce.add_argument("--model", default="memd-embedded")
     return parser
 
 
@@ -99,6 +118,27 @@ def main(argv: list[str] | None = None) -> int:
             write_json(args.output, comparison)
             print(comparison_summary(comparison))
             return 2 if candidate["metrics"]["overall"]["leakage_count"] else 0
+
+        if args.command == "produce":
+            dataset = load_dataset(args.dataset)
+            rankings = produce_rankings(
+                dataset,
+                base_url=args.memd_url,
+                token=args.token,
+                limit=args.limit,
+                timeout=args.timeout,
+                engine_label=args.engine,
+                dimension=args.dimension,
+                mode=args.mode,
+                provider=args.provider,
+                model=args.model,
+            )
+            write_json(args.output, rankings)
+            ok_count = sum(1 for q in rankings["queries"] if q["status"] == "ok")
+            err_count = sum(1 for q in rankings["queries"] if q["status"] == "error")
+            print(f"produced rankings: {ok_count} ok, {err_count} error")
+            print(f"rankings artifact: {args.output}")
+            return 0
 
         first = run_benchmark(
             dataset_dir=args.dataset,
