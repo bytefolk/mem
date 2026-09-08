@@ -19,11 +19,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   requests and never writes configuration, starts a container, or installs a
   dependency; `--format json` emits the `mem.doctor` v1 document described by
   `docs/schemas/mem-doctor.v1.schema.json`. A token is described only by where it
-  came from, and a configured URL carrying credentials in its userinfo is
-  redacted or, when it cannot be proven to be a credential-free transport URL,
-  withheld whole. The document is not guaranteed free of every secret: a
-  credential supplied as a URL query parameter is still reported verbatim. See
-  `docs/DEPLOYMENT.md`.
+  came from, and a configured URL has its userinfo and its query parameter values
+  replaced by `REDACTED` — a credential in a query parameter is the shape pgx
+  accepts as a real password — or, when the URL cannot be proven to be a
+  credential-free transport URL, is withheld whole. See `docs/DEPLOYMENT.md`.
 - First-run guidance: a command that fails because no credential exists now says
   so on a machine with no configuration at all by naming the documented
   deployment path (`deploy/compose`, `docs/DEPLOYMENT.md`), instead of telling
@@ -80,8 +79,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   error text, which cannot be made tight: `url.Error` renders with `%q`, so a
   quote inside a password arrives escaped and a scanner that pairs quotes
   mis-pairs and replaces nothing. Withholding costs some diagnosability by design;
-  why a request failed is still reported. A credential supplied as a query
-  parameter (`?password=`) is still echoed and is tracked separately.
+  why a request failed is still reported, and a DSN still names the parameters it
+  sets — every query parameter *value* is replaced by `REDACTED`, including
+  `?password=`, which pgx honours as the real password.
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process

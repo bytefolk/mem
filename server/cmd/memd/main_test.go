@@ -21,7 +21,7 @@ func TestRedactURLCredentials(t *testing.T) {
 		{
 			name: "postgres",
 			raw:  "postgres://mem:database-secret@postgres:5432/mem?sslmode=disable",
-			want: "postgres://REDACTED@postgres:5432/mem?sslmode=disable",
+			want: "postgres://REDACTED@postgres:5432/mem?sslmode=REDACTED",
 		},
 		{
 			name: "redis",
@@ -33,7 +33,7 @@ func TestRedactURLCredentials(t *testing.T) {
 			// password; the gate treats any userinfo as a credential.
 			name: "username only",
 			raw:  "postgres://mem@postgres:5432/mem?sslmode=disable",
-			want: "postgres://REDACTED@postgres:5432/mem?sslmode=disable",
+			want: "postgres://REDACTED@postgres:5432/mem?sslmode=REDACTED",
 		},
 		{
 			// url.Parse reads the scheme as "redis" and parks the rest in Opaque,

@@ -25,9 +25,10 @@ import (
 // angle-bracketed marker would render differently in text and JSON output.
 const Placeholder = "[withheld]"
 
-// UserMarker replaces the userinfo of a URL that is otherwise safe to echo.
-// It uses only unreserved characters because url.User("***") would
-// percent-encode the asterisks.
+// UserMarker replaces the userinfo of a URL, and the value of every query
+// parameter, when the rest of the URL is safe to echo. It uses only unreserved
+// characters because url.User("***") would percent-encode the asterisks and
+// url.Values.Encode() would do the same to a marked-up query value.
 const UserMarker = "REDACTED"
 
 // APIURLs are the schemes a client base URL may legitimately use.
@@ -52,9 +53,9 @@ func URL(raw string, allowed []string) string {
 // delimiter inside a credential splits the text into pieces that no longer look
 // like a URL, and the piece without the "@" is exactly the half that leaked.
 //
-// The gate proves the absence of userinfo, not of credentials: a secret in a
-// query string (redis://host:6379/?password=x) parses cleanly with User == nil
-// and is echoed. That shape is out of scope here and is reported as a residual.
+// Query and fragment values are part of the same problem: pgx honours
+// postgres://host/db?password=x as the real password, so a value that parses as
+// a clean URL is not thereby proven credential-free.
 func Text(msg string, allowed []string) string {
 	out := msg
 	for _, token := range urlTokens(msg) {
@@ -102,6 +103,30 @@ func rewrite(raw string, allowed []string) (string, bool) {
 	}
 	if parsed.User != nil {
 		parsed.User = url.User(UserMarker)
+	}
+	// A credential can travel as a connection parameter, and pgx honours
+	// postgres://host/db?password=… as the real password. Blanking only the keys
+	// that look secret would claim that we can prove some other value is not a
+	// credential, which is the claim this package refuses to make, so every query
+	// value goes and only the parameter names survive. A fragment has no name to
+	// keep, so it withholds the URL.
+	//
+	// ponytail: that costs ?sslmode=disable its value in memd's startup log. If
+	// it costs someone a debugging minute, keep an allowlist of parameters that
+	// cannot carry a secret and fail every unknown one to the marker.
+	if parsed.RawQuery != "" {
+		q, err := url.ParseQuery(parsed.RawQuery)
+		if err != nil {
+			return "", false
+		}
+		blanked := make(url.Values, len(q))
+		for key := range q {
+			blanked[key] = []string{UserMarker}
+		}
+		parsed.RawQuery = blanked.Encode()
+	}
+	if parsed.Fragment != "" {
+		return "", false
 	}
 	// What leaves the process is the re-serialised form, so verify that instead
 	// of trusting the first parse: String() can rebuild something different from

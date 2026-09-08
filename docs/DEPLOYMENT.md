@@ -191,16 +191,13 @@ release builds, so the check reports that limit instead of claiming agreement.
 
 `--format json` emits the `mem.doctor` v1 document validated by
 [`schemas/mem-doctor.v1.schema.json`](schemas/mem-doctor.v1.schema.json), and a
-token is described only by where it came from. A configured URL carrying
-credentials in its userinfo is reported with those credentials replaced by
-`REDACTED`, and a URL that cannot be proven to be a credential-free transport URL
-is withheld whole as `[withheld]` rather than partially trimmed.
-
-This is not a guarantee that the document contains no secret. A credential
-supplied as a URL **query parameter** — for example
-`http://mem.internal:8787?password=…` — parses as a clean URL with no userinfo,
-so it is reported verbatim. Do not treat a doctor report as safe to publish
-without reading it first if your server URL carries a secret outside userinfo.
+token is described only by where it came from. For a configured URL, userinfo and
+every query parameter **value** are replaced by `REDACTED` — the parameter names
+survive so the report still says which settings are on — and a URL that cannot be
+proven to be a credential-free transport URL is withheld whole as `[withheld]`
+rather than partially trimmed. A secret supplied as a query parameter
+(`http://mem.internal:8787?password=…`) is therefore not reported, which matters
+because pgx accepts `postgres://host/db?password=…` as the real password.
 
 ### First account and login
 

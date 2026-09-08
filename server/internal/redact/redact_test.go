@@ -50,7 +50,7 @@ func TestURLWithholdsShapesTheParserCannotAttribute(t *testing.T) {
 			name:    "store scheme is allowed for a DSN egress",
 			raw:     "postgres://mem:" + secret + "@localhost:5432/mem?sslmode=disable",
 			allowed: StoreURLs,
-			want:    "postgres://REDACTED@localhost:5432/mem?sslmode=disable",
+			want:    "postgres://REDACTED@localhost:5432/mem?sslmode=REDACTED",
 		},
 		// The shape this package exists for: url.Parse succeeds, User is nil and
 		// the whole credential sits in Opaque, so a u.User != nil gate misses it.
@@ -195,22 +195,36 @@ func TestTextGatesAStoreDsnEmbeddedInAForeignError(t *testing.T) {
 	}
 }
 
-// TestTextKnownGapQueryParameterCredentialsAreEchoed characterizes a gap, it does
-// not endorse it. The adjudicated rule is about userinfo, and a secret in a query
-// parameter parses as an otherwise clean URL, so it is echoed. Closing it belongs
-// in a separate decision; this test exists so whoever makes that decision sees a
-// named expectation fail rather than rediscovering the behaviour by accident.
-func TestTextKnownGapQueryParameterCredentialsAreEchoed(t *testing.T) {
-	cases := []string{
-		"redis://queue.internal:6379/0?password=" + secret,
-		"postgres://mem@db.internal:5432/mem?sslmode=require&password=" + secret,
+// TestQueryAndFragmentCredentialsAreWithheld pins the shape the userinfo gate
+// used to miss: pgx honours postgres://host/db?password=… as a real password, so
+// a URL that parses cleanly with User == nil is not thereby proven safe. Names
+// of parameters survive so a log line still says which settings are on; no value
+// does, and a bare secret in a fragment withholds the URL.
+func TestQueryAndFragmentCredentialsAreWithheld(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{
+			raw:  "redis://queue.internal:6379/0?password=" + secret,
+			want: "redis://queue.internal:6379/0?password=REDACTED",
+		},
+		{
+			raw:  "postgres://mem@db.internal:5432/mem?sslmode=require&password=" + secret,
+			want: "postgres://REDACTED@db.internal:5432/mem?password=REDACTED&sslmode=REDACTED",
+		},
+		{
+			raw:  "redis://queue.internal:6379/0#" + secret,
+			want: Placeholder,
+		},
 	}
 
-	for _, msg := range cases {
-		got := Text(msg, StoreURLs)
-		if !strings.Contains(got, secret) {
-			t.Errorf("query-string credential is no longer echoed; update this test to"+
-				" assert withholding instead.\n in: %q\nout: %q", msg, got)
+	for _, tc := range cases {
+		if got := URL(tc.raw, StoreURLs); got != tc.want {
+			t.Errorf("URL(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+		if got := Text(tc.raw, StoreURLs); strings.Contains(got, secret) {
+			t.Errorf("Text(%q) = %q, leaks the sentinel", tc.raw, got)
 		}
 	}
 }
