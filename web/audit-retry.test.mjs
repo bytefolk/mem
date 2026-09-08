@@ -43,9 +43,11 @@ describe("audit retry policy", () => {
       [process.execPath, ["/npm with spaces/npm-cli.js", ...PROD_ARGS]],
       [process.execPath, ["/npm with spaces/npm-cli.js", ...ALL_ARGS]],
     ]);
-    for (const [, , options] of test.spawn.mock.calls) {
+    for (const [, args, options] of test.spawn.mock.calls) {
       expect(options).toMatchObject({ timeout: 60_000, killSignal: "SIGKILL" });
       expect(options.shell).toBeUndefined();
+      const fetchTimeout = args.filter(a => a.startsWith("--fetch-timeout=")).map(a => Number(a.split("=")[1]));
+      for (const ms of fetchTimeout) expect(ms).toBeLessThan(options.timeout);
     }
     expect(test.wait).not.toHaveBeenCalled();
   });
@@ -151,6 +153,12 @@ describe("audit retry policy", () => {
     expect(await test.run()).toBe(1);
     expect(test.spawn).toHaveBeenCalledTimes(2);
     expect(test.wait).not.toHaveBeenCalled();
+  });
+
+  it("vite.config.ts includes audit-retry.test.mjs in test collection", async () => {
+    const configPath = join(__dirname, "vite.config.ts");
+    const config = readFileSync(configPath, "utf8");
+    expect(config).toContain("audit-retry.test.mjs");
   });
 });
 
