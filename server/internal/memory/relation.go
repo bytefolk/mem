@@ -2,6 +2,9 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -79,6 +82,13 @@ type ListRelationsQuery struct {
 	RelationType string // optional filter
 	AllowedPaths []string
 	Limit        int
+	Cursor       string // opaque keyset cursor from a prior ListRelationsResult
+}
+
+// ListRelationsResult is a keyset-paginated page of relations.
+type ListRelationsResult struct {
+	Relations  []Relation `json:"relations"`
+	NextCursor string     `json:"next_cursor,omitempty"`
 }
 
 // validateCreateRelationCommand checks the command fields without touching the database.
@@ -235,8 +245,9 @@ func validateListRelationsQuery(q ListRelationsQuery) error {
 }
 
 // ListRelations returns relations for a given memory. Direction controls
-// whether MemoryID is matched as source or target.
-func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Relation, error) {
+// whether MemoryID is matched as source or target. Results are keyset-paginated
+// using the same cursor shape as memory/list.go.
+func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) (*ListRelationsResult, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("memory service is not configured")
 	}
@@ -259,9 +270,6 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 		return nil, err
 	}
 
-	// The anchor memory must exist, be visible under the caller's allowed
-	// paths, and not be forgotten — mirroring Get — so listing relations never
-	// leaks the existence of a memory the caller cannot read.
 	args := []any{q.WorkspaceID, q.MemoryID}
 	where := []string{"m.workspace_id = $1", "m.id = $2"}
 	args, where = appendPathFilters(args, where, "m.path", "/", allowed)
@@ -280,6 +288,20 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 		return nil, ErrForgotten
 	}
 
+	filterHash, err := relationFilterHash(q.WorkspaceID, q.MemoryID, direction, q.RelationType)
+	if err != nil {
+		return nil, fmt.Errorf("list relations: filter hash: %w", err)
+	}
+
+	var cursor *decodedListCursor
+	if strings.TrimSpace(q.Cursor) != "" {
+		decoded, err := decodeListCursor(q.Cursor, filterHash)
+		if err != nil {
+			return nil, err
+		}
+		cursor = &decoded
+	}
+
 	args = []any{q.WorkspaceID, q.MemoryID}
 	var dirColumn string
 	if direction == "source" {
@@ -296,7 +318,15 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 		args = append(args, relType)
 		where = append(where, fmt.Sprintf("r.relation_type = $%d", len(args)))
 	}
-	args = append(args, q.Limit)
+	if cursor != nil {
+		args = append(args, cursor.createdAt, cursor.id)
+		timeArg, idArg := len(args)-1, len(args)
+		where = append(where, fmt.Sprintf(
+			"(r.created_at < $%d OR (r.created_at = $%d AND r.id < $%d))",
+			timeArg, timeArg, idArg,
+		))
+	}
+	args = append(args, q.Limit+1)
 	limitIdx := len(args)
 
 	sql := fmt.Sprintf(`
@@ -313,7 +343,7 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 	}
 	defer rows.Close()
 
-	out := make([]Relation, 0, q.Limit)
+	out := make([]Relation, 0, q.Limit+1)
 	for rows.Next() {
 		var rel Relation
 		if err := rows.Scan(&rel.ID, &rel.WorkspaceID, &rel.SourceID, &rel.TargetID,
@@ -322,7 +352,43 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 		}
 		out = append(out, rel)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := &ListRelationsResult{Relations: out}
+	if len(out) <= q.Limit {
+		return result, nil
+	}
+	result.Relations = out[:q.Limit]
+	last := result.Relations[len(result.Relations)-1]
+	result.NextCursor, err = encodeListCursor(last.CreatedAt, last.ID, filterHash)
+	if err != nil {
+		return nil, fmt.Errorf("list relations: encode cursor: %w", err)
+	}
+	return result, nil
+}
+
+type relationFilterFingerprint struct {
+	WorkspaceID  string `json:"workspace_id"`
+	MemoryID     string `json:"memory_id"`
+	Direction    string `json:"direction"`
+	RelationType string `json:"relation_type"`
+}
+
+func relationFilterHash(workspaceID, memoryID uuid.UUID, direction, relationType string) (string, error) {
+	payload := relationFilterFingerprint{
+		WorkspaceID:  workspaceID.String(),
+		MemoryID:     memoryID.String(),
+		Direction:    direction,
+		RelationType: strings.ToLower(strings.TrimSpace(relationType)),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // IsSuperseded returns true if the given memory has been superseded or corrected
@@ -410,8 +476,6 @@ func (s *Service) loadMemoryInTx(ctx context.Context, tx pgx.Tx, workspaceID, me
 // from target and looks for source. The exact edge being written is excluded
 // so an idempotent replay of an existing edge is not reported as a cycle.
 func (s *Service) wouldCycle(ctx context.Context, tx pgx.Tx, workspaceID, sourceID, targetID uuid.UUID) (bool, error) {
-	// BFS from target following supersedes/corrects edges in their forward
-	// direction: if we ever reach sourceID, there is a cycle.
 	var found bool
 	err := tx.QueryRow(ctx, `
 		WITH RECURSIVE chain(id) AS (
