@@ -92,9 +92,9 @@ mem 只有一份数据和能力内核，但面向两类使用者：
 | 跨 Agent 记忆 | `remember/context`、出处、幂等、反馈、归档、恢复和遗忘控制闭环已实现 | **MVP 对齐** |
 | 标准任务交接 | `mem.handoff` v1、不可变 checkpoint、CAS、resume、哈希引用和缺失项报告已实现 | **MVP 对齐** |
 | Claude Code / Codex 迁移 | 以 Claude Code / Codex 身份隔离的两个独立 Token 已通过真实 HTTP/PostgreSQL 写入与只读恢复验收；两端有同一个标准 MCP adapter 的接入说明 | **MVP 对齐；仍需真实宿主进程的发布级 smoke** |
-| 跨设备恢复 | 同一部署可登录 workspace 继续使用；跨部署可导出 `.membundle` 并 `fresh` 导入空 workspace，带完整性校验、幂等 ledger 和结构化冲突 | **部分对齐：尚无 merge、增量同步和断点上传** |
-| 人类可视化 | Web 已覆盖 Drive、Search、Tasks、checkpoint/Resume、Memories 生命周期与 Workspace Transfer | **MVP 对齐：尚缺 correction/supersede 与完整审计历史** |
-| 数据可移植性 | workspace bundle v1 有开放 schema、七类索引、payload/blob checksum、依赖校验和真实数据库 round-trip | **MVP 对齐：当前服务只支持 fresh restore** |
+| 跨设备恢复 | 同一部署可登录 workspace 继续使用；跨部署可导出 `.membundle` 并 `fresh` 导入空 workspace，带完整性校验、幂等 ledger 和结构化冲突；`merge_conservative` 已实现 | **部分对齐：merge 已完成，尚无增量同步和断点上传** |
+| 人类可视化 | Web 已覆盖 Drive、Search、Tasks、checkpoint/Resume、Memories 生命周期与 Workspace Transfer；correction/supersede 关系已实现 | **MVP 对齐：尚缺完整审计历史** |
+| 数据可移植性 | workspace bundle v1 有开放 schema、七类索引、payload/blob checksum、依赖校验和真实数据库 round-trip；`merge_conservative` 导入已实现 | **MVP 对齐：尚无增量同步和断点上传** |
 | 自然语言搜图 | 原始图片字节→512 维视觉向量→文本塔查询→可回原件的链路已实现；真实英文固定集通过 | **链路对齐、质量未完全对齐：默认模型中文固定集未通过** |
 
 因此，项目现在不再只是“可视化的 Agent Memory / AI 搜索网盘”，而是已经具备
@@ -120,13 +120,14 @@ mem 只有一份数据和能力内核，但面向两类使用者：
 - [x] 定义包含 manifest、内容哈希、schema 版本和依赖关系的 `.membundle` v1。
 - [x] 实现 API / CLI / Web 的 workspace export 与空目标 `fresh` import。
 - [x] 实现导入前校验、幂等 ledger、冲突明细、失败补偿和导入后重新索引。
-- [ ] 实现 `merge_conservative`、增量包、断点上传与完整本地同步盘体验。
+- [x] 实现 `merge_conservative`。
+- [ ] 实现增量包、断点上传与完整本地同步盘体验。
 
 ### P2 — 让全部 Agent 数据可见可控
 
 - [x] 在 Web UI 增加记忆、任务交接、来源、版本、Resume 与迁移视图。
 - [x] 提供反馈、置顶、归档、恢复、确认遗忘和 workspace 导出/导入。
-- [ ] 提供不可变 correction/supersede、导入历史和更完整的权限管理界面。
+- [x] 提供不可变 correction/supersede、导入历史和更完整的权限管理界面。
 
 ### 持续主线 — 自然语言搜图与多模态召回
 
