@@ -13,6 +13,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   to the canonical `bytefolk` organization while retaining the published npm
   scope, MCP identity, and existing cache paths.
 
+### Fixed
+
+- Recursive folder delete now removes associated objects from bucket storage
+  after the database transaction commits. Previously only DB rows were deleted,
+  leaving orphan blobs in the bucket. Blob deletion is best-effort and logged
+  on failure, matching the existing single-file delete behavior.
+
 ### Security
 
 - Normalize the client-declared MIME type of a stored file before deciding how
