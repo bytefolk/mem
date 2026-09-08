@@ -771,12 +771,7 @@ func (s *Service) searchLexical(ctx context.Context, q Query, text string) ([]Hi
 			               0.699::double precision,
 			               0.20::double precision + 0.49::double precision * trigram_score
 			           )
-			       END AS score,
-			       CASE
-			           WHEN exact_phrase THEN 'exact'
-			           WHEN fts_match THEN 'fts'
-			           ELSE 'trigram'
-			       END AS reason
+			       END AS score
 			  FROM candidates
 			 WHERE exact_phrase
 			    OR fts_match
