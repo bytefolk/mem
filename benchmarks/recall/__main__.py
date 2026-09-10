@@ -80,12 +80,12 @@ def _parser() -> argparse.ArgumentParser:
     produce.add_argument("--limit", type=int, default=10)
     produce.add_argument("--timeout", type=float, default=30.0)
     produce.add_argument("--engine", default="live-memd")
-    produce.add_argument("--dimension", type=int, default=1536)
+    produce.add_argument("--dimension", type=int, default=768)
     produce.add_argument(
-        "--mode", default="hybrid", choices=["lexical", "vector", "hybrid"]
+        "--mode", default="vector", choices=["lexical", "vector"]
     )
-    produce.add_argument("--provider", default="memd")
-    produce.add_argument("--model", default="memd-embedded")
+    produce.add_argument("--provider", default="operator-unspecified")
+    produce.add_argument("--model", default="operator-unspecified")
     return parser
 
 
@@ -139,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
             err_count = sum(1 for q in rankings["queries"] if q["status"] == "error")
             print(f"produced rankings: {ok_count} ok, {err_count} error")
             print(f"rankings artifact: {args.output}")
-            return 0
+            return 2 if err_count else 0
 
         first = run_benchmark(
             dataset_dir=args.dataset,

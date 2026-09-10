@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import platform
-import socket
+import posixpath
 import time
 import unicodedata
 from pathlib import Path
@@ -19,6 +20,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .dataset import Dataset, Document, load_dataset
+from .errors import BenchmarkError
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATASET = PACKAGE_ROOT / "data" / "v1"
@@ -45,15 +47,21 @@ def _match_doc_by_path(
         return None
     if len(candidates) == 1:
         return candidates[0]
+    # A snippet cannot establish tenant identity. Never choose an authorized
+    # document merely because a foreign document shares its path or words.
+    if len({doc.workspace for doc in candidates}) != 1:
+        return None
     normalized_snippet = unicodedata.normalize("NFKC", snippet).casefold()
     best: Document | None = None
-    best_overlap = -1
+    best_overlap = 0
     for doc in candidates:
         doc_tokens = set(unicodedata.normalize("NFKC", doc.text).casefold().split())
         overlap = sum(1 for t in normalized_snippet.split() if t in doc_tokens)
         if overlap > best_overlap:
             best_overlap = overlap
             best = doc
+        elif overlap == best_overlap:
+            best = None
     return best
 
 
@@ -75,10 +83,11 @@ def _query_memd(
     *,
     scope: str = "",
     type_filter: str = "",
+    route: str = "auto",
     limit: int = 10,
     timeout: float = 30.0,
 ) -> tuple[list[dict[str, Any]], float, str | None]:
-    body: dict[str, Any] = {"query": query_text, "limit": limit}
+    body: dict[str, Any] = {"query": query_text, "limit": limit, "route": route}
     if scope:
         body["scope"] = scope
     if type_filter:
@@ -95,7 +104,13 @@ def _query_memd(
         with urlopen(req, timeout=timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         elapsed_ms = (time.perf_counter() - start) * 1000.0
-        results = payload.get("results", [])
+        if not isinstance(payload, dict) or "results" not in payload:
+            return [], elapsed_ms, "invalid_response"
+        results = payload["results"]
+        if results is None:
+            results = []  # memd encodes an empty nil hit slice as null.
+        if not isinstance(results, list) or any(not isinstance(hit, dict) for hit in results):
+            return [], elapsed_ms, "invalid_response"
         return results, elapsed_ms, None
     except HTTPError as exc:
         elapsed_ms = (time.perf_counter() - start) * 1000.0
@@ -116,15 +131,24 @@ def produce_rankings(
     limit: int = 10,
     timeout: float = 30.0,
     engine_label: str = "live-memd",
-    dimension: int = 1536,
-    mode: str = "hybrid",
-    provider: str = "memd",
-    model: str = "memd-embedded",
+    dimension: int = 768,
+    mode: str = "vector",
+    provider: str = "operator-unspecified",
+    model: str = "operator-unspecified",
 ) -> dict[str, Any]:
+    if mode not in {"lexical", "vector"}:
+        raise BenchmarkError("memd /v1/search does not expose a hybrid lexical/vector route")
+    if not 1 <= limit <= 100 or not math.isfinite(timeout) or timeout <= 0:
+        raise BenchmarkError("limit must be 1..100 and timeout must be positive and finite")
     path_index = _build_path_index(list(dataset.documents))
 
     query_rows: list[dict[str, Any]] = []
     for query in dataset.queries:
+        if query.expected_source_kind == "structured":
+            query_rows.append({"query_id": query.id, "status": "error",
+                               "latency_ms": 0.0, "results": [],
+                               "error_code": "unsupported_source_kind"})
+            continue
         scope = query.filters.get("path_prefix", "")
         type_filter = _source_kind_to_api_type(query.expected_source_kind) or ""
 
@@ -134,6 +158,7 @@ def produce_rankings(
             query.text,
             scope=scope,
             type_filter=type_filter,
+            route="lexical" if mode == "lexical" else "text",
             limit=limit,
             timeout=timeout,
         )
@@ -153,10 +178,17 @@ def produce_rankings(
         seen_doc_ids: set[str] = set()
         for hit in api_results:
             hit_path = hit.get("path", "")
+            if isinstance(hit.get("name"), str) and hit["name"]:
+                # memd returns a folder path and file name separately.
+                hit_path = posixpath.join(hit_path, hit["name"])
             snippet = hit.get("snippet", "")
             candidates = path_index.get(hit_path, [])
             doc = _match_doc_by_path(hit_path, snippet, candidates)
-            if doc is None or doc.id in seen_doc_ids:
+            if doc is None:
+                error_code = "unmapped_result"
+                mapped_results = []
+                break
+            if doc.id in seen_doc_ids:
                 continue
             seen_doc_ids.add(doc.id)
             result: dict[str, Any] = {
@@ -165,10 +197,14 @@ def produce_rankings(
             }
             score = hit.get("score")
             if score is not None:
+                if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+                    error_code = "invalid_result"
+                    mapped_results = []
+                    break
                 result["score"] = float(score)
             mapped_results.append(result)
 
-        status = "ok" if not error_code else "partial"
+        status = "ok" if not error_code else "error"
         row = {
             "query_id": query.id,
             "status": status,
@@ -184,21 +220,21 @@ def produce_rankings(
         "engine": engine_label,
         "configuration": {
             "mode": mode,
-            "provider": provider,
-            "model": model,
-            "dimension": dimension,
+            "provider": None if mode == "lexical" else provider,
+            "model": None if mode == "lexical" else model,
+            "dimension": None if mode == "lexical" else dimension,
+            "evidence": "operator-declared configuration; model and index not verified by producer",
             "index": {
-                "kind": "pgvector",
-                "distance": "cosine",
+                "kind": "operator-unspecified",
             },
             "search": {
                 "top_k": limit,
-                "type": "auto",
+                "route": "lexical" if mode == "lexical" else "text",
+                "workspace": "bound by the supplied token; not inferred from dataset labels",
             },
         },
         "hardware": {
             "host": _coarse_host(),
-            "client": socket.gethostname(),
         },
         "queries": query_rows,
     }
@@ -231,24 +267,24 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dimension",
         type=int,
-        default=1536,
-        help="embedding dimension of the live model (default: 1536)",
+        default=768,
+        help="operator-declared embedding dimension (default: 768); not discovered",
     )
     parser.add_argument(
         "--mode",
-        default="hybrid",
-        choices=["lexical", "vector", "hybrid"],
-        help="search mode (default: hybrid)",
+        default="vector",
+        choices=["lexical", "vector"],
+        help="search mode (default: vector); lexical requires a supporting memd",
     )
     parser.add_argument(
         "--provider",
-        default="memd",
-        help="provider label (default: memd)",
+        default="operator-unspecified",
+        help="operator-declared provider label",
     )
     parser.add_argument(
         "--model",
-        default="memd-embedded",
-        help="model label (default: memd-embedded)",
+        default="operator-unspecified",
+        help="operator-declared model label",
     )
     return parser
 
@@ -276,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     ok_count = sum(1 for q in rankings["queries"] if q["status"] == "ok")
     err_count = sum(1 for q in rankings["queries"] if q["status"] == "error")
     print(f"wrote {args.output} ({ok_count} ok, {err_count} error)")
-    return 0
+    return 2 if err_count else 0
 
 
 if __name__ == "__main__":
