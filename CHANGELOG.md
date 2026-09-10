@@ -44,6 +44,12 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Concurrent `mem ingest qoder` processes now serialize each transcript's
+  checkpoint through an OS-backed sidecar lock, use unique private staging
+  files, and retain the highest successfully committed line cursor. A process
+  crash releases its advisory lock automatically, so a later ingest can resume
+  rather than being blocked by an orphaned lock.
+
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
