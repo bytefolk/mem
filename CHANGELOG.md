@@ -44,6 +44,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Index-generation endpoints now report execution as unavailable and refuse
+  create/activate requests until a worker executor and generation-aware search
+  routing are wired, instead of allowing stuck or empty generations.
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
