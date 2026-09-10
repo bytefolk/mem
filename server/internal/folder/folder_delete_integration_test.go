@@ -3,13 +3,16 @@ package folder
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
 
 	"github.com/PeterGuy326/mem/server/internal/storage"
 )
@@ -66,6 +69,9 @@ func TestRecursiveDeleteCleansBlobs(t *testing.T) {
 	defer func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
 	}()
+	folderTestUUID(t, ctx, pool,
+		`INSERT INTO workspaces (name, resource_owner_user_id)
+		 VALUES ('folder blob cleanup test', $1) RETURNING id`, userID)
 
 	svc := New(pool, store, nil)
 
@@ -117,8 +123,14 @@ func TestRecursiveDeleteCleansBlobs(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if _, err := store.Get(ctx, f.storageKey); err != nil {
+		reader, err := store.Get(ctx, f.storageKey)
+		if err != nil {
 			t.Fatalf("precondition: object %s should exist before delete: %v", f.storageKey, err)
+		}
+		content, readErr := io.ReadAll(reader)
+		closeErr := reader.Close()
+		if readErr != nil || closeErr != nil || string(content) != "content-"+f.name {
+			t.Fatalf("precondition: object %s content=%q read=%v close=%v", f.storageKey, content, readErr, closeErr)
 		}
 	}
 
@@ -137,8 +149,15 @@ func TestRecursiveDeleteCleansBlobs(t *testing.T) {
 	}
 
 	for _, f := range files {
-		if _, err := store.Get(ctx, f.storageKey); err == nil {
+		reader, err := store.Get(ctx, f.storageKey)
+		if err == nil {
+			_ = reader.Close()
 			t.Errorf("object %s still exists in bucket after recursive delete", f.storageKey)
+			continue
+		}
+		var response minio.ErrorResponse
+		if !errors.As(err, &response) || response.Code != "NoSuchKey" {
+			t.Errorf("object %s: expected S3 NoSuchKey after recursive delete, got %v", f.storageKey, err)
 		}
 	}
 }
