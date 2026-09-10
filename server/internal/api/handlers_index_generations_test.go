@@ -202,8 +202,8 @@ func TestIndexGenerationMutationHandlers(t *testing.T) {
 		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 			t.Fatal(err)
 		}
-		if response["code"] != "execution_unavailable" {
-			t.Fatalf("code = %v, want execution_unavailable", response["code"])
+		if response["error"] != "execution_unavailable" {
+			t.Fatalf("error = %v, want execution_unavailable", response["error"])
 		}
 		if service.lastProfile != "" {
 			t.Fatalf("service.Create should not have been called, but profile = %q", service.lastProfile)
@@ -272,8 +272,8 @@ func TestIndexGenerationMutationHandlers(t *testing.T) {
 		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 			t.Fatal(err)
 		}
-		if response["code"] != "execution_unavailable" {
-			t.Fatalf("code = %v, want execution_unavailable", response["code"])
+		if response["error"] != "execution_unavailable" {
+			t.Fatalf("error = %v, want execution_unavailable", response["error"])
 		}
 		if service.lastAction != "" {
 			t.Fatalf("service.Activate should not have been called, but action = %q", service.lastAction)
