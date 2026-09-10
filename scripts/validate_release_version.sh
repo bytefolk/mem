@@ -93,11 +93,29 @@ while IFS= read -r version_link; do
 done < <(grep -F -- "[${version}]: " "${changelog}" || true)
 [[ "${#version_links[@]}" == 1 ]] ||
   die "CHANGELOG.md: expected exactly one [${version}] comparison link"
-if [[ "${version_links[0]}" != \
-    "[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}" &&
-  "${version_links[0]}" != \
-    "[${version}]: https://github.com/bytefolk/mem/compare/"*"...v${version}" ]]; then
-  die "CHANGELOG.md: [${version}] link must terminate at v${version}"
+compare_base="$(awk '
+  /^## \[/ && $0 != "## [Unreleased]" {
+    if (seen++) {
+      gsub(/^## \[/, "", $0)
+      gsub(/\].*/, "", $0)
+      print $0
+      exit
+    }
+  }
+' "${changelog}")"
+
+expected_compare_link=
+if [[ -n "${compare_base}" ]]; then
+  expected_compare_link="[${version}]: https://github.com/bytefolk/mem/compare/v${compare_base}...v${version}"
+fi
+expected_release_link="[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}"
+
+if [[ "${version_links[0]}" != "${expected_release_link}" ]] &&
+   [[ -z "${expected_compare_link}" || "${version_links[0]}" != "${expected_compare_link}" ]]; then
+  if [[ -z "${compare_base}" ]]; then
+    die "CHANGELOG.md: cannot derive compare base (need a second versioned heading below [${version}])"
+  fi
+  die "CHANGELOG.md: [${version}] link must be exactly:"$'\n'"  ${expected_release_link}"$'\n'"  or:"$'\n'"  ${expected_compare_link}"
 fi
 
 printf 'PASS: all release version surfaces match %s\n' "${version}"

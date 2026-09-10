@@ -99,6 +99,47 @@ fi
 expect_failure "version mismatch" \
   "${repo_root}/scripts/validate_release_version.sh" 999.999.999
 
+# Keep CHANGELOG mutations in a fixture tree. All other version surfaces remain
+# the real checkout, so failures below must reach the comparison-link guard.
+version_fixture="${tmp_dir}/version fixture"
+mkdir -p -- "${version_fixture}/scripts"
+cp -- "${repo_root}/scripts/validate_release_version.sh" "${version_fixture}/scripts/"
+for surface in npm server worker web deploy docs; do
+  ln -s -- "${repo_root}/${surface}" "${version_fixture}/${surface}"
+done
+fixture_validator="${version_fixture}/scripts/validate_release_version.sh"
+previous_version=0.0.1
+
+write_changelog_fixture() {
+  local link="$1"
+  local include_previous="${2:-yes}"
+  {
+    printf '## [Unreleased]\n\n## [%s] - 2026-01-01\n\n' "${current_version}"
+    if [[ "${include_previous}" == yes ]]; then
+      printf '## [%s] - 2025-01-01\n\n' "${previous_version}"
+    fi
+    printf '[Unreleased]: https://github.com/bytefolk/mem/compare/v%s...HEAD\n' "${current_version}"
+    printf '[%s]: https://github.com/bytefolk/mem/%s\n' "${current_version}" "${link}"
+  } > "${version_fixture}/CHANGELOG.md"
+}
+
+correct_compare="compare/v${previous_version}...${current_tag}"
+write_changelog_fixture "${correct_compare}"
+"${fixture_validator}" "${current_version}" >/dev/null
+for wrong_base in v0.0.0 "${current_tag}" arbitrary; do
+  write_changelog_fixture "compare/${wrong_base}...${current_tag}"
+  expect_failure "wrong compare base ${wrong_base}" "${fixture_validator}" "${current_version}"
+done
+write_changelog_fixture "compare/v${previous_version}...v999.999.999"
+expect_failure "wrong compare endpoint" "${fixture_validator}" "${current_version}"
+write_changelog_fixture "${correct_compare}/extra"
+expect_failure "compare link suffix" "${fixture_validator}" "${current_version}"
+write_changelog_fixture "${correct_compare}" no
+expect_failure "missing compare predecessor" "${fixture_validator}" "${current_version}"
+write_changelog_fixture "releases/tag/${current_tag}" no
+"${fixture_validator}" "${current_version}" >/dev/null
+printf 'PASS: compare links require the exact predecessor and endpoint; tag links remain valid\n'
+
 notes_file="${tmp_dir}/release-notes.md"
 "${repo_root}/scripts/render_release_notes.sh" "${current_tag}" > "${notes_file}"
 [[ -s "${notes_file}" ]] || die "release notes are empty"
@@ -190,8 +231,17 @@ expect_failure "annotated tag version mismatch" env \
   FAKE_HEAD_COMMIT="${same_commit}" \
   "${repo_root}/scripts/validate_release_source.sh" v999.999.999
 
-asset_dir="${tmp_dir}/assets"
+asset_dir="${tmp_dir}/assets with spaces"
 mkdir -p -- "${asset_dir}"
+# An empty set must fail with the intended diagnostic, including on Bash 3.2.
+if "${repo_root}/scripts/generate_release_checksums.sh" \
+  "${current_tag}" "${same_commit}" "${asset_dir}" > "${tmp_dir}/empty-assets.log" 2>&1; then
+  die "empty asset directory: command unexpectedly succeeded"
+fi
+grep -Fq -- 'actual:   <none>' "${tmp_dir}/empty-assets.log" ||
+  die "empty asset directory must report the missing set"
+[[ ! -e "${asset_dir}/mem-mcp-checksums.txt" ]] ||
+  die "empty asset directory must not produce a manifest"
 assets=(
   mem-mcp-darwin-amd64
   mem-mcp-darwin-arm64
@@ -203,6 +253,8 @@ assets=(
 for asset in "${assets[@]}"; do
   printf 'test payload for %s\n' "${asset}" > "${asset_dir}/${asset}"
 done
+# Use the real find, basename and sha256sum here. Unlike the Bash-only compat
+# suite, this must also catch GNU basename rejecting batched find -exec paths.
 "${repo_root}/scripts/generate_release_checksums.sh" \
   "${current_tag}" "${same_commit}" "${asset_dir}" >/dev/null
 
@@ -239,4 +291,5 @@ expect_failure "symlink asset" \
   "${repo_root}/scripts/generate_release_checksums.sh" \
   "${current_tag}" "${same_commit}" "${asset_dir}"
 
+bash "${repo_root}/scripts/test_release_checksum_output_safety.sh"
 printf 'PASS: release source, notes, asset-set and checksum guards fail closed\n'
