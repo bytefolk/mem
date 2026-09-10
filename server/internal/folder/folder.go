@@ -657,7 +657,7 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 			for rows.Next() {
 				var key string
 				if err := rows.Scan(&key); err != nil {
-					_ = rows.Close()
+					rows.Close()
 					return fmt.Errorf("scan storage_key: %w", err)
 				}
 				if key != "" {
@@ -665,10 +665,10 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 				}
 			}
 			if err := rows.Err(); err != nil {
-				_ = rows.Close()
+				rows.Close()
 				return fmt.Errorf("iterate deleted storage_keys: %w", err)
 			}
-			_ = rows.Close()
+			rows.Close()
 		}
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM folders WHERE id = $1 AND user_id = $2`, src.ID, userID); err != nil {
