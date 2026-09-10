@@ -1,79 +1,61 @@
 #!/usr/bin/env bash
-# EXPLAIN regression test for HNSW ANN indexes (issue #173)
-#
-# This script verifies that vector queries use index scans instead of
-# sequential scans after migration 0025 is applied.
-#
-# Prerequisites:
-#   - PostgreSQL 16+ with pgvector extension
-#   - Database with all migrations applied (0001 through 0025)
-#   - Populated test data in embeddings_text, embeddings_visual, embeddings_face
-#
-# Usage:
-#   ./scripts/verify_hnsw_indexes.sh postgres://user:pass@host:port/db
-
+# Read-only planner verification for shipping text and visual query shapes.
+# Requires a populated disposable database; does not force planner settings.
 set -euo pipefail
-
-DB_URL="${1:?Usage: $0 <database-url>}"
-
+DB_URL="${1:?Usage: $0 <database-url> <corpus-user-uuid>}"
+CORPUS_USER="${2:?Supply the user UUID that owns the populated corpus}"
+[[ "$CORPUS_USER" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+  echo 'ERROR: corpus user must be a UUID' >&2; exit 1;
+}
+sql() { psql -X -A -t -v ON_ERROR_STOP=1 "$DB_URL" -c "$1"; }
+db_name="$(sql 'SELECT current_database()')"
+[[ "$db_name" == *_test ]] || { echo 'ERROR: database must end in _test' >&2; exit 1; }
 pass=0
 fail=0
-
-assert_index_scan() {
-  local label="$1"
-  local table="$2"
-  local plan
-  plan="$(psql -AtX "$DB_URL" -c "
-    EXPLAIN
-    SELECT e.id
-      FROM ${table} e
-      JOIN files f ON f.id = e.file_id
-     WHERE f.user_id = (SELECT id FROM users LIMIT 1)
-     ORDER BY e.embedding <=> (SELECT array_fill(0.1, ARRAY[768]))::vector
-     LIMIT 10;
-  ")"
-  if echo "$plan" | grep -qi "Index Scan.*hnsw"; then
-    echo "PASS: ${label} uses HNSW index scan"
+for kind in text visual face; do
+  index="idx_embeddings_${kind}_embedding_hnsw"
+  valid="$(sql "SELECT count(*) FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am a ON a.oid = c.relam
+    WHERE i.indrelid = 'embeddings_${kind}'::regclass
+      AND c.relname = '${index}' AND a.amname = 'hnsw' AND i.indisvalid
+      AND pg_get_indexdef(i.indexrelid) LIKE '%vector_cosine_ops%'")"
+  rows="$(sql "SELECT count(*) FROM embeddings_${kind} e JOIN files f ON f.id=e.file_id
+    WHERE f.user_id='${CORPUS_USER}'::uuid AND e.embedding IS NOT NULL")"
+  if [[ "$valid" == 1 && "$rows" -gt 0 ]]; then
+    echo "PASS: ${index} is valid; corpus contains ${rows} non-null vectors"
     pass=$((pass + 1))
   else
-    echo "FAIL: ${label} does NOT use HNSW index scan"
-    echo "$plan"
+    echo "FAIL: ${index}: valid=${valid}, corpus vectors=${rows}"
+    fail=$((fail + 1))
+  fi
+done
+assert_plan() {
+  local route="$1" query="$2" plan
+  # ANALYZE executes the read so vector/schema errors cannot hide behind EXPLAIN.
+  plan="$(sql "EXPLAIN (ANALYZE, BUFFERS) ${query}")"
+  echo "$plan"
+  if grep -q "Index Scan using idx_embeddings_${route}_embedding_hnsw" <<<"$plan"; then
+    echo "PASS: shipping ${route} query uses HNSW"
+    pass=$((pass + 1))
+  else
+    echo "FAIL: shipping ${route} query does not use HNSW"
     fail=$((fail + 1))
   fi
 }
-
-echo "=== HNSW ANN Index Verification (Issue #173) ==="
-echo ""
-
-echo "1. Verifying indexes exist..."
-index_count="$(psql -AtX "$DB_URL" -c "
-SELECT COUNT(*)
-FROM pg_indexes
-WHERE tablename IN ('embeddings_text', 'embeddings_visual', 'embeddings_face')
-  AND indexname LIKE '%hnsw%';
-")"
-if [[ "${index_count}" -ge 3 ]]; then
-  echo "PASS: found ${index_count} HNSW indexes"
-  pass=$((pass + 1))
-else
-  echo "FAIL: expected >= 3 HNSW indexes, found ${index_count}"
-  fail=$((fail + 1))
-fi
-
-echo ""
-echo "2. Checking row counts..."
-psql "$DB_URL" -c "
-SELECT 'embeddings_text' AS table_name, COUNT(*) AS row_count FROM embeddings_text
-UNION ALL
-SELECT 'embeddings_visual', COUNT(*) FROM embeddings_visual
-UNION ALL
-SELECT 'embeddings_face', COUNT(*) FROM embeddings_face;
-"
-
-echo ""
-echo "3. Verifying index usage in query plans..."
-assert_index_scan "text (768-d)" "embeddings_text"
-
-echo ""
-echo "=== Results: ${pass} passed, ${fail} failed ==="
-[[ "${fail}" -eq 0 ]] || exit 1
+# Match runTextANN: per-file DISTINCT ON precedes global top-k. A simple
+# ORDER BY distance LIMIT probe would not establish this query's index usage.
+assert_plan text "SELECT evidence_id, file_id, score FROM (
+  SELECT DISTINCT ON (f.id) e.id::text AS evidence_id, f.id AS file_id,
+    1 - (e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector) AS score
+  FROM embeddings_text e JOIN files f ON f.id=e.file_id
+  WHERE f.user_id='${CORPUS_USER}'::uuid
+  ORDER BY f.id, e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector ASC
+) hits ORDER BY score DESC LIMIT 10"
+# Visual vectors have file_id (not e.id) and 512 dimensions.
+assert_plan visual "SELECT e.file_id,
+  (1 - (e.embedding <=> array_fill(0.1::real, ARRAY[512])::vector))::real AS score
+  FROM embeddings_visual e JOIN files f ON f.id=e.file_id
+  WHERE f.user_id='${CORPUS_USER}'::uuid
+  ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[512])::vector ASC LIMIT 10"
+echo "Results: ${pass} passed, ${fail} failed"
+[[ "$fail" -eq 0 ]]

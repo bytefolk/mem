@@ -44,6 +44,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Add cosine HNSW indexes for legacy embedding tables. The text search query's per-file deduplication still limits planner use; see `docs/VALIDATION_HNSW.md`.
+
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
