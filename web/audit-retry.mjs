@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = 10_000;
-// At most six attempts and four backoffs across both audit thresholds (~5m10s with 45s fetch timeout).
+// At most six 60-second attempts and four 10-second backoffs across both thresholds.
 const ATTEMPT_TIMEOUT_MS = 60_000;
 
 const NETWORK_PATTERNS = [
@@ -76,6 +76,8 @@ async function runWithRetry(label, args, { spawn, wait, npmExecPath, stdout, std
     }
 
     if (result.status === 0) {
+      stdout.write(result.stdout ?? "");
+      stderr.write(result.stderr ?? "");
       stderr.write(`[audit-retry] ${label} passed.\n`);
       return 0;
     }

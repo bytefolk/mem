@@ -46,8 +46,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 - CI Web job now runs unit tests (`npm test`), including audit retry regression
   tests. `npm run audit` retries recognized transient registry failures up to
-  three times per threshold, with a 60-second limit per attempt and portable
-  backoff. It starts npm through Node on Windows, preserves failure diagnostics,
+  three attempts per threshold (two retries), with a 60-second limit per attempt
+  and portable backoff. It starts npm through Node on Windows, preserves audit
+  reports and failure diagnostics,
   and fails immediately for vulnerabilities, unknown errors or incomplete runs.
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a

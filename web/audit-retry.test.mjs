@@ -36,6 +36,18 @@ function harness(results, overrides = {}) {
 }
 
 describe("audit retry policy", () => {
+  it("preserves successful audit reports, including findings below the threshold", async () => {
+    const production = { status: 0, stdout: "found 0 vulnerabilities\n", stderr: "production notice\n" };
+    const development = { status: 0, stdout: "# npm audit report\n1 moderate severity vulnerability\n", stderr: "development notice\n" };
+    const test = harness([production, development]);
+    expect(await test.run()).toBe(0);
+    expect(test.output().stdout).toBe(production.stdout + development.stdout);
+    expect(test.output().stderr).toContain(production.stderr);
+    expect(test.output().stderr).toContain(development.stderr);
+    expect(test.spawn).toHaveBeenCalledTimes(2);
+    expect(test.wait).not.toHaveBeenCalled();
+  });
+
   it("requires both unchanged thresholds to pass, using Node and the npm CLI path", async () => {
     const test = harness([PASS, PASS], { platform: "win32" });
     expect(await test.run()).toBe(0);
