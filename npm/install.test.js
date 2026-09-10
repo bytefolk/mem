@@ -226,7 +226,7 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
       environment: { XDG_CACHE_HOME: "/var/cache/example" },
       homeDirectory: "/home/example",
     }),
-    "/var/cache/example/fullstack-ai-infra/mem-mcp",
+    "/var/cache/example/bytefolk/mem-mcp",
   );
   assert.equal(
     cacheRootFor({
@@ -234,7 +234,7 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
       environment: {},
       homeDirectory: "/Users/example",
     }),
-    "/Users/example/Library/Caches/fullstack-ai-infra/mem-mcp",
+    "/Users/example/Library/Caches/bytefolk/mem-mcp",
   );
   assert.equal(
     cacheRootFor({
@@ -242,17 +242,17 @@ test("cache paths are user-scoped, versioned, and require absolute overrides", (
       environment: { LOCALAPPDATA: "C:\\Users\\example\\AppData\\Local" },
       homeDirectory: "C:\\Users\\example",
     }),
-    "C:\\Users\\example\\AppData\\Local\\fullstack-ai-infra\\mem-mcp",
+    "C:\\Users\\example\\AppData\\Local\\bytefolk\\mem-mcp",
   );
   assert.equal(
     cacheDirectory({
       osPlatform: "linux",
       osArch: "arm64",
-      version: "0.1.1",
+      version: "0.1.2",
       environment: { MEM_MCP_CACHE_DIR: "/var/cache/mem-mcp-test" },
       homeDirectory: "/home/example",
     }),
-    "/var/cache/mem-mcp-test/v0.1.1/linux-arm64",
+    "/var/cache/mem-mcp-test/v0.1.2/linux-arm64",
   );
   assert.throws(
     () => cacheRootFor({
@@ -278,14 +278,14 @@ test("install verifies a temporary download before exposing it", async (t) => {
   const osPlatform = platform();
   const osArch = arch();
   const asset = assetFor(osPlatform, osArch);
-  const cacheDir = join(cacheRoot, "v0.1.1", `${osPlatform}-${osArch}`);
+  const cacheDir = join(cacheRoot, "v0.1.2", `${osPlatform}-${osArch}`);
   const bytes = Buffer.from("trusted mem-mcp binary");
   const requested = [];
 
   const installed = await install({
     osPlatform,
     osArch,
-    version: "0.1.1",
+    version: "0.1.2",
     environment: { MEM_MCP_CACHE_DIR: cacheRoot },
     homeDirectory: join(root, "read-only-package-home-must-not-be-used"),
     logger: QUIET_LOGGER,
@@ -306,8 +306,8 @@ test("install verifies a temporary download before exposing it", async (t) => {
   }
   assert.deepEqual(readdirSync(cacheDir), [asset]);
   assert.deepEqual(requested, [
-    "https://github.com/bytefolk/mem/releases/download/v0.1.1/mem-mcp-checksums.txt",
-    `https://github.com/bytefolk/mem/releases/download/v0.1.1/${asset}`,
+    "https://github.com/bytefolk/mem/releases/download/v0.1.2/mem-mcp-checksums.txt",
+    `https://github.com/bytefolk/mem/releases/download/v0.1.2/${asset}`,
   ]);
 });
 
@@ -339,6 +339,28 @@ test("install verifies and reuses a cached binary", async (t) => {
   if (platform() !== "win32") {
     assert.notEqual(statSync(binPath).mode & 0o111, 0);
   }
+});
+
+test("explicit cacheDir keeps host paths when selecting a foreign platform binary", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const osPlatform = platform() === "win32" ? "linux" : "win32";
+  const asset = assetFor(osPlatform, "x64");
+  const bytes = Buffer.from("verified foreign platform fixture, never executed");
+  const installed = await install({
+    osPlatform,
+    osArch: "x64",
+    cacheDir,
+    homeDirectory: join(root, "host-home"),
+    environment: {},
+    logger: QUIET_LOGGER,
+    downloadText: async () => manifestFor(bytes, asset),
+    downloadFile: async (_url, destination) => {
+      writeFileSync(destination, bytes, { flag: "wx", mode: 0o600 });
+    },
+  });
+  assert.equal(installed, join(cacheDir, asset));
+  assert.deepEqual(readFileSync(installed), bytes);
 });
 
 test("concurrent installers serialize and publish one verified binary", async (t) => {

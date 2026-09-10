@@ -190,7 +190,7 @@ expect_failure "annotated tag version mismatch" env \
   FAKE_HEAD_COMMIT="${same_commit}" \
   "${repo_root}/scripts/validate_release_source.sh" v999.999.999
 
-asset_dir="${tmp_dir}/assets"
+asset_dir="${tmp_dir}/assets with spaces"
 mkdir -p -- "${asset_dir}"
 assets=(
   mem-mcp-darwin-amd64
@@ -200,6 +200,14 @@ assets=(
   mem-mcp-windows-amd64.exe
   mem-mcp-windows-arm64.exe
 )
+empty_asset_dir="${tmp_dir}/empty assets"
+mkdir -p -- "${empty_asset_dir}"
+if empty_error="$("${repo_root}/scripts/generate_release_checksums.sh" \
+  "${current_tag}" "${same_commit}" "${empty_asset_dir}" 2>&1)"; then
+  die "empty asset directory unexpectedly succeeded"
+fi
+[[ "${empty_error}" == *'release assets differ from the exact expected set'* ]] ||
+  die "empty assets must fail explicitly, not with a Bash 3.2 unbound array error"
 for asset in "${assets[@]}"; do
   printf 'test payload for %s\n' "${asset}" > "${asset_dir}/${asset}"
 done
@@ -207,7 +215,14 @@ done
   "${current_tag}" "${same_commit}" "${asset_dir}" >/dev/null
 
 manifest="${asset_dir}/mem-mcp-checksums.txt"
-[[ "$(wc -l < "${manifest}")" == 6 ]] || die "checksum manifest must have six rows"
+[[ "$(wc -l < "${manifest}")" -eq 6 ]] || die "checksum manifest must have six rows"
+# Exercise the real filesystem enumeration with six inputs. In particular,
+# `find -exec basename {} +` must not batch operands on GNU basename, and BSD
+# find must not be required to implement GNU -printf.
+actual_manifest_names="$(sed -E 's/^[0-9a-f]{64}  //' "${manifest}" | LC_ALL=C sort)"
+expected_manifest_names="$(printf '%s\n' "${assets[@]}" | LC_ALL=C sort)"
+[[ "${actual_manifest_names}" == "${expected_manifest_names}" ]] ||
+  die "portable asset enumeration lost or combined a basename"
 (
   cd -- "${asset_dir}"
   sha256sum --check --strict "$(basename -- "${manifest}")" >/dev/null
@@ -240,3 +255,5 @@ expect_failure "symlink asset" \
   "${current_tag}" "${same_commit}" "${asset_dir}"
 
 printf 'PASS: release source, notes, asset-set and checksum guards fail closed\n'
+
+node --test "${repo_root}/scripts/npm-release.test.mjs"

@@ -13,13 +13,17 @@
 const { createHash, randomBytes, timingSafeEqual } = require("crypto");
 const {
   chmodSync,
+  constants: { COPYFILE_EXCL },
+  copyFileSync,
   createReadStream,
   createWriteStream,
   lstatSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } = require("fs");
@@ -30,7 +34,7 @@ const { pipeline } = require("stream/promises");
 const { TextDecoder } = require("util");
 const { assetFor } = require("./platforms");
 
-const PACKAGE = "@fullstack-ai-infra/mem-mcp";
+const PACKAGE = "@bytefolk/mem-mcp";
 const REPO = "bytefolk/mem";
 const CHECKSUM_ASSET = "mem-mcp-checksums.txt";
 const MAX_CHECKSUM_BYTES = 64 * 1024;
@@ -105,7 +109,7 @@ function absolutePath(value, osPlatform, label) {
   return value;
 }
 
-function cacheRootFor(options = {}) {
+function namespacedCacheRootFor(options, namespace) {
   const osPlatform = options.osPlatform || platform();
   const environment = options.environment || process.env;
   const homeDirectory = options.homeDirectory || homedir();
@@ -120,7 +124,7 @@ function cacheRootFor(options = {}) {
     if (environment.LOCALAPPDATA) {
       return pathApi.join(
         absolutePath(environment.LOCALAPPDATA, osPlatform, "LOCALAPPDATA"),
-        "fullstack-ai-infra",
+        namespace,
         "mem-mcp",
       );
     }
@@ -128,7 +132,7 @@ function cacheRootFor(options = {}) {
       absolutePath(homeDirectory, osPlatform, "home directory"),
       "AppData",
       "Local",
-      "fullstack-ai-infra",
+      namespace,
       "mem-mcp",
     );
   }
@@ -138,7 +142,7 @@ function cacheRootFor(options = {}) {
       absolutePath(homeDirectory, osPlatform, "home directory"),
       "Library",
       "Caches",
-      "fullstack-ai-infra",
+      namespace,
       "mem-mcp",
     );
   }
@@ -146,16 +150,20 @@ function cacheRootFor(options = {}) {
   if (environment.XDG_CACHE_HOME) {
     return pathApi.join(
       absolutePath(environment.XDG_CACHE_HOME, osPlatform, "XDG_CACHE_HOME"),
-      "fullstack-ai-infra",
+      namespace,
       "mem-mcp",
     );
   }
   return pathApi.join(
     absolutePath(homeDirectory, osPlatform, "home directory"),
     ".cache",
-    "fullstack-ai-infra",
+    namespace,
     "mem-mcp",
   );
+}
+
+function cacheRootFor(options = {}) {
+  return namespacedCacheRootFor(options, "bytefolk");
 }
 
 function safeVersion(version) {
@@ -176,6 +184,72 @@ function cacheDirectory(options = {}) {
     homeDirectory: options.homeDirectory,
   });
   return pathApi.join(root, `v${version}`, `${osPlatform}-${osArch}`);
+}
+
+// Resolve existing ancestors without creating the missing suffix. In particular,
+// a namespace/version symlink must be followed before comparing cache trees.
+// Dangling links and unresolvable paths fail closed instead of being treated as
+// a fresh directory that recursive mkdir could create in the legacy cache.
+function resolvedCachePath(target) {
+  absolutePath(target, platform(), "mem-mcp cache directory");
+  const missing = [];
+  let current = target;
+  for (;;) {
+    try {
+      return path.join(realpathSync.native(current), ...missing);
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err;
+      try {
+        lstatSync(current);
+        throw new Error(`Cannot safely resolve mem-mcp cache path: ${current}`);
+      } catch (inspectionError) {
+        if (inspectionError.code !== "ENOENT") throw inspectionError;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) throw err;
+      missing.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function pathContains(parent, child) {
+  const relative = path.relative(parent, child);
+  return relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function assertSeparateLegacyCache(destinationPaths, legacyPaths) {
+  const destinations = destinationPaths.map(resolvedCachePath);
+  const legacy = legacyPaths.map(resolvedCachePath);
+  for (const destination of destinations) {
+    for (const source of legacy) {
+      if (pathContains(destination, source) || pathContains(source, destination)) {
+        throw new Error(
+          `Refusing mem-mcp destination overlapping legacy cache: ${destination} and ${source}. ` +
+          "Set MEM_MCP_CACHE_DIR to a separate directory.",
+        );
+      }
+    }
+  }
+}
+
+function assertSeparateLegacyEntry(destination, source) {
+  let destinationInfo;
+  let sourceInfo;
+  try {
+    destinationInfo = statSync(destination, { bigint: true });
+    sourceInfo = statSync(source, { bigint: true });
+  } catch (err) {
+    if (err.code === "ENOENT" || err.code === "ENOTDIR") return;
+    throw err;
+  }
+  if (destinationInfo.dev === sourceInfo.dev && destinationInfo.ino === sourceInfo.ino) {
+    throw new Error(
+      `Refusing mem-mcp destination sharing an inode with legacy cache: ${destination}. ` +
+      "Set MEM_MCP_CACHE_DIR to a separate directory.",
+    );
+  }
 }
 
 function ensureCacheDirectory(cacheDir) {
@@ -605,6 +679,24 @@ function quarantineCacheEntry(binPath, cacheDir, asset, nonce, suffix) {
   return quarantinePath;
 }
 
+// Legacy caches are read-only inputs. Stage a separate copy under the new
+// cache's lock, then verify that copy too: an old installer may change its
+// source while we read. Never execute, chmod, rename or remove the old entry.
+async function copyVerifiedLegacyBinary(source, destination, expected, signal) {
+  try {
+    await verifyFile(source, expected, signal);
+    copyFileSync(source, destination, COPYFILE_EXCL);
+    await verifyFile(destination, expected, signal);
+    return true;
+  } catch (err) {
+    removeIfPresent(destination);
+    if ((signal && signal.aborted) || err.name === "AbortError") throw err;
+    // Missing, unreadable, changed, or invalid legacy entries are optional;
+    // the normal verified Release download remains authoritative.
+    return false;
+  }
+}
+
 async function install(options = {}) {
   const osPlatform = options.osPlatform || platform();
   const osArch = options.osArch || arch();
@@ -630,6 +722,20 @@ async function install(options = {}) {
   };
 
   const asset = assetFor(osPlatform, osArch);
+  // Overrides disable legacy binary reuse, but cannot opt out of protecting the
+  // default legacy tree from destination writes through aliases or overlap.
+  // This is a filesystem path on the running host. osPlatform may select a
+  // foreign binary when a native explicit cacheDir is supplied (including CI).
+  const legacyRoot = namespacedCacheRootFor({
+    osPlatform: platform(),
+    environment: { ...environment, MEM_MCP_CACHE_DIR: undefined },
+    homeDirectory: options.homeDirectory,
+  }, "fullstack-ai-infra");
+  const legacyVersion = path.join(legacyRoot, `v${version}`);
+  const legacyDirectory = path.join(legacyVersion, `${osPlatform}-${osArch}`);
+  const legacyPath = options.cacheDir === undefined && environment.MEM_MCP_CACHE_DIR === undefined
+    ? path.join(legacyDirectory, asset)
+    : null;
   const binPath = path.join(cacheDir, asset);
   const releaseBase = `https://github.com/${repository}/releases/download/v${version}`;
   const checksumUrl = `${releaseBase}/${CHECKSUM_ASSET}`;
@@ -642,6 +748,16 @@ async function install(options = {}) {
   let operationError = null;
 
   throwIfAborted(signal);
+  // This must stay outside the mutation/cleanup try block and before mkdir,
+  // chmod or lock acquisition: even those operations can alter legacy data.
+  assertSeparateLegacyCache(
+    options.cacheDir !== undefined ? [cacheDir] : [
+      cacheRootFor({ osPlatform, environment, homeDirectory: options.homeDirectory }),
+      path.dirname(cacheDir), cacheDir,
+    ],
+    [legacyRoot, legacyVersion, legacyDirectory],
+  );
+  assertSeparateLegacyEntry(binPath, path.join(legacyDirectory, asset));
   ensureCacheDirectory(cacheDir);
   lock = await acquireAssetLock(cacheDir, asset, {
     osPlatform,
@@ -688,8 +804,14 @@ async function install(options = {}) {
     }
 
     tempPath = path.join(cacheDir, `.${asset}.${lock.nonce}.tmp`);
-    logger.log(`${PACKAGE}: downloading ${binaryUrl}...`);
-    await fetchFile(binaryUrl, tempPath, requestOptions);
+    const copiedLegacy = legacyPath !== null &&
+      await copyVerifiedLegacyBinary(legacyPath, tempPath, expected, signal);
+    if (copiedLegacy) {
+      logger.log(`${PACKAGE}: copied verified legacy binary from ${legacyPath}`);
+    } else {
+      logger.log(`${PACKAGE}: downloading ${binaryUrl}...`);
+      await fetchFile(binaryUrl, tempPath, requestOptions);
+    }
     throwIfAborted(signal);
     await verifyFile(tempPath, expected, signal);
     throwIfAborted(signal);
@@ -792,6 +914,7 @@ module.exports = {
   isLockContention,
   openResponse,
   releaseAssetLock,
+  REPO,
   sha256File,
   verifyFile,
 };

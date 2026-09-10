@@ -27,7 +27,7 @@ if ! (
   exit 1
 fi
 
-asset_dir="${tmp_dir}/assets"
+asset_dir="${tmp_dir}/assets with spaces"
 mkdir -p -- "${asset_dir}"
 assets=(
   mem-mcp-darwin-amd64
@@ -75,6 +75,6 @@ if ! (
   exit 1
 fi
 
-[[ "$(wc -l < "${asset_dir}/mem-mcp-checksums.txt")" == 6 ]]
+[[ "$(wc -l < "${asset_dir}/mem-mcp-checksums.txt")" -eq 6 ]]
 
 printf 'PASS: release version and checksum helpers run without Bash 4-only collection builtins\n'

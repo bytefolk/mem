@@ -50,7 +50,7 @@ const protocolVersion = "2024-11-05"
 // serverInfo is what we report back in the `initialize` handshake.
 var serverInfo = map[string]any{
 	"name":    "mem-mcp",
-	"version": "0.1.1", // synced with npm/@fullstack-ai-infra/mem-mcp version
+	"version": "0.1.2", // synced with npm/@bytefolk/mem-mcp version
 }
 
 func main() {
