@@ -642,8 +642,14 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 				return fmt.Errorf("check recursive delete memories: %w", err)
 			}
 			if containsMemories {
+				// A folder operation must never become an implicit memory
+				// deletion. The caller has to use the memory lifecycle's
+				// explicit forget operation first.
 				return ErrContainsMemories
 			}
+			// Delete descendant files explicitly: the folder FK would only
+			// NULL out folder_id. RETURNING retains their storage keys for
+			// best-effort object removal after this transaction commits.
 			rows, err := tx.Query(ctx,
 				`DELETE FROM files
 				  WHERE user_id = $1
@@ -669,6 +675,8 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 				return fmt.Errorf("iterate deleted storage_keys: %w", err)
 			}
 			rows.Close()
+			// Subfolder rows cascade via the FK ON DELETE CASCADE when we
+			// drop the parent below.
 		}
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM folders WHERE id = $1 AND user_id = $2`, src.ID, userID); err != nil {

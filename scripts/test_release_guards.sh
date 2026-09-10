@@ -22,6 +22,28 @@ expect_failure() {
   fi
 }
 
+check_changelog_subsections() {
+  awk '
+    /^## \[/ {
+      for (heading in seen) delete seen[heading]
+    }
+    /^### / && seen[$0]++ {
+      printf "ERROR: duplicate changelog subsection at line %d: %s\n", NR, $0 > "/dev/stderr"
+      exit 1
+    }
+  ' "$1"
+}
+
+# A category may recur in another release, but not twice in the same release.
+changelog_fixture="${tmp_dir}/changelog.md"
+printf '%s\n' '## [Unreleased]' '### Fixed' '- Current fix.' \
+  '## [0.1.1] - 2026-08-31' '### Fixed' '- Earlier fix.' >"${changelog_fixture}"
+check_changelog_subsections "${changelog_fixture}"
+printf '%s\n' '## [Unreleased]' '### Fixed' '- First fix.' \
+  '### Security' '- Security fix.' '### Fixed' '- Second fix.' >"${changelog_fixture}"
+expect_failure "duplicate Unreleased subsection" check_changelog_subsections "${changelog_fixture}"
+check_changelog_subsections "${repo_root}/CHANGELOG.md"
+
 verify_manifest() {
   local directory="$1"
   (
