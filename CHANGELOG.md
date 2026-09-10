@@ -44,6 +44,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Checksum manifest generation rejects existing output files, directories and
+  symlinks without modifying their targets, including dangling symlinks.
 - Release validation requires comparison links to start at the preceding
   CHANGELOG release. Checksum generation handles each asset path separately on
   GNU and BSD tools, including directories with spaces, and rejects empty sets.

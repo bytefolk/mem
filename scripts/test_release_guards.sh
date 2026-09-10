@@ -291,4 +291,5 @@ expect_failure "symlink asset" \
   "${repo_root}/scripts/generate_release_checksums.sh" \
   "${current_tag}" "${same_commit}" "${asset_dir}"
 
+bash "${repo_root}/scripts/test_release_checksum_output_safety.sh"
 printf 'PASS: release source, notes, asset-set and checksum guards fail closed\n'

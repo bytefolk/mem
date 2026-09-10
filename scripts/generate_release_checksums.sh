@@ -11,11 +11,19 @@ die() {
   exit 1
 }
 
+require_absent_output() {
+  # -e alone misses dangling symlinks. In particular, mv follows an output
+  # symlink to a directory and would publish outside this asset directory.
+  [[ ! -e "${output}" && ! -L "${output}" ]] ||
+    die "checksum output path already exists: ${output}"
+}
+
 if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
   die "invalid release tag: ${tag:-<empty>}"
 fi
 [[ "${commit}" =~ ^[0-9a-f]{40}$ ]] || die "invalid release commit: ${commit:-<empty>}"
 [[ -d "${asset_dir}" ]] || die "asset directory does not exist: ${asset_dir:-<empty>}"
+require_absent_output
 
 assets=(
   mem-mcp-darwin-amd64
@@ -57,6 +65,7 @@ trap cleanup EXIT
     sha256sum "${assets[@]}"
   )
 } > "${tmp_output}"
+require_absent_output
 mv -- "${tmp_output}" "${output}"
 trap - EXIT
 
