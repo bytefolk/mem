@@ -65,7 +65,7 @@ type MemoryService interface {
 	Restore(context.Context, memory.LifecycleCommand) (*memory.MutationResult, error)
 	Forget(context.Context, memory.ForgetCommand) (*memory.ForgetResult, error)
 	CreateRelation(context.Context, memory.CreateRelationCommand) (*memory.CreateRelationResult, error)
-	ListRelations(context.Context, memory.ListRelationsQuery) ([]memory.Relation, error)
+	ListRelations(context.Context, memory.ListRelationsQuery) (*memory.ListRelationsResult, error)
 }
 
 // DurableContextService is the scoped durable-context port (mem#70). Handlers

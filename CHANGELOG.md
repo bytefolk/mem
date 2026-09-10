@@ -51,6 +51,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Enforce text-chunk uniqueness, index nullable memory references, cascade memory relations with workspace deletion, batch generation listings, and paginate relation listings with opaque cursors.
 - Add cosine HNSW indexes for legacy embedding tables. The text search query's per-file deduplication still limits planner use; see `docs/VALIDATION_HNSW.md`.
 - Advertise the model-free lexical file-search route in the MCP `mem_search`
   schema and verify `tools/list` plus route/filter forwarding through `tools/call`.
