@@ -134,12 +134,14 @@ test(
       const packageRoot = join(
         consumer,
         "node_modules",
-        "@fullstack-ai-infra",
+        "@bytefolk",
         "mem-mcp",
       );
       const packageJson = JSON.parse(
         readFileSync(join(packageRoot, "package.json"), "utf8"),
       );
+      assert.equal(packageJson.name, "@bytefolk/mem-mcp");
+      assert.equal(packageJson.mcpName, "io.github.bytefolk/mem-mcp");
       assert.equal(packageJson.version, PACKAGE_VERSION);
       assert.equal(packageJson.scripts.postinstall, undefined);
 

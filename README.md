@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#project-status)
 [![MCP Server](https://img.shields.io/badge/MCP%20Server-26%20tools-blue?logo=modelcontextprotocol)](docs/mcp.md)
-[![smithery](https://smithery.ai/badge/@fullstack-ai-infra/mem-mcp)](https://smithery.ai/server/@fullstack-ai-infra/mem-mcp)
+[![smithery](https://smithery.ai/badge/@bytefolk/mem-mcp)](https://smithery.ai/server/@bytefolk/mem-mcp)
 
 **A portable, self-hosted memory plane for AI agents.**
 

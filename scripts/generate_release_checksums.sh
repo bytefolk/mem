@@ -30,9 +30,11 @@ actual_assets=()
 while IFS= read -r actual_asset; do
   actual_assets[${#actual_assets[@]}]="${actual_asset}"
 done < <(
-  find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort
+  # One path per basename invocation works on BSD/macOS and GNU/Linux. GNU
+  # basename treats multiple operands as name + suffix, not a batch of names.
+  find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort
 )
-if [[ "${actual_assets[*]}" != "${assets[*]}" ]]; then
+if [[ "${actual_assets[*]:-}" != "${assets[*]}" ]]; then
   printf 'ERROR: release assets differ from the exact expected set\n' >&2
   printf 'expected: %s\n' "${assets[*]}" >&2
   printf 'actual:   %s\n' "${actual_assets[*]:-<none>}" >&2
