@@ -253,6 +253,10 @@ jobs:
         working-directory: web
         run: npm run audit
 
+      - name: Run unit tests
+        working-directory: web
+        run: npm test
+
       - name: Lint
         working-directory: web
         run: npm run lint
@@ -350,6 +354,10 @@ jobs:
           node --check mem-mcp
           node --check platforms.js
           npm pack --dry-run --ignore-scripts
+
+      - name: Test Windows audit evidence helper
+        if: runner.os == 'Windows'
+        run: node --test scripts/test_win_audit_verify.mjs
 
   deployment:
     name: Deployment profiles
