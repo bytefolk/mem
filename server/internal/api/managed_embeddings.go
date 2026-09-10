@@ -161,8 +161,9 @@ func (s *Server) managedSearcher(
 		s.Search == nil {
 		return nil, nil, entitlement.ErrEntitlementUnavailable
 	}
-	// A visual-only query does not invoke the managed text embedding provider.
-	if query.Route == search.RouteVisual {
+	// A visual-only or lexical query does not invoke the managed text embedding
+	// provider.
+	if query.Route == search.RouteVisual || query.Route == search.RouteLexical {
 		return s.Search, nil, nil
 	}
 	spec, err := s.Search.EmbeddingSpec(r.Context(), query.UserID)
