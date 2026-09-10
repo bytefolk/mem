@@ -228,7 +228,7 @@ func TestMemoryPathLifecycleIntegration(t *testing.T) {
 		 VALUES ('folder memory test', $1) RETURNING id`,
 		userID)
 
-	svc := New(pool)
+	svc := New(pool, nil, nil)
 	for _, p := range []string{
 		"/A%_/Child",
 		"/AtomicSource/original/Child",

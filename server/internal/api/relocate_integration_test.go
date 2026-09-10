@@ -103,7 +103,7 @@ func TestRelocateHTTPPostgres(t *testing.T) {
 		t.Fatalf("create restricted relocation token: %v", err)
 	}
 
-	folderService := folder.New(database.Pool)
+	folderService := folder.New(database.Pool, nil, nil)
 	fileService := file.New(database.Pool, nil, folderService)
 	server := httptest.NewServer((&Server{
 		Auth:      authService,
