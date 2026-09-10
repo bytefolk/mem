@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -34,6 +33,7 @@ import (
 	"github.com/PeterGuy326/mem/server/internal/memory"
 	"github.com/PeterGuy326/mem/server/internal/provider"
 	"github.com/PeterGuy326/mem/server/internal/queue"
+	"github.com/PeterGuy326/mem/server/internal/redact"
 	"github.com/PeterGuy326/mem/server/internal/relator"
 	"github.com/PeterGuy326/mem/server/internal/search"
 	"github.com/PeterGuy326/mem/server/internal/storage"
@@ -45,7 +45,9 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("memd fatal", "err", err)
+		// run() wraps third-party errors that embed the configured DSN verbatim,
+		// and slog renders an error value as its text.
+		slog.Error("memd fatal", "err", redact.Text(err.Error(), redact.StoreURLs))
 		os.Exit(1)
 	}
 }
@@ -444,13 +446,9 @@ func redactDSN(s string) string {
 	return redactURLCredentials(s)
 }
 
+// redactURLCredentials gates the two DSNs this process logs. The store schemes
+// are allowed here and nowhere else, so an API-shaped egress can never echo a
+// database URL by accident.
 func redactURLCredentials(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.User == nil {
-		return raw
-	}
-	if _, hasPassword := parsed.User.Password(); !hasPassword {
-		return raw
-	}
-	return parsed.Redacted()
+	return redact.URL(raw, redact.StoreURLs)
 }
