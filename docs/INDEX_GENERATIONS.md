@@ -105,23 +105,40 @@ content or raw provider responses.
 
 ## Current public surface
 
-The HTTP and CLI surfaces are intentionally read-only in this foundation:
+The HTTP and CLI surfaces expose read-only status and the full set of lifecycle
+mutation routes. Create and activate return `execution_unavailable` (HTTP 503)
+because no worker executor yet claims targets and search does not route
+generation vectors. Cancel, resume, rollback and discard manage existing builds
+but cannot produce a searchable corpus until execution is wired.
 
 ```text
-GET /v1/workspaces/current/index-generations
-GET /v1/workspaces/current/index-generations/{build-id}
-GET /v1/workspaces/current/index-generations/{build-id}/events
+GET  /v1/workspaces/current/index-generations
+GET  /v1/workspaces/current/index-generations/{build-id}
+GET  /v1/workspaces/current/index-generations/{build-id}/events
+
+POST /v1/workspaces/current/index-generations                       → 503 execution_unavailable
+POST /v1/workspaces/current/index-generations/{build-id}/cancel
+POST /v1/workspaces/current/index-generations/{build-id}/resume
+POST /v1/workspaces/current/index-generations/{build-id}/activate   → 503 execution_unavailable
+POST /v1/workspaces/current/index-generations/{build-id}/rollback
+POST /v1/workspaces/current/index-generations/{build-id}/discard
 
 mem generation list
 mem generation status <build-id>
 mem generation events <build-id>
+mem generation create <profile-id>   → rejected until execution is wired
+mem generation activate <build-id>   → rejected until execution is wired
+mem generation cancel <build-id>
+mem generation resume <build-id>
+mem generation rollback <build-id>
+mem generation discard <build-id>
 ```
 
-They expose `execution_wired=false`. The server does not expose create,
-activate, rollback, discard, cancel or resume yet. Publishing those mutations
-before the Worker and search paths consume the same generation identity would
-create a false state where metadata says “active” while queries still use the
-released legacy embedding tables.
+All responses include `execution_wired: false`. The flag is honest: no code
+path executes a build or routes search queries through generation vectors.
+Publishing a successful create or activate before the Worker and search paths
+consume the same generation identity would create a false state where metadata
+says “active” while queries still use the released legacy embedding tables.
 
 ## Cost, time and benchmark gate
 
