@@ -95,6 +95,7 @@ func saveQoderCheckpointLocked(stateDir, p string, cp qoderCheckpoint) error {
 	if err != nil {
 		return fmt.Errorf("encode checkpoint: %w", err)
 	}
+	// CreateTemp creates a new private file with mode 0o600 before umask.
 	tmp, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("create checkpoint staging file: %w", err)
@@ -104,9 +105,6 @@ func saveQoderCheckpointLocked(stateDir, p string, cp qoderCheckpoint) error {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		return fmt.Errorf("secure checkpoint staging file: %w", err)
-	}
 	if _, err := tmp.Write(b); err != nil {
 		return fmt.Errorf("write checkpoint: %w", err)
 	}
