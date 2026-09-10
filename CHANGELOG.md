@@ -51,6 +51,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Advertise the model-free lexical file-search route in the MCP `mem_search`
+  schema and verify `tools/list` plus route/filter forwarding through `tools/call`.
+
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
