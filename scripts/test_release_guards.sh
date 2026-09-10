@@ -273,6 +273,14 @@ assets=(
   mem-mcp-windows-amd64.exe
   mem-mcp-windows-arm64.exe
 )
+empty_asset_dir="${tmp_dir}/empty assets"
+mkdir -p -- "${empty_asset_dir}"
+if empty_error="$("${repo_root}/scripts/generate_release_checksums.sh" \
+  "${current_tag}" "${same_commit}" "${empty_asset_dir}" 2>&1)"; then
+  die "empty asset directory unexpectedly succeeded"
+fi
+[[ "${empty_error}" == *'release assets differ from the exact expected set'* ]] ||
+  die "empty assets must fail explicitly, not with a Bash 3.2 unbound array error"
 for asset in "${assets[@]}"; do
   printf 'test payload for %s\n' "${asset}" > "${asset_dir}/${asset}"
 done
@@ -286,6 +294,10 @@ server_manifest="${asset_dir}/mem-checksums.txt"
 # BSD wc pads its count with blanks, so a line count must not come from wc -l.
 [[ "$(grep -c '' "${mcp_manifest}")" == 6 ]] || die "mcp checksum manifest must have six rows"
 [[ "$(grep -c '' "${server_manifest}")" == 16 ]] || die "server checksum manifest must have 16 rows"
+actual_manifest_names="$(sed -E 's/^[0-9a-f]{64}  //' "${mcp_manifest}" | LC_ALL=C sort)"
+expected_manifest_names="$(printf '%s\n' "${assets[@]}" | LC_ALL=C sort)"
+[[ "${actual_manifest_names}" == "${expected_manifest_names}" ]] ||
+  die "portable asset enumeration lost or combined a basename"
 (
   cd -- "${asset_dir}"
   sha256sum --check --strict "$(basename -- "${mcp_manifest}")" >/dev/null
@@ -320,3 +332,5 @@ expect_failure "symlink asset" \
 
 bash "${repo_root}/scripts/test_release_checksum_output_safety.sh"
 printf 'PASS: release source, notes, asset-set and checksum guards fail closed\n'
+
+node --test "${repo_root}/scripts/npm-release.test.mjs"
