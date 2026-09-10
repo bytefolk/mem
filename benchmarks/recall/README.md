@@ -167,3 +167,55 @@ time and sanitized query failures. It does not copy query text, corpus text,
 vectors or free-form provider errors. Credential-shaped configuration keys
 such as `api_key`, `password`, `secret`, `token` and `authorization` are
 rejected instead of being copied into an artifact.
+
+## Live memd producer
+
+The `produce` subcommand queries a running `memd` over file-search queries and
+emits a `mem.recall-rankings.v1` file that the existing `run --rankings` path
+consumes. Latency is measured client-side per request; the `0 ms` sentinel
+warning above applies only to the offline lexical lane.
+
+```bash
+python3 -m benchmarks.recall produce \
+  --memd-url http://localhost:8080 \
+  --token "$MEM_TOKEN" \
+  --dataset benchmarks/recall/data/profile-text-v1 \
+  --output /tmp/live-rankings.json \
+  --dimension 768 --provider "$MEM_PROVIDER_LABEL" --model "$MEM_MODEL_LABEL" \
+  --mode vector
+```
+
+Then score it against the lexical baseline:
+
+```bash
+python3 -m benchmarks.recall run \
+  --dataset benchmarks/recall/data/profile-text-v1 \
+  --rankings /tmp/live-rankings.json \
+  --output /tmp/live-artifact.json
+```
+
+Load the synthetic file corpus into an isolated test deployment first. The
+producer does not ingest it. Supply a token bound to the dataset's workspace;
+its labels do not establish the token's real workspace identity.
+
+The producer maps each API result back to a dataset `doc_id` using the returned
+folder `path` plus file `name`. Cross-workspace path collisions, unknown paths,
+or ambiguous snippets fail the query instead of silently dropping evidence.
+Query filters are translated where the API supports them: `path_prefix` becomes
+`scope`, and `source_kind` becomes `type` (`image_caption` → `image`,
+`text` → `text`). The `workspace` filter is not sent to the API because the
+auth token determines workspace scope.
+
+Vector mode sends `route=text`; it does not claim a hybrid lexical/vector or
+multimodal experiment. Lexical mode sends `route=lexical` and requires the
+server capability from #183. It emits null provider/model/dimension as required
+by the ranking schema. Provider, model, dimension and index configuration are
+operator declarations, not discovered or verified server metadata.
+
+The full v1 corpus also contains structured-memory queries. `/v1/search` cannot
+serve these; the producer records `unsupported_source_kind` and exits 2. Any
+HTTP, mapping or response error also exits 2 while retaining an error artifact.
+Use the existing `profile-text-v1` file-only fixture for this producer's bounded
+acceptance. An HTTP fixture test proves transport and artifact handling only;
+it does not establish live provider quality, production latency, or full-corpus
+acceptance. Those remain NOT VERIFIED until a real populated memd run is saved.

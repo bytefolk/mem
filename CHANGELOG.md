@@ -44,6 +44,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Add an opt-in file-search ranking producer with explicit request failures, conservative result identity mapping, and operator-declared configuration. Live provider quality remains separately unverified.
+
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
