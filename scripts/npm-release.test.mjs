@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { fstatSync, mkdtempSync, mkdirSync, readFileSync, readSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import {
   ASSETS, PACKAGE, REGISTRY, checkContext, checkProof, checkPackage,
-  checkRelease, checkAssets, checkRegistryBefore, checkRegistryAfter, runRelease,
+  checkRelease, checkAssets, checkRegistryBefore, checkRegistryAfter, commandStdio, readReleaseFile, runRelease,
 } from './npm-release.mjs';
 
 const tag = 'v0.1.2';
@@ -133,7 +134,7 @@ function fixture(t) {
   let registryReads = 0;
   let published = false;
   const r = release();
-  const run = (command, args, cwd) => {
+  const run = (command, args, cwd, descriptor) => {
     calls.push([command, ...args]);
     if (command === 'git') {
       if (args[0] === 'cat-file') return 'tag';
@@ -156,9 +157,16 @@ function fixture(t) {
       return '';
     }
     if (command === 'go') {
-      const name = args.at(-1).split('/').at(-1);
+      let bytes;
+      if (descriptor === undefined) bytes = readFileSync(args.at(-1));
+      else {
+        assert.equal(args.at(-1), '/proc/self/fd/3');
+        bytes = Buffer.alloc(fstatSync(descriptor).size);
+        assert.equal(readSync(descriptor, bytes, 0, bytes.length, 0), bytes.length);
+      }
+      const [, name, revision = commit] = bytes.toString().split(' ');
       const [, , os, arch] = name.replace('.exe', '').split('-');
-      return `\tpath\tgithub.com/PeterGuy326/mem/server/cmd/mem-mcp\n\tbuild\tGOOS=${os}\n\tbuild\tGOARCH=${arch}\n\tbuild\tvcs.revision=${commit}\n\tbuild\tvcs.modified=false\n`;
+      return `\tpath\tgithub.com/PeterGuy326/mem/server/cmd/mem-mcp\n\tbuild\tGOOS=${os}\n\tbuild\tGOARCH=${arch}\n\tbuild\tvcs.revision=${revision}\n\tbuild\tvcs.modified=false\n`;
     }
     if (command === 'npm') {
       if (args[0] === '--version') return '11.15.0';
@@ -186,6 +194,93 @@ function fixture(t) {
     readCount: () => registryReads };
 }
 
+test('asset read holds one descriptor across path replacement and always closes it', t => {
+  const f = fixture(t);
+  const file = join(f.repo, 'asset');
+  writeFileSync(file, 'original');
+  let descriptor;
+  const bytes = readReleaseFile(file, 8, fd => {
+    descriptor = fd;
+    renameSync(file, file + '.saved');
+    writeFileSync(file, 'replaced');
+    return readFileSync(fd);
+  });
+  assert.equal(bytes.toString(), 'original');
+  assert.equal(readFileSync(file, 'utf8'), 'replaced');
+  assert.throws(() => fstatSync(descriptor), /EBADF/);
+});
+
+test('asset descriptor rejects symlinks, directories and wrong sizes', t => {
+  const f = fixture(t);
+  const file = join(f.repo, 'asset');
+  writeFileSync(file, 'original');
+  symlinkSync(file, file + '.link');
+  assert.throws(() => readReleaseFile(file + '.link', 8));
+  assert.throws(() => readReleaseFile(f.repo, 8), /regular file/);
+  assert.throws(() => readReleaseFile(file, 7), /size mismatch/);
+  let descriptor;
+  assert.throws(() => readReleaseFile(file, 8, fd => { descriptor = fd; throw Error('read failed'); }), /read failed/);
+  assert.throws(() => fstatSync(descriptor), /EBADF/);
+});
+
+test('real child metadata transport keeps the verified descriptor across path replacement', t => {
+  const f = fixture(t);
+  const file = join(f.repo, 'asset');
+  writeFileSync(file, 'original');
+  readReleaseFile(file, 8, readFileSync, fd => {
+    renameSync(file, file + '.saved');
+    writeFileSync(file, 'replaced');
+    const path = process.platform === 'linux' ? '/proc/self/fd/3' : '/dev/fd/3';
+    const child = `const fs = require('node:fs'); const fd = fs.openSync(process.argv[1], 'r');
+      const bytes = Buffer.alloc(fs.fstatSync(fd).size); fs.readSync(fd, bytes, 0, bytes.length, 0);
+      fs.closeSync(fd); process.stdout.write(bytes);`;
+    assert.equal(execFileSync(process.execPath, ['-e', child, path], { stdio: commandStdio(fd) }).toString(), 'original');
+  });
+});
+
+for (const replacedIndex of [0, 1]) {
+  test(`metadata and checksum cannot validate different objects: asset ${replacedIndex}`, t => {
+    const f = fixture(t);
+    const assets = join(f.directory, 'assets');
+    mkdirSync(assets, { recursive: true });
+    f.run('gh', ['release', 'download', tag, '--dir', assets]);
+    const name = ASSETS[replacedIndex];
+    const path = join(assets, name);
+    const wrong = Buffer.from(`fixture ${name} ${'b'.repeat(40)}`);
+    writeFileSync(path, wrong);
+    f.r.assets.find(a => a.name === name).size = wrong.length;
+    const manifestPath = join(assets, 'mem-mcp-checksums.txt');
+    const manifest = readFileSync(manifestPath, 'utf8').split('\n').map(line =>
+      line.endsWith(`  ${name}`) ? `${createHash('sha256').update(wrong).digest('hex')}  ${name}` : line).join('\n');
+    writeFileSync(manifestPath, manifest);
+    let replaced = false;
+    const run = (command, args, cwd, descriptor) => {
+      if (command === 'go' && !replaced) {
+        replaced = true;
+        renameSync(path, path + '.saved');
+        writeFileSync(path, `fixture ${name} ${commit}`);
+      }
+      return f.run(command, args, cwd, descriptor);
+    };
+    assert.throws(() => checkAssets(assets, f.r, commit, run), /checksum mismatch|build metadata mismatch/);
+    assert.equal(replaced, true);
+  });
+}
+
+test('receipt records verified local facts, not a registry-supplied payload', async t => {
+  const f = fixture(t);
+  const original = f.getJSON;
+  f.getJSON = async () => {
+    const data = await original();
+    if (data.versions['0.1.2']) data.versions['0.1.2'].dist.attestations.url = `${REGISTRY}/-/npm/v1/attestations/server-controlled-marker`;
+    return data;
+  };
+  const receipt = await runRelease(tag, f);
+  assert.equal(receipt.registryMetadata, `${REGISTRY}/@bytefolk%2fmem-mcp`);
+  assert.equal(receipt.attestations, 'verified by npm audit signatures');
+  assert.ok(!readFileSync(join(f.directory, 'receipt.json'), 'utf8').includes('server-controlled-marker'));
+});
+
 test('full fixture publishes the checked tarball once to next then verifies signatures; no latest mutation', async t => {
   const f = fixture(t);
   await runRelease(tag, f);
@@ -208,14 +303,14 @@ for (const failure of ['proof', 'source', 'registry', 'assets', 'pack', 'recheck
       const get = f.getJSON;
       f.getJSON = async () => { if (failure === 'registry' || f.calls.some(c => c[1] === 'publish')) throw Error('fixture unavailable'); return get(); };
     }
-    f.run = (command, args, cwd) => {
+    f.run = (command, args, cwd, descriptor) => {
       if (command === 'git' && args[0] === 'fetch') {
         sourceChecks++;
         if (failure === 'source' || (failure === 'recheck' && sourceChecks > 1)) throw Error('source moved');
       }
       if ((failure === 'pack' && args[0] === 'pack') || (failure === 'publish' && args[0] === 'publish') ||
           (failure === 'audit' && args[0] === 'audit')) { f.calls.push([command, ...args]); throw Error('fixture failure'); }
-      const result = original(command, args, cwd);
+      const result = original(command, args, cwd, descriptor);
       if (failure === 'assets' && command === 'gh' && args[0] === 'release') writeFileSync(join(f.directory, 'assets', ASSETS[0]), 'tampered');
       return result;
     };
@@ -244,11 +339,11 @@ for (const changed of ['download_count', 'digest']) {
     const f = fixture(t);
     const original = f.run;
     let releaseReads = 0;
-    f.run = (command, args, cwd) => {
+    f.run = (command, args, cwd, descriptor) => {
       if (command === 'gh' && args[0] === 'api' && ++releaseReads === 3) {
         f.r.assets[0][changed] = changed === 'digest' ? 'sha256:' + 'b'.repeat(64) : 17;
       }
-      return original(command, args, cwd);
+      return original(command, args, cwd, descriptor);
     };
     if (changed === 'digest') {
       await assert.rejects(runRelease(tag, f), /Release changed/);
