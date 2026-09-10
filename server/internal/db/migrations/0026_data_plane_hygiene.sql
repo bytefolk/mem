@@ -7,7 +7,7 @@
 -- The write path (indexer.go) DELETEs all chunks for a file before re-inserting,
 -- so duplicates should never exist in practice. Deduplicate defensively before
 -- adding the constraint: if any duplicates survived, keep the row with the
--- smallest id (earliest insert).
+-- smallest UUID for deterministic selection (UUID order is not insert order).
 -- +goose StatementBegin
 DELETE FROM embeddings_text
  WHERE id NOT IN (

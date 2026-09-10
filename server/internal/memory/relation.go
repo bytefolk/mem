@@ -322,7 +322,7 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) (*Lis
 		args = append(args, cursor.createdAt, cursor.id)
 		timeArg, idArg := len(args)-1, len(args)
 		where = append(where, fmt.Sprintf(
-			"(r.created_at < $%d OR (r.created_at = $%d AND r.id < $%d))",
+			"(r.created_at < $%d OR (r.created_at = $%d AND r.id > $%d))",
 			timeArg, timeArg, idArg,
 		))
 	}
