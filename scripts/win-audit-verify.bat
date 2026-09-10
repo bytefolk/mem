@@ -28,7 +28,7 @@ echo.
 REM 4. Run the actual audit via npm run — this is the path that supplies npm_execpath.
 echo --- npm run audit (full output) ---
 echo [win-audit-verify] starting npm run audit at %DATE% %TIME%
-npm run audit
+call npm run audit
 set AUDIT_RC=!ERRORLEVEL!
 echo [win-audit-verify] finished at %DATE% %TIME%
 echo.
@@ -38,5 +38,4 @@ echo --- result ---
 echo [win-audit-verify] npm run audit exit code: !AUDIT_RC!
 echo.
 
-endlocal
-exit /b %AUDIT_RC%
+endlocal & exit /b %AUDIT_RC%

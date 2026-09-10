@@ -355,6 +355,10 @@ jobs:
           node --check platforms.js
           npm pack --dry-run --ignore-scripts
 
+      - name: Test Windows audit evidence helper
+        if: runner.os == 'Windows'
+        run: node --test scripts/test_win_audit_verify.mjs
+
   deployment:
     name: Deployment profiles
     runs-on: ubuntu-24.04
