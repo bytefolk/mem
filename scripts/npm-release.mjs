@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,6 +30,9 @@ const releaseIdentity = release => ({
   assets: release.assets.map(({ id, name, size, state, digest, updated_at }) =>
     ({ id, name, size, state, digest, updated_at })).sort((a, b) => a.name.localeCompare(b.name)),
 });
+
+export const commandStdio = descriptor => descriptor === undefined
+  ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', descriptor];
 
 export function checkContext(tag, env, nodeVersion, npmVersion) {
   requireValue(typeof tag === 'string' && stable.test(tag) && !tag.includes('\n'), 'exact stable vX.Y.Z tag required');
@@ -98,16 +101,42 @@ export function checkRelease(release, tag) {
   requireValue(release.assets.every(a => Number.isSafeInteger(a.size) && a.size > 0 && a.state === 'uploaded'), 'all release assets must be uploaded and nonempty');
 }
 
+export function readReleaseFile(file, expectedSize, read = readFileSync, inspect = () => {}) {
+  // Inspect and read the opened object, never check a pathname and reopen it.
+  // NONBLOCK lets us reject a substituted FIFO without waiting for a writer.
+  const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const info = fstatSync(fd);
+    requireValue(info.isFile(), 'asset must be a regular file');
+    assert.equal(info.size, expectedSize, 'downloaded asset size mismatch');
+    const bytes = read(fd);
+    assert.equal(bytes.length, expectedSize, 'downloaded asset changed during read');
+    inspect(fd);
+    const after = fstatSync(fd);
+    requireValue(after.size === info.size && after.mtimeMs === info.mtimeMs, 'asset changed during read');
+    return bytes;
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export function checkAssets(directory, release, commit, run) {
   assert.deepEqual(readdirSync(directory).sort(), [...ASSETS, MANIFEST].sort(), 'downloaded asset set mismatch');
+  const verified = new Map();
+  const buildMetadata = new Map();
   for (const asset of release.assets) {
     const file = join(directory, asset.name);
-    requireValue(lstatSync(file).isFile() && !lstatSync(file).isSymbolicLink(), 'asset must be a regular file');
-    const bytes = readFileSync(file);
-    assert.equal(bytes.length, asset.size, 'downloaded asset size mismatch');
+    const bytes = readReleaseFile(file, asset.size, readFileSync, fd => {
+      if (asset.name !== MANIFEST) {
+        // The hosted Linux child receives this already-open object at fd 3.
+        // Never reopen the mutable asset pathname for build metadata.
+        buildMetadata.set(asset.name, run('go', ['version', '-m', '/proc/self/fd/3'], undefined, fd));
+      }
+    });
+    verified.set(asset.name, bytes);
     if (asset.digest != null) assert.equal(asset.digest, `sha256:${sha('sha256', bytes)}`, 'GitHub asset digest mismatch');
   }
-  const manifest = readFileSync(join(directory, MANIFEST), 'utf8');
+  const manifest = verified.get(MANIFEST).toString('utf8');
   requireValue(manifest.endsWith('\n'), 'checksum manifest must end in newline');
   const rows = manifest.slice(0, -1).split('\n').map(line => {
     const row = /^([a-f0-9]{64})  (mem-mcp-[a-z0-9.-]+)$/.exec(line);
@@ -116,10 +145,9 @@ export function checkAssets(directory, release, commit, run) {
   });
   assert.deepEqual(rows.map(row => row.name).sort(), [...ASSETS].sort(), 'exactly one checksum per expected binary required');
   for (const { name, digest } of rows) {
-    const file = join(directory, name);
-    assert.equal(sha('sha256', readFileSync(file)), digest, 'binary checksum mismatch');
+    assert.equal(sha('sha256', verified.get(name)), digest, 'binary checksum mismatch');
     // go version -m reads metadata; it never executes the downloaded binary.
-    const metadata = run('go', ['version', '-m', file]);
+    const metadata = buildMetadata.get(name);
     const [, , os, arch] = name.replace('.exe', '').split('-');
     for (const field of [`GOOS=${os}`, `GOARCH=${arch}`, `vcs.revision=${commit}`, 'vcs.modified=false']) {
       requireValue(metadata.split('\n').some(line => line.trim() === `build\t${field}`), `binary build metadata mismatch: ${field}`);
@@ -179,10 +207,11 @@ export async function runRelease(tag, options = {}) {
   delete npmEnv.GH_TOKEN;
   delete npmEnv.GITHUB_TOKEN;
   for (const name of ['user.npmrc', 'global.npmrc']) writeFileSync(join(directory, name), '', { flag: 'wx', mode: 0o600 });
-  const run = options.run || ((command, args, cwd = repo) => {
+  const run = options.run || ((command, args, cwd = repo, descriptor) => {
     try {
       return execFileSync(command, args, { cwd, encoding: 'utf8', env: command === 'npm' ? npmEnv : env,
-        stdio: ['ignore', 'pipe', 'pipe'], timeout: 120000, maxBuffer: 16 * 1024 * 1024 }).trim();
+        stdio: commandStdio(descriptor),
+        timeout: 120000, maxBuffer: 16 * 1024 * 1024 }).trim();
     } catch {
       // Never echo raw auth errors, subprocess output or environment values.
       throw new Error(`${command} ${args[0]} failed; stop and inspect the private run. Do not retry publication automatically.`);
@@ -246,7 +275,7 @@ export async function runRelease(tag, options = {}) {
   run('npm', ['publish', tarball, '--tag', 'next', '--access', 'public', '--provenance', '--ignore-scripts', `--registry=${REGISTRY}`], directory);
   // A failure here may mean publish succeeded. Never retry npm publish, move a
   // dist-tag, delete a version, or mark the run successful on that basis.
-  const published = checkRegistryAfter(await getJSON(url), before, tag, integrity, proof);
+  checkRegistryAfter(await getJSON(url), before, tag, integrity, proof);
   const consumer = join(directory, 'consumer');
   mkdirSync(consumer);
   writeFileSync(join(consumer, 'package.json'), '{"private":true}\n');
@@ -254,7 +283,8 @@ export async function runRelease(tag, options = {}) {
   run('npm', ['audit', 'signatures', `--registry=${REGISTRY}`], consumer);
   checkRegistryAfter(await getJSON(url), before, tag, integrity, proof);
   const receipt = { package: PACKAGE, tag, commit, integrity, releaseId, channel: 'next',
-    publisherId: proof.publisherId, attestations: published.dist.attestations.url,
+    publisherId: proof.publisherId, registryMetadata: url,
+    attestations: 'verified by npm audit signatures',
     signatures: 'verified by npm audit signatures', latestPromotion: 'NOT PERFORMED: separate release-owner gate',
     platformLaunch: 'NOT VERIFIED: release owner must record Linux/macOS/Windows clean launches' };
   writeFileSync(join(directory, 'receipt.json'), JSON.stringify(receipt, null, 2));

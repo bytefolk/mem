@@ -4,8 +4,9 @@ const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const { EventEmitter } = require("node:events");
 const {
-  existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
-  readlinkSync, rmSync, statSync, symlinkSync, writeFileSync,
+  closeSync, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, mkdtempSync,
+  openSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync,
+  writeFileSync,
 } = require("node:fs");
 const { arch, platform, tmpdir } = require("node:os");
 const { dirname, join } = require("node:path");
@@ -89,6 +90,15 @@ function fixture(t) {
   return { root, asset, legacyRoot, legacyDir, legacy, destination, bytes, requests, options };
 }
 
+function snapshotFile(path) {
+  const fd = openSync(path, "r");
+  try {
+    return { info: fstatSync(fd), bytes: readFileSync(fd) };
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function snapshotTree(root) {
   const info = lstatSync(root);
   if (info.isSymbolicLink()) return { mode: info.mode, link: readlinkSync(root) };
@@ -97,7 +107,8 @@ function snapshotTree(root) {
       readdirSync(root).sort().map((name) => [name, snapshotTree(join(root, name))]),
     ) };
   }
-  return { mode: info.mode, bytes: readFileSync(root).toString("hex") };
+  const file = snapshotFile(root);
+  return { mode: file.info.mode, bytes: file.bytes.toString("hex") };
 }
 
 function directoryAlias(target, link) {
@@ -206,13 +217,15 @@ test("concurrent migration copies a verified legacy cache without changing its b
   const f = fixture(t);
   writeFileSync(f.legacy, f.bytes, { mode: 0o400 });
   writeFileSync(join(f.legacyDir, "user-data"), "keep me");
-  const before = statSync(f.legacy);
+  const before = snapshotFile(f.legacy);
   assert.deepEqual(await Promise.all([install(f.options), install(f.options)]),
     [f.destination, f.destination]);
   assert.deepEqual(readFileSync(f.destination), f.bytes);
-  assert.deepEqual(readFileSync(f.legacy), f.bytes);
-  assert.equal(statSync(f.legacy).mode, before.mode);
-  assert.equal(statSync(f.legacy).mtimeMs, before.mtimeMs);
+  const after = snapshotFile(f.legacy);
+  assert.deepEqual(after.bytes, f.bytes);
+  assert.deepEqual(after.bytes, before.bytes);
+  assert.equal(after.info.mode, before.info.mode);
+  assert.equal(after.info.mtimeMs, before.info.mtimeMs);
   assert.equal(readFileSync(join(f.legacyDir, "user-data"), "utf8"), "keep me");
   assert.deepEqual(readdirSync(f.legacyDir).sort(), [f.asset, "user-data"].sort());
   assert.deepEqual(f.requests, Array(2).fill(
