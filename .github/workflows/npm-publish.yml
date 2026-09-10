@@ -105,8 +105,8 @@ jobs:
 
       - name: Record next receipt and separate owner gates
         run: |
-          node -e '
-            const fs = require("node:fs");
-            const receipt = fs.readFileSync(process.env.RUNNER_TEMP + "/mem-npm-release/receipt.json", "utf8");
-            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "Published to next; latest requires release-owner acceptance.\n\n```json\n" + receipt + "\n```\n");
-          '
+          node <<'NODE'
+          const fs = require("node:fs");
+          const receipt = fs.readFileSync(process.env.RUNNER_TEMP + "/mem-npm-release/receipt.json", "utf8");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "Published to next; latest requires release-owner acceptance.\n\n```json\n" + receipt + "\n```\n");
+          NODE
