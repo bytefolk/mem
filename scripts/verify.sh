@@ -4,7 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-unit}"
-EXPECTED_MIGRATION_HEAD=23
+EXPECTED_MIGRATION_HEAD=24
 MIGRATION_ROLLBACK_TARGET=11
 MODEL_TEXT_CANONICAL_BASE=15
 WORKSPACE_AI_PROFILE_BASE=16
@@ -304,6 +304,16 @@ run_migration_round_trip() {
   MEM_TEST_TARGET_DB="$MEM_TEST_DB" testdb assert-unsafe-derived-text-scrubbed
 }
 
+run_migration_sequence() {
+  log "Strict populated migration upgrades from released head 23 to $EXPECTED_MIGRATION_HEAD"
+  (
+    cd "${REPO_ROOT}/server"
+    MEM_MIGRATION_SEQUENCE_TEST_DB="$MEM_TEST_DB" \
+      go test -count=1 -v ./internal/db -run '^TestMigrationUpgradeSequence$'
+  )
+  assert_migration_version "$EXPECTED_MIGRATION_HEAD"
+}
+
 run_migrations_up() {
   (
     cd "${REPO_ROOT}/server"
@@ -385,6 +395,7 @@ run_postgres_tests() {
 
 run_integration() {
   validate_test_database
+  with_fresh_test_database migration_sequence run_migration_sequence
   with_fresh_test_database migration run_migration_round_trip
   with_fresh_test_database integration run_postgres_integration
 }
