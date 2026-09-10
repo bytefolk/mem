@@ -31,7 +31,7 @@ its SQL, or apply lower versions out of order to manufacture a pass.
 ## Regression evidence
 
 `TestMigrationFilesContiguous` rejects embedded numeric gaps without a DB.
-`scripts/verify.sh postgres` creates a separate, owned `_test` database and
+`scripts/verify.sh integration` creates a separate, owned `_test` database and
 runs `TestMigrationUpgradeSequence`. It applies real Goose migrations to 23,
 seeds a file with duplicate text chunks, then advances one version at a time
 to the branch's declared head (24, 25, or 26). Each step checks full applied
