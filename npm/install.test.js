@@ -341,6 +341,28 @@ test("install verifies and reuses a cached binary", async (t) => {
   }
 });
 
+test("explicit cacheDir keeps host paths when selecting a foreign platform binary", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  const osPlatform = platform() === "win32" ? "linux" : "win32";
+  const asset = assetFor(osPlatform, "x64");
+  const bytes = Buffer.from("verified foreign platform fixture, never executed");
+  const installed = await install({
+    osPlatform,
+    osArch: "x64",
+    cacheDir,
+    homeDirectory: join(root, "host-home"),
+    environment: {},
+    logger: QUIET_LOGGER,
+    downloadText: async () => manifestFor(bytes, asset),
+    downloadFile: async (_url, destination) => {
+      writeFileSync(destination, bytes, { flag: "wx", mode: 0o600 });
+    },
+  });
+  assert.equal(installed, join(cacheDir, asset));
+  assert.deepEqual(readFileSync(installed), bytes);
+});
+
 test("concurrent installers serialize and publish one verified binary", async (t) => {
   const root = testDirectory(t);
   const cacheDir = join(root, "cache");

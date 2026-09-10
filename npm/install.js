@@ -724,15 +724,17 @@ async function install(options = {}) {
   const asset = assetFor(osPlatform, osArch);
   // Overrides disable legacy binary reuse, but cannot opt out of protecting the
   // default legacy tree from destination writes through aliases or overlap.
+  // This is a filesystem path on the running host. osPlatform may select a
+  // foreign binary when a native explicit cacheDir is supplied (including CI).
   const legacyRoot = namespacedCacheRootFor({
-    osPlatform,
+    osPlatform: platform(),
     environment: { ...environment, MEM_MCP_CACHE_DIR: undefined },
     homeDirectory: options.homeDirectory,
   }, "fullstack-ai-infra");
-  const legacyVersion = pathApiFor(osPlatform).join(legacyRoot, `v${version}`);
-  const legacyDirectory = pathApiFor(osPlatform).join(legacyVersion, `${osPlatform}-${osArch}`);
+  const legacyVersion = path.join(legacyRoot, `v${version}`);
+  const legacyDirectory = path.join(legacyVersion, `${osPlatform}-${osArch}`);
   const legacyPath = options.cacheDir === undefined && environment.MEM_MCP_CACHE_DIR === undefined
-    ? pathApiFor(osPlatform).join(legacyDirectory, asset)
+    ? path.join(legacyDirectory, asset)
     : null;
   const binPath = path.join(cacheDir, asset);
   const releaseBase = `https://github.com/${repository}/releases/download/v${version}`;
@@ -755,7 +757,7 @@ async function install(options = {}) {
     ],
     [legacyRoot, legacyVersion, legacyDirectory],
   );
-  assertSeparateLegacyEntry(binPath, pathApiFor(osPlatform).join(legacyDirectory, asset));
+  assertSeparateLegacyEntry(binPath, path.join(legacyDirectory, asset));
   ensureCacheDirectory(cacheDir);
   lock = await acquireAssetLock(cacheDir, asset, {
     osPlatform,
