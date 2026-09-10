@@ -312,6 +312,12 @@ real `tools/call → HTTP → PostgreSQL` remember, checkpoint inspection,
 feedback, archive, restore and logical forget. Archive must remove the memory
 from recall, restore must make it recallable again, and forget must redact the
 live PostgreSQL projection and event actors before the database is destroyed.
+The same required lifecycle gate runs `TestRecursiveDeleteCleansBlobs` against
+its migrated PostgreSQL database and live MinIO endpoint. It requires the
+named test's structured PASS event; a missing test, skipped service dependency,
+or failed object cleanup fails the gate. The test uses only the disposable
+stack's data, and the existing cleanup trap removes that stack.
+
 The script never reads or writes the user's CLI configuration. Set
 `MEM_ACCEPTANCE_HTTP_PORT` only when an explicit fixed port is required.
 
