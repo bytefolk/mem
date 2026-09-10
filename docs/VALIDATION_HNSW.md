@@ -2,7 +2,7 @@
 
 **Issue:** #173  
 **PR:** #180  
-**Migration:** 0024_ann_hnsw_indexes.sql  
+**Migration:** 0025_ann_hnsw_indexes.sql  
 **Date:** 2026-09-08  
 **Evidence Level:** E2 → E3 (pending database verification)
 
@@ -12,7 +12,7 @@ This document records the validation of HNSW ANN indexes added to the three embe
 
 ## Changes
 
-Migration 0024 adds three HNSW indexes using pgvector's `vector_cosine_ops`:
+Migration 0025 adds three HNSW indexes using pgvector's `vector_cosine_ops`:
 
 1. `idx_embeddings_text_embedding_hnsw` on `embeddings_text.embedding` (768-d)
 2. `idx_embeddings_visual_embedding_hnsw` on `embeddings_visual.embedding` (512-d)
@@ -22,7 +22,7 @@ Migration 0024 adds three HNSW indexes using pgvector's `vector_cosine_ops`:
 
 ### Prerequisites
 - PostgreSQL 16+ with pgvector extension (shipped in `pgvector/pgvector:pg16` image)
-- All migrations applied (0001 through 0024)
+- All migrations applied (0001 through 0025)
 - Populated test corpus with all three embedding dimensions
 
 ### Test Queries
@@ -52,7 +52,7 @@ SELECT e.file_id,
 
 ### Expected Results
 
-**Before migration 0024:**
+**Before migration 0025:**
 ```
 Sort  (cost=12345.67..12345.70 rows=10 width=100)
   Sort Key: (e.embedding <=> $1) ASC
@@ -65,7 +65,7 @@ Sort  (cost=12345.67..12345.70 rows=10 width=100)
               Filter: (user_id = $2)
 ```
 
-**After migration 0024:**
+**After migration 0025:**
 ```
 Limit  (cost=12.34..12.36 rows=10 width=100)
   ->  Nested Loop  (cost=12.34..123.45 rows=10 width=100)
@@ -84,7 +84,7 @@ Key differences:
 ## Verification Status
 
 ### ✅ Completed
-- [x] Migration 0024 created with correct DDL
+- [x] Migration 0025 created with correct DDL
 - [x] Indexes use `vector_cosine_ops` matching query operators (`<=>`)
 - [x] Dimensions match schema (768 for text, 512 for visual/face)
 - [x] Deferral comments updated in 0001_init.sql and 0019_versioned_index_generations.sql

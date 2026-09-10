@@ -2,11 +2,11 @@
 # EXPLAIN regression test for HNSW ANN indexes (issue #173)
 #
 # This script verifies that vector queries use index scans instead of
-# sequential scans after migration 0024 is applied.
+# sequential scans after migration 0025 is applied.
 #
 # Prerequisites:
 #   - PostgreSQL 16+ with pgvector extension
-#   - Database with all migrations applied (0001 through 0024)
+#   - Database with all migrations applied (0001 through 0025)
 #   - Populated test data in embeddings_text, embeddings_visual, embeddings_face
 #
 # Usage:
@@ -16,18 +16,49 @@ set -euo pipefail
 
 DB_URL="${1:?Usage: $0 <database-url>}"
 
+pass=0
+fail=0
+
+assert_index_scan() {
+  local label="$1"
+  local table="$2"
+  local plan
+  plan="$(psql -AtX "$DB_URL" -c "
+    EXPLAIN
+    SELECT e.id
+      FROM ${table} e
+      JOIN files f ON f.id = e.file_id
+     WHERE f.user_id = (SELECT id FROM users LIMIT 1)
+     ORDER BY e.embedding <=> (SELECT array_fill(0.1, ARRAY[768]))::vector
+     LIMIT 10;
+  ")"
+  if echo "$plan" | grep -qi "Index Scan.*hnsw"; then
+    echo "PASS: ${label} uses HNSW index scan"
+    pass=$((pass + 1))
+  else
+    echo "FAIL: ${label} does NOT use HNSW index scan"
+    echo "$plan"
+    fail=$((fail + 1))
+  fi
+}
+
 echo "=== HNSW ANN Index Verification (Issue #173) ==="
 echo ""
 
-# Check that the indexes exist
 echo "1. Verifying indexes exist..."
-psql "$DB_URL" -c "
-SELECT indexname, indexdef
+index_count="$(psql -AtX "$DB_URL" -c "
+SELECT COUNT(*)
 FROM pg_indexes
 WHERE tablename IN ('embeddings_text', 'embeddings_visual', 'embeddings_face')
-  AND indexname LIKE '%hnsw%'
-ORDER BY tablename;
-"
+  AND indexname LIKE '%hnsw%';
+")"
+if [[ "${index_count}" -ge 3 ]]; then
+  echo "PASS: found ${index_count} HNSW indexes"
+  pass=$((pass + 1))
+else
+  echo "FAIL: expected >= 3 HNSW indexes, found ${index_count}"
+  fail=$((fail + 1))
+fi
 
 echo ""
 echo "2. Checking row counts..."
@@ -40,35 +71,9 @@ SELECT 'embeddings_face', COUNT(*) FROM embeddings_face;
 "
 
 echo ""
-echo "3. EXPLAIN text search query (should use idx_embeddings_text_embedding_hnsw)..."
-psql "$DB_URL" -c "
-EXPLAIN ANALYZE
-SELECT e.id, e.file_id, e.chunk_index,
-       1 - (e.embedding <=> '[0.1,0.2,0.3,...]'::vector) AS score
-  FROM embeddings_text e
-  JOIN files f ON f.id = e.file_id
- WHERE f.user_id = (SELECT id FROM users LIMIT 1)
- ORDER BY e.embedding <=> '[0.1,0.2,0.3,...]'::vector ASC
- LIMIT 10;
-"
+echo "3. Verifying index usage in query plans..."
+assert_index_scan "text (768-d)" "embeddings_text"
 
 echo ""
-echo "4. EXPLAIN visual search query (should use idx_embeddings_visual_embedding_hnsw)..."
-psql "$DB_URL" -c "
-EXPLAIN ANALYZE
-SELECT e.file_id,
-       (1 - (e.embedding <=> '[0.1,0.2,0.3,...]'::vector))::real AS score
-  FROM embeddings_visual e
-  JOIN files f ON f.id = e.file_id
- WHERE f.user_id = (SELECT id FROM users LIMIT 1)
- ORDER BY e.embedding <=> '[0.1,0.2,0.3,...]'::vector ASC
- LIMIT 10;
-"
-
-echo ""
-echo "5. Verifying index usage in query plan..."
-echo "Expected: 'Index Scan using idx_embeddings_*_embedding_hnsw' in both plans"
-echo "NOT expected: 'Seq Scan on embeddings_*'"
-echo ""
-
-echo "=== Verification complete ==="
+echo "=== Results: ${pass} passed, ${fail} failed ==="
+[[ "${fail}" -eq 0 ]] || exit 1

@@ -21,10 +21,6 @@ not production recall
 The lexical adapter reports `0 ms` latency as a deterministic sentinel. It
 measures ranking behavior only and must not be used as a performance result.
 
-To measure a live `memd` instance, use the `produce` subcommand to query the
-running system and emit a rankings file, then score it with `run --rankings`.
-See the [Live memd producer](#live-memd-producer) section below.
-
 ## Dataset and privacy
 
 [`data/v1/dataset.json`](data/v1/dataset.json) declares the dataset version,
@@ -171,41 +167,3 @@ time and sanitized query failures. It does not copy query text, corpus text,
 vectors or free-form provider errors. Credential-shaped configuration keys
 such as `api_key`, `password`, `secret`, `token` and `authorization` are
 rejected instead of being copied into an artifact.
-
-## Live memd producer
-
-The `produce` subcommand queries a running `memd` over every dataset query and
-emits a `mem.recall-rankings.v1` file that the existing `run --rankings` path
-consumes. Latency is measured client-side per request; the `0 ms` sentinel
-warning above applies only to the offline lexical lane.
-
-```bash
-python3 -m benchmarks.recall produce \
-  --memd-url http://localhost:8080 \
-  --token "$MEM_TOKEN" \
-  --output /tmp/live-rankings.json \
-  --dimension 1536 \
-  --mode hybrid
-```
-
-Then score it against the lexical baseline:
-
-```bash
-python3 -m benchmarks.recall run \
-  --rankings /tmp/live-rankings.json \
-  --output /tmp/live-artifact.json \
-  --compare benchmarks/recall/baselines/lexical-reference.v1.json
-```
-
-The producer maps each API result back to a dataset `doc_id` by matching the
-`path` field returned by `/v1/search` against the corpus. When multiple
-documents share a path, the snippet text is used to pick the best overlap.
-Query filters are translated where the API supports them: `path_prefix` becomes
-`scope`, and `source_kind` becomes `type` (`image_caption` → `image`,
-`text` → `text`). The `workspace` filter is not sent to the API because the
-auth token determines workspace scope.
-
-Adjust `--dimension`, `--mode`, `--provider` and `--model` to match the
-embedding configuration of the live system. The emitted `configuration` block
-is populated from these flags, not hand-written, so the artifact cannot be
-mistaken for the lexical reference.
