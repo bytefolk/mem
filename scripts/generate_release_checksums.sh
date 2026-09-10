@@ -30,7 +30,7 @@ actual_assets=()
 while IFS= read -r actual_asset; do
   actual_assets[${#actual_assets[@]}]="${actual_asset}"
 done < <(
-  find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -exec basename {} + | LC_ALL=C sort
+  find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort
 )
 if [[ "${#actual_assets[@]}" -eq 0 ]] || [[ "${actual_assets[*]}" != "${assets[*]}" ]]; then
   printf 'ERROR: release assets differ from the exact expected set\n' >&2

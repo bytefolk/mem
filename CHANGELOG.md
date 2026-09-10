@@ -44,6 +44,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Release validation requires comparison links to start at the preceding
+  CHANGELOG release. Checksum generation handles each asset path separately on
+  GNU and BSD tools, including directories with spaces, and rejects empty sets.
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
