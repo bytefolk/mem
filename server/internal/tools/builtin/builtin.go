@@ -475,7 +475,7 @@ func registerSearch(reg *tools.Registry, c *apiclient.Client) error {
 				"query": {Type: "string", Description: "Free-form natural-language query, e.g. \"2012 photos with Xiao Ming\""},
 				"scope": {Type: "string", Description: "Optional virtual-folder scope, e.g. /Projects/mem"},
 				"type":  {Type: "string", Description: "MIME prefix filter: image|text|application|audio|video"},
-				"route": {Type: "string", Description: "Search route: text|visual|auto (default auto fuses both)", Enum: []string{"text", "visual", "auto"}},
+				"route": {Type: "string", Description: "Search route: text|visual|auto|lexical (default auto fuses text and visual; lexical needs no model)", Enum: []string{"text", "visual", "auto", "lexical"}},
 				"since": {Type: "string", Description: "YYYY-MM-DD lower bound on timeline_at"},
 				"until": {Type: "string", Description: "YYYY-MM-DD upper bound on timeline_at"},
 				"limit": {Type: "integer", Description: "Max results (default 10, max 100)", Default: 10},

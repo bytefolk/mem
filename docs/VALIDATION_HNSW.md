@@ -4,6 +4,10 @@ Migration `0025_ann_hnsw_indexes.sql` adds cosine HNSW indexes to text (768),
 visual (512), and face (512) embeddings. Migration 0024 belongs to #183 and
 0026 to #185. The integration runner declares this branch's head as 25.
 
+This branch includes #194's lexical migration 0024 and source commits.
+Deployment must follow the [cumulative migration sequence](MIGRATION_SEQUENCE.md):
+#194 → #197 → #195. #195 remains blocked behind this PR's unmet query acceptance.
+
 Use PostgreSQL 16+ with pgvector, all migrations applied, and a populated
 synthetic corpus in a disposable database whose name ends in `_test`:
 

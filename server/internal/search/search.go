@@ -149,10 +149,12 @@ var ErrReplayReferenceUnavailable = errors.New("managed embedding replay referen
 //	"text"   -> ANN over embeddings_text (Ollama / OpenAI text embedder)
 //	"visual" -> ANN over embeddings_visual via CLIP text encoder
 //	"auto"   -> both routes in parallel, merged + deduped by file_id (default)
+//	"lexical" -> model-free FTS + trigram over files.name (no worker needed)
 const (
-	RouteText   = "text"
-	RouteVisual = "visual"
-	RouteAuto   = "auto"
+	RouteText    = "text"
+	RouteVisual  = "visual"
+	RouteAuto    = "auto"
+	RouteLexical = "lexical"
 )
 
 // Hit is one search result.
@@ -217,8 +219,10 @@ func (s *Service) Search(ctx context.Context, q Query) ([]Hit, error) {
 	if q.SnippetChars > 16_000 {
 		q.SnippetChars = 16_000
 	}
-	if s.worker == nil || !s.worker.Enabled() {
-		return nil, fmt.Errorf("search disabled: worker not configured")
+	if q.Route != RouteLexical {
+		if s.worker == nil || !s.worker.Enabled() {
+			return nil, fmt.Errorf("search disabled: worker not configured")
+		}
 	}
 
 	switch q.Route {
@@ -228,8 +232,10 @@ func (s *Service) Search(ctx context.Context, q Query) ([]Hit, error) {
 		return s.searchVisual(ctx, q, text)
 	case "", RouteAuto:
 		return s.searchAuto(ctx, q, text)
+	case RouteLexical:
+		return s.searchLexical(ctx, q, text)
 	default:
-		return nil, fmt.Errorf("unknown route %q (expected text|visual|auto)", q.Route)
+		return nil, fmt.Errorf("unknown route %q (expected text|visual|auto|lexical)", q.Route)
 	}
 }
 
@@ -713,6 +719,73 @@ func (s *Service) runVisualANN(ctx context.Context, q Query, vec []float32) ([]H
 	`, strings.Join(where, " AND "), limitIdx)
 
 	return s.scanHits(ctx, sql, args, RouteVisual, q.SnippetChars)
+}
+
+// searchLexical is the model-free file recall lane.  It uses the same
+// three-tier shape as memory Recall (exact phrase → FTS → trigram) so a
+// deployment with no worker can still find files by name.
+func (s *Service) searchLexical(ctx context.Context, q Query, text string) ([]Hit, error) {
+	args := []any{q.UserID}
+	where := []string{"f.user_id = $1"}
+	args, where = appendPathFilters(args, where, q.PathPrefix, q.AllowedPaths)
+	args, where = appendMIMEFilter(args, where, q.Type)
+	if q.Since != nil {
+		args = append(args, *q.Since)
+		where = append(where, fmt.Sprintf("COALESCE(f.timeline_at, f.created_at) >= $%d", len(args)))
+	}
+	if q.Until != nil {
+		args = append(args, *q.Until)
+		where = append(where, fmt.Sprintf("COALESCE(f.timeline_at, f.created_at) <= $%d", len(args)))
+	}
+	args = append(args, text)
+	textArg := len(args)
+	args = append(args, q.Limit)
+	limitArg := len(args)
+
+	sql := fmt.Sprintf(`
+		WITH candidates AS (
+			SELECT f.id AS file_id, f.name, f.path, f.mime, f.sha256,
+			       f.summary, f.timeline_at, f.created_at,
+			       strpos(lower(f.name), lower($%d)) > 0 AS exact_phrase,
+			       f.search_tsv @@ plainto_tsquery('simple', $%d) AS fts_match,
+			       ts_rank_cd(
+			           f.search_tsv,
+			           plainto_tsquery('simple', $%d)
+			       )::double precision AS fts_rank,
+			       word_similarity(
+			           lower($%d),
+			           lower(f.name)
+			       )::double precision AS trigram_score
+			  FROM files f
+			 WHERE %s
+		),
+		ranked AS (
+			SELECT candidates.*,
+			       CASE
+			           WHEN exact_phrase THEN 1.0::double precision
+			           WHEN fts_match THEN LEAST(
+			               0.949::double precision,
+			               0.70::double precision + 0.24::double precision * fts_rank
+			           )
+			           ELSE LEAST(
+			               0.699::double precision,
+			               0.20::double precision + 0.49::double precision * trigram_score
+			           )
+			       END AS score
+			  FROM candidates
+			 WHERE exact_phrase
+			    OR fts_match
+			    OR trigram_score >= 0.12
+		)
+		SELECT 'lexical:' || r.file_id::text, r.file_id, r.name, r.path, r.mime,
+		       r.sha256, -1, r.score::real, r.name, r.summary,
+		       r.timeline_at, r.created_at
+		  FROM ranked r
+		 ORDER BY r.score DESC, r.created_at DESC, r.file_id
+		 LIMIT $%d
+	`, textArg, textArg, textArg, textArg, strings.Join(where, " AND "), limitArg)
+
+	return s.scanHits(ctx, sql, args, RouteLexical, q.SnippetChars)
 }
 
 // scanHits is the common cursor → []Hit loop. Tags every hit with its source route.
