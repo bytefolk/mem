@@ -105,7 +105,7 @@ func TestContentDispositionHTTPPostgres(t *testing.T) {
 
 	authService := auth.New(database.Pool)
 	workspaceService := workspace.New(database.Pool)
-	folderService := folder.New(database.Pool)
+	folderService := folder.New(database.Pool, nil, nil)
 	user, err := authService.CreateUser(
 		ctx,
 		"content-disposition-"+uuid.NewString()+"@example.test",

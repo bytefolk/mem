@@ -891,4 +891,19 @@ printf '%s' "$redaction_json" |
     .marker_absent_from_events == true
   ' >/dev/null
 
+log "Verifying recursive folder deletion against real PostgreSQL and MinIO"
+(
+  cd "${REPO_ROOT}/server"
+  MEM_TEST_DB="$DB_URL" \
+  MEM_TEST_S3_ENDPOINT="127.0.0.1:${S3_PORT}" \
+  MEM_TEST_S3_ACCESS_KEY="mem" \
+  MEM_TEST_S3_SECRET_KEY="mem-minio-password" \
+  MEM_TEST_S3_BUCKET="mem" \
+    go test -json -count=1 -timeout 2m \
+      -run '^TestRecursiveDeleteCleansBlobs$' ./internal/folder
+) | tee "${E2E_DIR}/folder-blob-cleanup.json"
+jq -s -e 'any(.[]; .Action == "pass" and .Test == "TestRecursiveDeleteCleansBlobs")' \
+  "${E2E_DIR}/folder-blob-cleanup.json" >/dev/null \
+  || die "TestRecursiveDeleteCleansBlobs did not execute and pass"
+
 log "PASS: isolated HTTP, CLI and MCP Agent-memory lifecycle acceptance"

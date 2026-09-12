@@ -53,12 +53,12 @@ func TestWorkspacePathLockingIntegration(t *testing.T) {
 
 	t.Run("content lock blocks folder rewrite", func(t *testing.T) {
 		userID, _ := createWorkspaceLockTenant(t, ctx, database.Pool, "content-blocks-folder")
-		service := New(database.Pool)
+		service := New(database.Pool, nil, nil)
 		if _, err := service.Create(ctx, userID, "/Shared/Child"); err != nil {
 			t.Fatalf("create source: %v", err)
 		}
 		renameBackend := pglockwait.NewBackend(t, ctx, dsn, "folder-rewrite")
-		renameService := New(renameBackend.Pool)
+		renameService := New(renameBackend.Pool, nil, nil)
 
 		writerTx, err := database.Pool.BeginTx(ctx, pgx.TxOptions{})
 		if err != nil {
@@ -105,7 +105,7 @@ func TestWorkspacePathLockingIntegration(t *testing.T) {
 		createBackend := pglockwait.NewBackend(t, ctx, dsn, "folder-create")
 		memoryBackend := pglockwait.NewBackend(t, ctx, dsn, "memory-remember")
 		checkpointBackend := pglockwait.NewBackend(t, ctx, dsn, "handoff-checkpoint")
-		folderService := New(createBackend.Pool)
+		folderService := New(createBackend.Pool, nil, nil)
 		memoryService := memory.New(memoryBackend.Pool)
 		handoffService := handoff.New(checkpointBackend.Pool)
 
@@ -177,7 +177,7 @@ func TestWorkspacePathLockingIntegration(t *testing.T) {
 
 	t.Run("concurrent renames cannot split a subtree", func(t *testing.T) {
 		userID, _ := createWorkspaceLockTenant(t, ctx, database.Pool, "rename-race")
-		service := New(database.Pool)
+		service := New(database.Pool, nil, nil)
 		child, err := service.Create(ctx, userID, "/Race/Child")
 		if err != nil {
 			t.Fatalf("create source subtree: %v", err)
@@ -207,8 +207,8 @@ func TestWorkspacePathLockingIntegration(t *testing.T) {
 			service *Service
 		}
 		attempts := []renameAttempt{
-			{name: "RaceB", backend: renameBBackend, service: New(renameBBackend.Pool)},
-			{name: "RaceC", backend: renameCBackend, service: New(renameCBackend.Pool)},
+			{name: "RaceB", backend: renameBBackend, service: New(renameBBackend.Pool, nil, nil)},
+			{name: "RaceC", backend: renameCBackend, service: New(renameCBackend.Pool, nil, nil)},
 		}
 
 		gateTx, err := database.Pool.BeginTx(ctx, pgx.TxOptions{})

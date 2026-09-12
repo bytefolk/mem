@@ -50,15 +50,15 @@ func TestFilePathLockingIntegration(t *testing.T) {
 
 	t.Run("Put then Rename has one path", func(t *testing.T) {
 		userID, _ := createFileLockTenant(t, ctx, database.Pool, "put-rename")
-		folders := folder.New(database.Pool)
+		folders := folder.New(database.Pool, nil, nil)
 		if _, err := folders.Create(ctx, userID, "/A"); err != nil {
 			t.Fatalf("create destination: %v", err)
 		}
 		putBackend := pglockwait.NewBackend(t, ctx, dsn, "file-put")
 		renameBackend := pglockwait.NewBackend(t, ctx, dsn, "file-put-rename")
 		store := newBlockingObjectStore()
-		service := New(putBackend.Pool, store, folder.New(putBackend.Pool))
-		renameFolders := folder.New(renameBackend.Pool)
+		service := New(putBackend.Pool, store, folder.New(putBackend.Pool, nil, nil))
+		renameFolders := folder.New(renameBackend.Pool, nil, nil)
 
 		type putOutcome struct {
 			result *PutResult
@@ -130,7 +130,7 @@ func TestFilePathLockingIntegration(t *testing.T) {
 
 	t.Run("Move then Rename has one path", func(t *testing.T) {
 		userID, _ := createFileLockTenant(t, ctx, database.Pool, "move-rename")
-		folders := folder.New(database.Pool)
+		folders := folder.New(database.Pool, nil, nil)
 		source, err := folders.Create(ctx, userID, "/Source")
 		if err != nil {
 			t.Fatalf("create source: %v", err)
@@ -161,9 +161,9 @@ func TestFilePathLockingIntegration(t *testing.T) {
 		service := New(
 			moveBackend.Pool,
 			&recordingObjectStore{},
-			folder.New(moveBackend.Pool),
+			folder.New(moveBackend.Pool, nil, nil),
 		)
-		renameFolders := folder.New(renameBackend.Pool)
+		renameFolders := folder.New(renameBackend.Pool, nil, nil)
 		fileGate, fileGatePID := lockFilesTable(t, ctx, database.Pool)
 		moveDone := make(chan error, 1)
 		go func() {
@@ -206,7 +206,7 @@ func TestFilePathLockingIntegration(t *testing.T) {
 
 	t.Run("Relocate validates and commits path with name", func(t *testing.T) {
 		userID, _ := createFileLockTenant(t, ctx, database.Pool, "atomic-relocate")
-		folders := folder.New(database.Pool)
+		folders := folder.New(database.Pool, nil, nil)
 		source, err := folders.Create(ctx, userID, "/RelocateSource")
 		if err != nil {
 			t.Fatalf("create relocate source: %v", err)

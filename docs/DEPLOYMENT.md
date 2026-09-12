@@ -261,6 +261,17 @@ Redis AOF protects normal restarts but is not in the portable backup. A restore
 therefore starts with an empty queue/replay window. Requeue or reindex any file
 whose processing did not reach a terminal state before the backup.
 
+### Object retention
+
+Deleting a file or recursively deleting a folder removes the database rows and
+then deletes the associated objects from the bucket. Object deletion is
+best-effort and happens after the database transaction commits, so a process
+crash between commit and blob removal may leave orphan objects in the bucket.
+These orphans are unreferenced — no live database row points at them — and are
+safe to leave in place. They are not automatically reclaimed; operators may
+remove them manually if bucket accounting matters. This crash window also
+applies to single-file deletion.
+
 ### Restore drill
 
 Restore only into an empty installation. The script verifies every checksum

@@ -98,6 +98,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   path now proves a lock can be inspected before treating those Windows errors
   as contention, preserves prompt failure for unrelated permission errors, and
   observes its deadline when a competing lock disappears during inspection.
+- Recursive folder delete now removes associated objects from bucket storage
+  after the database transaction commits. Previously only DB rows were deleted,
+  leaving orphan blobs in the bucket. Blob deletion is best-effort and logged
+  on failure, matching the existing single-file delete behavior.
 
 ## [0.1.1] - 2026-08-31
 

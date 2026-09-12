@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -58,13 +59,29 @@ type Node struct {
 	Children  []*Node    `json:"children,omitempty"`
 }
 
-// Service is the folder service.
-type Service struct {
-	pool *pgxpool.Pool
+// blobDeleter is the narrow contract for best-effort object removal. The folder
+// package depends on this interface rather than the concrete storage.Store so
+// that tests and callers that do not need blob cleanup can pass nil.
+type blobDeleter interface {
+	Delete(ctx context.Context, key string) error
 }
 
-// New constructs a folder Service.
-func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+// Service is the folder service.
+type Service struct {
+	pool  *pgxpool.Pool
+	store blobDeleter
+	log   *slog.Logger
+}
+
+// New constructs a folder Service. A nil store skips object-storage cleanup on
+// recursive delete (useful for tests that have no bucket). A nil logger falls
+// back to slog.Default.
+func New(pool *pgxpool.Pool, store blobDeleter, log *slog.Logger) *Service {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Service{pool: pool, store: store, log: log}
+}
 
 // Sentinel errors.
 var (
@@ -586,9 +603,10 @@ func rewritePrefixTx(ctx context.Context, tx pgx.Tx, userID, srcID uuid.UUID, ol
 //
 //   - recursive=false (default): folder must be empty (no subfolders, no files)
 //     or ErrNotEmpty is returned.
-//   - recursive=true: subfolders + files are deleted from the DB. S3 cleanup
-//     is TODO — for now we only purge the DB rows; orphan blobs will be
-//     reaped by a future garbage-collection pass.
+//   - recursive=true: subfolders + files are deleted from the DB and their
+//     objects are removed from bucket storage. Blob deletion is best-effort
+//     and happens after the database transaction commits, so a crash between
+//     commit and blob removal may leave orphan objects (see docs/DEPLOYMENT.md).
 func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, recursive bool) error {
 	norm, err := pathx.Normalize(path)
 	if err != nil {
@@ -597,7 +615,8 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 	if norm == pathx.Root {
 		return ErrRootOp
 	}
-	return s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
+	var orphanKeys []string
+	txErr := s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
 		src, err := selectFolderByPathTx(ctx, tx, userID, norm)
 		if err != nil {
 			return err
@@ -628,17 +647,34 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 				// explicit forget operation first.
 				return ErrContainsMemories
 			}
-			// Hard delete: remove all descendant files first (FKs cascade
-			// from folders → files would only NULL out folder_id, so we have
-			// to delete files explicitly).
-			if _, err := tx.Exec(ctx,
+			// Delete descendant files explicitly: the folder FK would only
+			// NULL out folder_id. RETURNING retains their storage keys for
+			// best-effort object removal after this transaction commits.
+			rows, err := tx.Query(ctx,
 				`DELETE FROM files
 				  WHERE user_id = $1
 				    AND (folder_id = $2 OR path = $3
-				         OR left(path, length($3) + 1) = $3 || '/')`,
-				userID, src.ID, src.Path); err != nil {
+				         OR left(path, length($3) + 1) = $3 || '/')
+				RETURNING storage_key`,
+				userID, src.ID, src.Path)
+			if err != nil {
 				return fmt.Errorf("recursive delete files: %w", err)
 			}
+			for rows.Next() {
+				var key string
+				if err := rows.Scan(&key); err != nil {
+					rows.Close()
+					return fmt.Errorf("scan storage_key: %w", err)
+				}
+				if key != "" {
+					orphanKeys = append(orphanKeys, key)
+				}
+			}
+			if err := rows.Err(); err != nil {
+				rows.Close()
+				return fmt.Errorf("iterate deleted storage_keys: %w", err)
+			}
+			rows.Close()
 			// Subfolder rows cascade via the FK ON DELETE CASCADE when we
 			// drop the parent below.
 		}
@@ -648,6 +684,17 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 		}
 		return nil
 	})
+	if txErr != nil {
+		return txErr
+	}
+	if s.store != nil {
+		for _, key := range orphanKeys {
+			if derr := s.store.Delete(ctx, key); derr != nil {
+				s.log.Warn("folder.blob_delete_failed", "storage_key", key, "err", derr)
+			}
+		}
+	}
+	return nil
 }
 
 func isEmptyTx(ctx context.Context, tx pgx.Tx, userID, folderID uuid.UUID, path string) (bool, error) {
