@@ -11,8 +11,10 @@
 //  4. Insert embeddings_face (file_id, entity_id, bbox, embedding).
 //
 // This is intentionally O(n) per insert — fine for a personal drive up to
-// thousands of faces. The HNSW index (migration 0024) is available for future
-// SQL-based face search queries.
+// thousands of faces. 0025_ann_hnsw_indexes.sql creates an ANN index on
+// embeddings_face, but nothing reads it today: there is no shipping SQL face
+// search route and clustering stays in Go, so the index is unproven and costs
+// write amplification.
 package face
 
 import (

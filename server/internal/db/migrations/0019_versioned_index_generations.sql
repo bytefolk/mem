@@ -264,8 +264,8 @@ CREATE INDEX idx_index_generation_targets_file_hash
 -- +goose StatementBegin
 -- `vector` intentionally has no table-wide dimension. Every row is validated
 -- against its immutable generation.output_dimension by the canonical service.
--- ANN indexes for fixed-dimension tables (embeddings_text/visual/face) are in
--- migration 0024; this table's variable-dimension vectors cannot share them.
+-- ANN indexes for fixed-dimension tables (embeddings_text/visual/face) are added
+-- by 0025_ann_hnsw_indexes.sql; this table's variable-dimension vectors cannot share them.
 CREATE TABLE index_generation_vectors (
     generation_id           uuid NOT NULL REFERENCES index_generations(id) ON DELETE CASCADE,
     workspace_id            uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

@@ -33,10 +33,12 @@ its SQL, or apply lower versions out of order to manufacture a pass.
 `TestMigrationFilesContiguous` rejects embedded numeric gaps without a DB.
 `scripts/verify.sh integration` creates a separate, owned `_test` database and
 runs `TestMigrationUpgradeSequence`. It applies real Goose migrations to 23,
-seeds a file with duplicate text chunks, then advances one version at a time
+seeds a file with duplicate text chunks plus one non-null vector in each
+fixed-dimension embedding table, then advances one version at a time
 to the branch's declared head (24, 25, or 26). Each step checks full applied
 history and preserved data; subsequent steps check lexical backfill, valid
-HNSW DDL, and deduplication/unique rejection. Finally the ordinary production
+HNSW DDL (index existence and `indisvalid`, never planner index usage — see
+`docs/VALIDATION_HNSW.md`), and deduplication/unique rejection. Finally the ordinary production
 `DB.Migrate` startup path must accept the resulting history unchanged.
 
 The dedicated test uses `MEM_MIGRATION_SEQUENCE_TEST_DB`, refuses a database

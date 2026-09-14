@@ -93,6 +93,18 @@ func TestMigrationUpgradeSequence(t *testing.T) {
 			if _, err := sqldb.ExecContext(ctx, "INSERT INTO embeddings_text(file_id,chunk_index,chunk_text,embedding) SELECT $1,0,'populated duplicate',array_fill(0.1::real,ARRAY[768])::vector FROM generate_series(1,2)", fileID); err != nil {
 				t.Fatal(err)
 			}
+			// Seed every fixed-dimension table before version 25 builds its
+			// index: CREATE INDEX on an empty table yields indisvalid=true
+			// unconditionally, so two of the three "valid HNSW index"
+			// assertions below would otherwise be empty-table trivialities.
+			// One row proves the build ran against data; it is not a
+			// populated-corpus planner proof (see docs/VALIDATION_HNSW.md).
+			if _, err := sqldb.ExecContext(ctx, "INSERT INTO embeddings_visual(file_id,embedding) VALUES($1,array_fill(0.1::real,ARRAY[512])::vector)", fileID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := sqldb.ExecContext(ctx, "INSERT INTO embeddings_face(file_id,embedding) VALUES($1,array_fill(0.1::real,ARRAY[512])::vector)", fileID); err != nil {
+				t.Fatal(err)
+			}
 		}
 		if version >= 24 {
 			var lexical bool

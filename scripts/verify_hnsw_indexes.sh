@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Read-only planner verification for shipping text and visual query shapes.
+# Read-only planner verification for the text and visual probe shapes.  The
+# probes reproduce each route's ordering/deduplication skeleton with only the
+# user_id predicate; they do NOT reproduce the path/MIME/time filters that
+# appendPathFilters and appendMIMEFilter add, so a PASS here is not a claim
+# about the filtered production plan.
 # Requires a populated disposable database; does not force planner settings.
 set -euo pipefail
 DB_URL="${1:?Usage: $0 <database-url> <corpus-user-uuid>}"
@@ -14,13 +18,17 @@ pass=0
 fail=0
 for kind in text visual face; do
   index="idx_embeddings_${kind}_embedding_hnsw"
+  # Guard every query: under set -e an aborted substitution would skip the
+  # Results summary and leave the operator with a bare psql error and no tally.
   valid="$(sql "SELECT count(*) FROM pg_index i
     JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_am a ON a.oid = c.relam
     WHERE i.indrelid = 'embeddings_${kind}'::regclass
       AND c.relname = '${index}' AND a.amname = 'hnsw' AND i.indisvalid
-      AND pg_get_indexdef(i.indexrelid) LIKE '%vector_cosine_ops%'")"
+      AND pg_get_indexdef(i.indexrelid) LIKE '%vector_cosine_ops%'")" \
+    || { echo "FAIL: ${index}: index-validity query error"; fail=$((fail + 1)); continue; }
   rows="$(sql "SELECT count(*) FROM embeddings_${kind} e JOIN files f ON f.id=e.file_id
-    WHERE f.user_id='${CORPUS_USER}'::uuid AND e.embedding IS NOT NULL")"
+    WHERE f.user_id='${CORPUS_USER}'::uuid AND e.embedding IS NOT NULL")" \
+    || { echo "FAIL: ${index}: corpus count query error"; fail=$((fail + 1)); continue; }
   if [[ "$valid" == 1 && "$rows" -gt 0 ]]; then
     echo "PASS: ${index} is valid; corpus contains ${rows} non-null vectors"
     pass=$((pass + 1))
@@ -32,13 +40,14 @@ done
 assert_plan() {
   local route="$1" query="$2" plan
   # ANALYZE executes the read so vector/schema errors cannot hide behind EXPLAIN.
-  plan="$(sql "EXPLAIN (ANALYZE, BUFFERS) ${query}")"
+  plan="$(sql "EXPLAIN (ANALYZE, BUFFERS) ${query}")" \
+    || { echo "FAIL: ${route} probe: EXPLAIN error"; fail=$((fail + 1)); return 0; }
   echo "$plan"
   if grep -q "Index Scan using idx_embeddings_${route}_embedding_hnsw" <<<"$plan"; then
-    echo "PASS: shipping ${route} query uses HNSW"
+    echo "PASS: ${route} probe (unfiltered) uses HNSW"
     pass=$((pass + 1))
   else
-    echo "FAIL: shipping ${route} query does not use HNSW"
+    echo "FAIL: ${route} probe (unfiltered) does not use HNSW"
     fail=$((fail + 1))
   fi
 }

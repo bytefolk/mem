@@ -9,6 +9,14 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Cosine HNSW ANN indexes on `embeddings_text` (768), `embeddings_visual` (512)
+  and `embeddings_face` (512), the DDL #173 asks for. This does not close #173:
+  the shipping text query still keeps a sequential scan because it deduplicates
+  per file before global top-k, so the reference remains `Refs #173` and the
+  planner acceptance criterion stays open. The unfiltered visual probe does use
+  its index; the face index has no consumer. `scripts/verify_hnsw_indexes.sh`
+  measures all of this and is not executed by any CI job — see
+  `docs/VALIDATION_HNSW.md`.
 - File search gains a model-free lexical route (`route=lexical`). FTS + trigram
   over `files.name` — same tier shape as memory Recall — so a deployment with
   no embedding worker can still find files by name. CLI: `mem search "query"
@@ -51,7 +59,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
-- Add cosine HNSW indexes for legacy embedding tables. The text search query's per-file deduplication still limits planner use; see `docs/VALIDATION_HNSW.md`.
 - Advertise the model-free lexical file-search route in the MCP `mem_search`
   schema and verify `tools/list` plus route/filter forwarding through `tools/call`.
 

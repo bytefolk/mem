@@ -106,7 +106,10 @@ CREATE TABLE IF NOT EXISTS embeddings_text (
     embedding       vector(768)
 );
 CREATE INDEX IF NOT EXISTS idx_embeddings_text_file ON embeddings_text (file_id);
--- HNSW index on embedding column is in migration 0024.
+-- HNSW index on embedding column is added by 0025_ann_hnsw_indexes.sql. It does
+-- not yet accelerate the text search query: that shape deduplicates per file
+-- before global top-k, and docs/VALIDATION_HNSW.md records the planner keeping a
+-- sequential scan for it.
 -- +goose StatementEnd
 
 -- +goose StatementBegin
