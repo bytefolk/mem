@@ -2,7 +2,7 @@
   "name": "@fullstack-ai-infra/mem-mcp",
   "version": "0.1.1",
   "description": "MCP server for mem — a portable, self-hosted memory plane for AI agents",
-  "mcpName": "io.github.fullstack-ai-infra/mem-mcp",
+  "mcpName": "io.github.bytefolk/mem-mcp",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -27,7 +27,7 @@
   "os": ["linux", "darwin", "win32"],
   "cpu": ["x64", "arm64"],
   "scripts": {
-    "test": "node --test install.test.js mem-mcp.test.js windows-shim.test.js",
+    "test": "node --test install.test.js mem-mcp.test.js registry-identity.test.js windows-shim.test.js",
     "test:tarball": "node --test clean-tarball.test.js"
   },
   "files": [
