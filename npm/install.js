@@ -792,6 +792,7 @@ module.exports = {
   isLockContention,
   openResponse,
   releaseAssetLock,
+  REPO,
   sha256File,
   verifyFile,
 };

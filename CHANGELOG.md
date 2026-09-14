@@ -7,11 +7,42 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- `mem doctor` — a read-only diagnosis of why the CLI cannot talk to a working
+  server (`#112`). It reports four checks in a fixed order: reachability of the
+  configured server URL, whether a credential exists, the workspace the server
+  resolved for that credential, and CLI/server version skew. Each finding carries
+  the SPEC §7.1 exit code it contributes (`0` ok · `2` not_found · `3` auth ·
+  `4` plan/quota · `5` provider/timeout), and a check that an earlier failure made
+  impossible is reported as `skipped` instead of guessed. It issues only `GET`
+  requests and never writes configuration, starts a container, or installs a
+  dependency; `--format json` emits the `mem.doctor` v1 document described by
+  `docs/schemas/mem-doctor.v1.schema.json`. A token is described only by where it
+  came from, and a configured URL has its userinfo and its query parameter values
+  replaced by `REDACTED` — a credential in a query parameter is the shape pgx
+  accepts as a real password — or, when the URL cannot be proven to be a
+  credential-free transport URL, is withheld whole. See `docs/DEPLOYMENT.md`.
+- First-run guidance: a command that fails because no credential exists now says
+  so on a machine with no configuration at all by naming the documented
+  deployment path (`deploy/compose`, `docs/DEPLOYMENT.md`), instead of telling
+  somebody to log in against a server that is not running yet. Hosts that already
+  have a configuration keep the previous, shorter hint.
+
 ### Changed
 
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
   to the canonical `bytefolk` organization while retaining the published npm
-  scope, MCP identity, and existing cache paths.
+  scope and the existing cache paths.
+- Follow the registry identifier after that rename: `mcpName` becomes
+  `io.github.bytefolk/mem-mcp`, because the official MCP Registry namespace is
+  derived from the repository owner and the previous value, naming the
+  organization this repository used to belong to, cannot resolve. The npm
+  package name and the installer's cache directory are deliberately unchanged,
+  so an existing installation keeps working and keeps its cache.
+  `npm/registry-identity.test.js` now asserts the identifier against the
+  repository coordinate the installer itself uses, so the next rename cannot
+  leave a stale identifier behind unnoticed.
 
 ### Security
 
@@ -44,11 +75,33 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- A configured URL that carries credentials in a shape `url.Parse` does not
+  report as userinfo no longer reaches output. `admin:pw@host` parses as
+  `Scheme="admin"` with the credential in `Opaque` and `User` unset, so an
+  implementation that gates on `User != nil` echoes it verbatim. On this base it
+  leaked from the CLI API client — at request construction and at all four
+  `http.Client.Do` sites, which the previous error path did not cover — and from
+  `memd`'s startup log line and its fatal log line, the last of which additionally
+  carries third-party errors that embed a whole DSN. Both now route through one
+  shared gate that redacts a value it can prove is a transport URL and
+  **withholds the value whole** otherwise. It does not scrub credentials out of
+  error text, which cannot be made tight: `url.Error` renders with `%q`, so a
+  quote inside a password arrives escaped and a scanner that pairs quotes
+  mis-pairs and replaces nothing. Withholding costs some diagnosability by design;
+  why a request failed is still reported, and a DSN still names the parameters it
+  sets — every query parameter *value* is replaced by `REDACTED`, including
+  `?password=`, which pgx honours as the real password.
 - Checksum manifest generation rejects existing output files, directories and
-  symlinks without modifying their targets, including dangling symlinks.
-- Release validation requires comparison links to start at the preceding
-  CHANGELOG release. Checksum generation handles each asset path separately on
-  GNU and BSD tools, including directories with spaces, and rejects empty sets.
+  symlinks without modifying their targets, including dangling symlinks, and
+  will not publish a manifest that is missing a row for an expected asset.
+- Release validation requires a release's CHANGELOG link to start at the
+  preceding CHANGELOG release, and accepts a link to that release's own page
+  only when no release precedes it. Checksum generation handles each asset path
+  separately on GNU and BSD tools, including directories with spaces, rejects
+  empty sets, and reports a failed asset listing as a failed listing.
+- The release guard suites count manifest lines without `wc -l`, whose BSD
+  implementation pads the count with blanks, and no longer need GNU
+  `find -printf`.
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
