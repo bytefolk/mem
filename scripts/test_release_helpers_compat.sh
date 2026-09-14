@@ -75,6 +75,11 @@ if ! (
   exit 1
 fi
 
-[[ "$(wc -l < "${asset_dir}/mem-mcp-checksums.txt")" == 6 ]]
+# This suite is the one that claims independence from GNU find and coreutils,
+# so it must not count lines with wc -l: BSD wc pads the count with blanks.
+[[ "$(grep -c '' "${asset_dir}/mem-mcp-checksums.txt")" == 6 ]] || {
+  printf 'ERROR: checksum manifest must have six rows\n' >&2
+  exit 1
+}
 
 printf 'PASS: release version and checksum helpers run without Bash 4-only collection builtins\n'

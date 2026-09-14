@@ -138,7 +138,11 @@ write_changelog_fixture "${correct_compare}" no
 expect_failure "missing compare predecessor" "${fixture_validator}" "${current_version}"
 write_changelog_fixture "releases/tag/${current_tag}" no
 "${fixture_validator}" "${current_version}" >/dev/null
-printf 'PASS: compare links require the exact predecessor and endpoint; tag links remain valid\n'
+# A tag link is only legitimate when no release precedes this one. Once a
+# predecessor exists, pointing at the tag page must not satisfy the guard.
+write_changelog_fixture "releases/tag/${current_tag}"
+expect_failure "tag link replaces the predecessor" "${fixture_validator}" "${current_version}"
+printf 'PASS: compare links require the exact predecessor and endpoint; tag links are valid only without a predecessor\n'
 
 notes_file="${tmp_dir}/release-notes.md"
 "${repo_root}/scripts/render_release_notes.sh" "${current_tag}" > "${notes_file}"
@@ -259,7 +263,8 @@ done
   "${current_tag}" "${same_commit}" "${asset_dir}" >/dev/null
 
 manifest="${asset_dir}/mem-mcp-checksums.txt"
-[[ "$(wc -l < "${manifest}")" == 6 ]] || die "checksum manifest must have six rows"
+# BSD wc pads its count with blanks, so a line count must not come from wc -l.
+[[ "$(grep -c '' "${manifest}")" == 6 ]] || die "checksum manifest must have six rows"
 (
   cd -- "${asset_dir}"
   sha256sum --check --strict "$(basename -- "${manifest}")" >/dev/null
