@@ -251,7 +251,20 @@ jobs:
 
       - name: Audit dependencies
         working-directory: web
-        run: npm run audit
+        # shell: bash is load-bearing: the default bash -e {0} shell has no
+        # pipefail, so tee would report its own exit status and a failing audit
+        # would pass this gate.
+        shell: bash
+        run: npm run audit 2>&1 | tee "${RUNNER_TEMP}/web-audit-transcript.txt"
+
+      - name: Upload audit evidence
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-audit-transcript-${{ github.sha }}
+          path: ${{ runner.temp }}/web-audit-transcript.txt
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Run unit tests
         working-directory: web

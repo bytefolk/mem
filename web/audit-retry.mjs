@@ -93,7 +93,12 @@ async function runWithRetry(label, args, { spawn, wait, npmExecPath, stdout, std
 
     if (isNetworkError(output)) {
       if (attempt < MAX_ATTEMPTS) {
-        stderr.write(`[audit-retry] ${label} hit a network error — will retry.\n`);
+        stderr.write(
+          `[audit-retry] ${label} hit a network error — will retry.\n` +
+          // An attempt that self-heals would otherwise leave no trace, and
+          // stdout stays reserved for the final audit report.
+          `[audit-retry] ${label} attempt ${attempt}/${MAX_ATTEMPTS} output:\n${output.trimEnd()}\n`
+        );
         await wait(BACKOFF_MS);
         continue;
       }

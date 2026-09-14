@@ -92,6 +92,16 @@ describe("audit retry policy", () => {
     expect(test.wait).toHaveBeenCalledTimes(1);
   });
 
+  it("echoes the transcript of every retried attempt, on stderr only", async () => {
+    const transient = { status: 1, stdout: "registry notice\n", stderr: "network timeout at .../security/advisories/bulk\n" };
+    const test = harness([transient, PASS, PASS]);
+    expect(await test.run()).toBe(0);
+    expect(test.output().stderr).toContain("attempt 1/3 output:");
+    expect(test.output().stderr).toContain(transient.stdout);
+    expect(test.output().stderr).toContain(transient.stderr);
+    expect(test.output().stdout).not.toContain("registry notice");
+  });
+
   it("caps retries at three, skips the final backoff, and retains final diagnostics", async () => {
     const failure = { status: 7, stdout: "final stdout\n", stderr: "503 Service Unavailable: final detail\n" };
     const test = harness([failure, failure, failure]);
@@ -171,6 +181,16 @@ describe("audit retry policy", () => {
     const configPath = join(__dirname, "vite.config.ts");
     const config = readFileSync(configPath, "utf8");
     expect(config).toContain("audit-retry.test.mjs");
+  });
+
+  it("ci.yml keeps the audit transcript pipe fail-closed and uploads it", async () => {
+    const ci = readFileSync(join(__dirname, "../.github/workflows/ci.yml"), "utf8");
+    expect(ci).toMatch(
+      /- name: Audit dependencies\n(?:.*\n)*?\n\s+shell: bash\n\s+run: npm run audit 2>&1 \| tee "\$\{RUNNER_TEMP\}\/web-audit-transcript\.txt"/
+    );
+    expect(ci).toMatch(
+      /name: web-audit-transcript-\$\{\{ github\.sha \}\}\n\s+path: \$\{\{ runner\.temp \}\}\/web-audit-transcript\.txt\n\s+if-no-files-found: error/
+    );
   });
 });
 
