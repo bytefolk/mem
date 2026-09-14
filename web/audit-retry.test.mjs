@@ -216,7 +216,11 @@ describe("audit retry policy", () => {
     // The helper's own test only replays its source text against a stub
     // npm.cmd; a real invocation has to exist somewhere or the batch file is
     // dead code that the PR description advertises as evidence.
-    expect(ci).toMatch(/cmd\.exe \/d \/c "\.\.\\scripts\\win-audit-verify\.bat"/);
+    expect(ci).toMatch(/cmd\.exe \/\/d \/\/c "\.\.\\scripts\\win-audit-verify\.bat"/);
+    // Matching the invocation text alone was not enough: the first version of
+    // this step passed CI on a cmd.exe that never ran the helper.
+    expect(ci).toMatch(/\[win-audit-verify\\\] finished at/);
+    expect(ci).toMatch(/npm run audit exit code: 0/);
     const job = ci
       .split(/\n(?=  [a-z][a-z0-9-]*:\n)/)
       .find((entry) => entry.includes("win-audit-verify.bat"))

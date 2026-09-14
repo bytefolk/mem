@@ -406,8 +406,32 @@ jobs:
         # helper's nonzero-audit assertion would become unfalsifiable.
         shell: bash
         run: |
-          cmd.exe /d /c "..\scripts\win-audit-verify.bat" 2>&1 \
+          # //d //c, not /d /c: git-bash rewrites a leading /d and /c into D:/
+          # and C:/, which leaves cmd.exe with no option flags. It then prints
+          # its interactive banner and exits 0, so the helper never runs and the
+          # job goes green on an empty transcript.
+          cmd.exe //d //c "..\scripts\win-audit-verify.bat" 2>&1 \
             | tee "${RUNNER_TEMP}/win-audit-transcript.txt"
+
+      - name: Verify the transcript is real evidence
+        shell: bash
+        # A successful cmd.exe proves nothing on its own; the transcript has to
+        # show the helper actually reached its report and gated on a passing
+        # audit, or this job would silently certify nothing.
+        run: |
+          transcript="${RUNNER_TEMP}/win-audit-transcript.txt"
+          for needle in \
+            "\[win-audit-verify\] starting npm run audit" \
+            "\[win-audit-verify\] finished at" \
+            "\[win-audit-verify\] npm run audit exit code: 0" \
+            "found 0 vulnerabilities"
+          do
+            if ! grep -q -- "$needle" "$transcript"; then
+              echo "::error::win-audit-verify.bat did not produce '$needle'; the Windows audit evidence is not real."
+              sed -n '1,40p' "$transcript"
+              exit 1
+            fi
+          done
 
       - name: Upload Windows audit evidence
         if: always() && !cancelled()
