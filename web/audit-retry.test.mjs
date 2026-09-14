@@ -185,12 +185,49 @@ describe("audit retry policy", () => {
 
   it("ci.yml keeps the audit transcript pipe fail-closed and uploads it", async () => {
     const ci = readFileSync(join(__dirname, "../.github/workflows/ci.yml"), "utf8");
-    expect(ci).toMatch(
-      /- name: Audit dependencies\n(?:.*\n)*?\n\s+shell: bash\n\s+run: npm run audit 2>&1 \| tee "\$\{RUNNER_TEMP\}\/web-audit-transcript\.txt"/
-    );
-    expect(ci).toMatch(
-      /name: web-audit-transcript-\$\{\{ github\.sha \}\}\n\s+path: \$\{\{ runner\.temp \}\}\/web-audit-transcript\.txt\n\s+if-no-files-found: error/
-    );
+    const steps = ci.split(/\n(?=      - name: )/);
+
+    // Without `shell: bash` the default `bash -e {0}` has no pipefail, so tee's
+    // exit status would replace the audit's and a failing gate would pass.
+    const transcriptSteps = steps.filter((step) => step.includes('tee "${RUNNER_TEMP}/'));
+    expect(transcriptSteps.map((step) => step.match(/- name: (.+)/)[1])).toEqual([
+      "Audit dependencies",
+      "Run Windows audit evidence helper against the real registry",
+    ]);
+    for (const step of transcriptSteps) {
+      expect(step).toMatch(/^[ ]+shell: bash$/m);
+    }
+
+    // Evidence is only worth collecting if it also survives a red step.
+    for (const artifact of ["web-audit-transcript", "win-audit-transcript"]) {
+      const upload = steps.find((step) => step.includes(`name: ${artifact}-\${{ github.sha }}`));
+      expect(upload).toBeDefined();
+      expect(upload).toContain("if: always() && !cancelled()");
+      expect(upload).toContain(`path: \${{ runner.temp }}/${artifact}.txt`);
+      expect(upload).toContain("if-no-files-found: error");
+      expect(upload).toContain("retention-days: 14");
+    }
+
+    expect(ci).not.toMatch(/continue-on-error|\|\| true/);
+  });
+
+  it("ci.yml executes win-audit-verify.bat on a Windows runner", async () => {
+    const ci = readFileSync(join(__dirname, "../.github/workflows/ci.yml"), "utf8");
+    // The helper's own test only replays its source text against a stub
+    // npm.cmd; a real invocation has to exist somewhere or the batch file is
+    // dead code that the PR description advertises as evidence.
+    expect(ci).toMatch(/cmd\.exe \/d \/c "\.\.\\scripts\\win-audit-verify\.bat"/);
+    const job = ci
+      .split(/\n(?=  [a-z][a-z0-9-]*:\n)/)
+      .find((entry) => entry.includes("win-audit-verify.bat"))
+      // Judge configuration, not prose: the job's comments explain this very
+      // pattern, so quoting them would make the assertions self-defeating.
+      .split("\n")
+      .filter((line) => !/^\s*#/.test(line))
+      .join("\n");
+    expect(job).toMatch(/^    runs-on: windows-/m);
+    // The check must not be reachable only via a matrix entry that can vanish.
+    expect(job).not.toMatch(/if: runner\.os == 'Windows'/);
   });
 });
 
