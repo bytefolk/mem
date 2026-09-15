@@ -2,6 +2,9 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -79,6 +82,13 @@ type ListRelationsQuery struct {
 	RelationType string // optional filter
 	AllowedPaths []string
 	Limit        int
+	Cursor       string // opaque keyset cursor from a previous ListRelationsResult
+}
+
+// ListRelationsResult is the paginated response for ListRelations.
+type ListRelationsResult struct {
+	Relations  []Relation `json:"relations"`
+	NextCursor string     `json:"next_cursor,omitempty"`
 }
 
 // validateCreateRelationCommand checks the command fields without touching the database.
@@ -236,7 +246,7 @@ func validateListRelationsQuery(q ListRelationsQuery) error {
 
 // ListRelations returns relations for a given memory. Direction controls
 // whether MemoryID is matched as source or target.
-func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Relation, error) {
+func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) (*ListRelationsResult, error) {
 	if s == nil || s.pool == nil {
 		return nil, fmt.Errorf("memory service is not configured")
 	}
@@ -280,6 +290,19 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 		return nil, ErrForgotten
 	}
 
+	filterHash, err := relationFilterHash(q.WorkspaceID, q.MemoryID, direction, q.RelationType)
+	if err != nil {
+		return nil, err
+	}
+	var cursor *decodedListCursor
+	if q.Cursor != "" {
+		decoded, err := decodeListCursor(q.Cursor, filterHash)
+		if err != nil {
+			return nil, err
+		}
+		cursor = &decoded
+	}
+
 	args = []any{q.WorkspaceID, q.MemoryID}
 	var dirColumn string
 	if direction == "source" {
@@ -296,7 +319,15 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 		args = append(args, relType)
 		where = append(where, fmt.Sprintf("r.relation_type = $%d", len(args)))
 	}
-	args = append(args, q.Limit)
+	if cursor != nil {
+		args = append(args, cursor.createdAt, cursor.id)
+		timeArg, idArg := len(args)-1, len(args)
+		where = append(where, fmt.Sprintf(
+			"(r.created_at < $%d OR (r.created_at = $%d AND r.id < $%d))",
+			timeArg, timeArg, idArg,
+		))
+	}
+	args = append(args, q.Limit+1)
 	limitIdx := len(args)
 
 	sql := fmt.Sprintf(`
@@ -313,16 +344,50 @@ func (s *Service) ListRelations(ctx context.Context, q ListRelationsQuery) ([]Re
 	}
 	defer rows.Close()
 
-	out := make([]Relation, 0, q.Limit)
+	relations := make([]Relation, 0, q.Limit+1)
 	for rows.Next() {
 		var rel Relation
 		if err := rows.Scan(&rel.ID, &rel.WorkspaceID, &rel.SourceID, &rel.TargetID,
 			&rel.RelationType, &rel.ActorUserID, &rel.ActorTokenID, &rel.Reason, &rel.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan relation: %w", err)
 		}
-		out = append(out, rel)
+		relations = append(relations, rel)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list relations: %w", err)
+	}
+
+	result := &ListRelationsResult{Relations: relations}
+	if len(relations) <= q.Limit {
+		return result, nil
+	}
+	result.Relations = relations[:q.Limit]
+	last := result.Relations[len(result.Relations)-1]
+	result.NextCursor, err = encodeListCursor(last.CreatedAt, last.ID, filterHash)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func relationFilterHash(workspaceID, memoryID uuid.UUID, direction, relationType string) (string, error) {
+	payload := struct {
+		WorkspaceID  string `json:"workspace_id"`
+		MemoryID     string `json:"memory_id"`
+		Direction    string `json:"direction"`
+		RelationType string `json:"relation_type"`
+	}{
+		WorkspaceID:  workspaceID.String(),
+		MemoryID:     memoryID.String(),
+		Direction:    direction,
+		RelationType: strings.ToLower(strings.TrimSpace(relationType)),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode relation filter hash: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // IsSuperseded returns true if the given memory has been superseded or corrected

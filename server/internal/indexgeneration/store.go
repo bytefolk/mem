@@ -106,6 +106,45 @@ func listGenerations(
 	return out, rows.Err()
 }
 
+func listGenerationsForBuilds(
+	ctx context.Context,
+	q queryer,
+	workspaceID uuid.UUID,
+	buildIDs []uuid.UUID,
+) (map[uuid.UUID][]Generation, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id, build_id, workspace_id, route_kind, provider,
+		       model_revision, output_dimension, pipeline_revision,
+		       profile_id, profile_revision, state, created_at, updated_at
+		  FROM index_generations
+		 WHERE workspace_id = $1 AND build_id = ANY($2::uuid[])
+		 ORDER BY route_kind
+	`, workspaceID, buildIDs)
+	if err != nil {
+		return nil, fmt.Errorf("%w: list route generations: %v", ErrUnavailable, err)
+	}
+	defer rows.Close()
+	out := make(map[uuid.UUID][]Generation)
+	for rows.Next() {
+		var generation Generation
+		if err := rows.Scan(
+			&generation.ID, &generation.BuildID, &generation.WorkspaceID,
+			&generation.RouteKind, &generation.Provider,
+			&generation.ModelRevision, &generation.OutputDimension,
+			&generation.PipelineRevision, &generation.ProfileID,
+			&generation.ProfileRevision, &generation.State,
+			&generation.CreatedAt, &generation.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("%w: scan route generation: %v", ErrUnavailable, err)
+		}
+		out[generation.BuildID] = append(out[generation.BuildID], generation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: list route generations: %v", ErrUnavailable, err)
+	}
+	return out, nil
+}
+
 func getInflightIdentity(
 	ctx context.Context,
 	q queryer,

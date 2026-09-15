@@ -640,6 +640,80 @@ func TestIndexerEnrichmentIntegration(t *testing.T) {
 	)
 }
 
+func TestEmbeddingsTextChunkUniqueness(t *testing.T) {
+	dsn := os.Getenv("MEM_TEST_DB")
+	if dsn == "" {
+		t.Skip("MEM_TEST_DB not set; skipping DB integration test")
+	}
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse MEM_TEST_DB: %v", err)
+	}
+	if !strings.HasSuffix(config.ConnConfig.Database, "_test") {
+		t.Fatalf(
+			"refusing to modify non-test database %q; MEM_TEST_DB must end in _test",
+			config.ConnConfig.Database,
+		)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	database, err := memdb.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(database.Close)
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatalf("migrate test database: %v", err)
+	}
+
+	var userID uuid.UUID
+	if err := database.Pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash)
+		VALUES ($1, 'integration-test')
+		RETURNING id
+	`, "embeddings-unique-"+uuid.NewString()+"@example.com").Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = database.Pool.Exec(cleanupCtx, `DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	fileID := uuid.New()
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO files (
+			id, user_id, name, path, size, sha256, mime, storage_key, index_status
+		) VALUES ($1,$2,'chunks.txt','/',1,$3,'text/plain',$4,'ready')
+	`, fileID, userID, strings.Repeat("b", 64), "embeddings-unique/"+fileID.String()); err != nil {
+		t.Fatalf("insert file: %v", err)
+	}
+
+	vec := vectorLiteral(make([]float32, 768))
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO embeddings_text (file_id, chunk_index, chunk_text, embedding, provider)
+		VALUES ($1, 0, 'first', $2::vector, 'test:embed')
+	`, fileID, vec); err != nil {
+		t.Fatalf("insert first chunk: %v", err)
+	}
+
+	_, err = database.Pool.Exec(ctx, `
+		INSERT INTO embeddings_text (file_id, chunk_index, chunk_text, embedding, provider)
+		VALUES ($1, 0, 'duplicate', $2::vector, 'test:embed')
+	`, fileID, vec)
+	if err == nil {
+		t.Fatal("expected duplicate (file_id, chunk_index) to be rejected, got nil")
+	}
+
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO embeddings_text (file_id, chunk_index, chunk_text, embedding, provider)
+		VALUES ($1, 1, 'second chunk', $2::vector, 'test:embed')
+	`, fileID, vec); err != nil {
+		t.Fatalf("different chunk_index for same file should succeed: %v", err)
+	}
+}
+
 func assertIndexerFileProjection(
 	t *testing.T,
 	ctx context.Context,

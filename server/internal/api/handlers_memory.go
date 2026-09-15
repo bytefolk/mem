@@ -763,13 +763,15 @@ func (s *Server) handleListMemoryRelations(w http.ResponseWriter, r *http.Reques
 	}
 
 	tok := r.Context().Value(ctxToken).(*auth.Token)
-	relations, err := s.Memory.ListRelations(r.Context(), memory.ListRelationsQuery{
+	cursor := strings.TrimSpace(r.URL.Query().Get("cursor"))
+	result, err := s.Memory.ListRelations(r.Context(), memory.ListRelationsQuery{
 		WorkspaceID:  currentWorkspace(r).ID,
 		MemoryID:     id,
 		Direction:    direction,
 		RelationType: relationType,
 		AllowedPaths: tok.Paths,
 		Limit:        limit,
+		Cursor:       cursor,
 	})
 	if err != nil {
 		switch {
@@ -789,8 +791,12 @@ func (s *Server) handleListMemoryRelations(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	if relations == nil {
-		relations = []memory.Relation{}
+	if result.Relations == nil {
+		result.Relations = []memory.Relation{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"relations": relations})
+	response := map[string]any{"relations": result.Relations}
+	if result.NextCursor != "" {
+		response["next_cursor"] = result.NextCursor
+	}
+	writeJSON(w, http.StatusOK, response)
 }
