@@ -75,6 +75,11 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Improve web caption and status contrast in both themes, including tinted danger
+  buttons, and center action labels, context menus, badges, dialog prompts, and
+  overview/detail headings. Restore localized cancel/confirm labels when a
+  confirmation dialog caller omits custom action text.
+
 - A configured URL that carries credentials in a shape `url.Parse` does not
   report as userinfo no longer reaches output. `admin:pw@host` parses as
   `Scheme="admin"` with the credential in `Opaque` and `User` unset, so an

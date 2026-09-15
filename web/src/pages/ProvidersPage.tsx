@@ -171,7 +171,7 @@ export function ProvidersPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
-      <div className="flex items-center gap-3 mb-1">
+      <div className="flex flex-wrap items-center justify-center gap-3 mb-1">
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
           <Settings className="h-5 w-5 text-accent" /> {t('providers.title')}
         </h1>
@@ -183,7 +183,7 @@ export function ProvidersPage() {
           {t('providers.refresh')}
         </Button>
       </div>
-      <p className="text-sm text-fg-muted mb-6">{t('providers.description')}</p>
+      <p className="text-center text-sm text-fg-muted mb-6">{t('providers.description')}</p>
 
       {entitlement && (
         <section

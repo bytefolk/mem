@@ -110,8 +110,8 @@ export function SearchPage() {
         >
           <ArrowLeft className="h-3.5 w-3.5" /> {t('common.backToDrive')}
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('search.title')}</h1>
-        <p className="mt-1.5 text-sm text-fg-muted">{t('search.subtitle')}</p>
+        <h1 className="text-center text-2xl font-semibold tracking-tight">{t('search.title')}</h1>
+        <p className="mt-1.5 text-center text-sm text-fg-muted">{t('search.subtitle')}</p>
         <div className="mt-5 relative">
           <Input
             value={q}

@@ -51,11 +51,11 @@ export function ForgetMemoryDialog({
           className="fixed left-1/2 top-1/2 z-50 w-[520px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2
                      rounded-lg border border-danger/35 bg-bg-panel p-5 shadow-soft animate-fade-in"
         >
-          <div className="flex items-start gap-3">
+          <div className="relative flex flex-col items-center gap-3 px-7">
             <div className="grid h-9 w-9 flex-none place-items-center rounded-md border border-danger/30 bg-danger/10 text-danger">
               <AlertTriangle className="h-4 w-4" />
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 w-full text-center">
               <Dialog.Title className="text-base font-semibold text-fg">
                 {t('memory.forgetTitle')}
               </Dialog.Title>
@@ -68,7 +68,7 @@ export function ForgetMemoryDialog({
                 type="button"
                 disabled={busy}
                 aria-label={t('action.close')}
-                className="text-fg-subtle transition-colors hover:text-fg disabled:opacity-50"
+                className="absolute right-0 top-0 grid h-6 w-6 place-items-center text-fg-subtle transition-colors hover:text-fg disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -92,7 +92,7 @@ export function ForgetMemoryDialog({
             <select
               value={reason}
               onChange={(event) => setReason(event.target.value as MemoryForgetReason)}
-              className="h-9 rounded-md border border-border bg-bg-inset px-3 text-sm text-fg outline-none focus:border-accent/60"
+              className="h-9 rounded-md border border-border bg-bg-inset px-3 text-center [text-align-last:center] text-sm text-fg outline-none focus:border-accent/60"
             >
               {REASONS.map((candidate) => (
                 <option key={candidate} value={candidate}>

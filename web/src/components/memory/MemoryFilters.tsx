@@ -64,13 +64,13 @@ export function MemoryFilters({
       </form>
 
       <label className="grid gap-1">
-        <span className="text-2xs uppercase tracking-wider text-fg-subtle">{t('memory.kind')}</span>
+        <span className="text-center text-2xs uppercase tracking-wider text-fg-subtle">{t('memory.kind')}</span>
         <select
           value={value.kind ?? ''}
           onChange={(event) =>
             update({ kind: (event.target.value || undefined) as MemoryKind | undefined })
           }
-          className="h-9 rounded-md border border-border bg-bg-inset px-2.5 text-xs text-fg outline-none focus:border-accent/60"
+          className="h-9 rounded-md border border-border bg-bg-inset px-2.5 text-center [text-align-last:center] text-xs text-fg outline-none focus:border-accent/60"
           aria-label={t('memory.kind')}
         >
           <option value="">{t('memory.allKinds')}</option>
@@ -83,7 +83,7 @@ export function MemoryFilters({
       </label>
 
       <div className="grid gap-1">
-        <span className="inline-flex items-center gap-1 text-2xs uppercase tracking-wider text-fg-subtle">
+        <span className="inline-flex items-center justify-center gap-1 text-center text-2xs uppercase tracking-wider text-fg-subtle">
           <Filter className="h-3 w-3" />
           {t('memory.visibility')}
         </span>
@@ -109,7 +109,7 @@ export function MemoryFilters({
 
       <div className="flex items-end gap-2">
         <label className="grid min-w-28 flex-1 gap-1">
-          <span className="text-2xs uppercase tracking-wider text-fg-subtle">
+          <span className="text-center text-2xs uppercase tracking-wider text-fg-subtle">
             {t('memory.pinFilter')}
           </span>
           <select
@@ -119,7 +119,7 @@ export function MemoryFilters({
                 pinned: event.target.value === '' ? undefined : event.target.value === 'true',
               })
             }
-            className="h-9 rounded-md border border-border bg-bg-inset px-2.5 text-xs text-fg outline-none focus:border-accent/60"
+            className="h-9 rounded-md border border-border bg-bg-inset px-2.5 text-center [text-align-last:center] text-xs text-fg outline-none focus:border-accent/60"
             aria-label={t('memory.pinFilter')}
           >
             <option value="">{t('memory.pinAny')}</option>

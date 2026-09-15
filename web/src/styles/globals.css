@@ -19,7 +19,7 @@
 
   --fg: 232 234 240; /* primary text */
   --fg-muted: 156 163 175; /* secondary text */
-  --fg-subtle: 107 114 128; /* tertiary, captions */
+  --fg-subtle: 139 148 165; /* captions remain readable on inset surfaces */
 
   --border: 30 35 46;
   --border-strong: 48 55 72;
@@ -44,15 +44,15 @@
   --bg-inset: 240 242 246;
   --fg: 17 24 39;
   --fg-muted: 75 85 99;
-  --fg-subtle: 107 114 128;
+  --fg-subtle: 96 104 118;
   --border: 226 230 237;
   --border-strong: 203 213 225;
   --accent: 79 70 229;
   --accent-hover: 67 56 202;
   --accent-muted: 224 231 255;
-  --success: 5 150 105;
-  --warn: 217 119 6;
-  --danger: 220 38 38;
+  --success: 6 95 70;
+  --warn: 146 64 14;
+  --danger: 153 27 27;
   --shadow-soft: 0 1px 0 0 rgb(255 255 255 / 0.8) inset, 0 1px 3px 0 rgb(15 23 42 / 0.12);
 
   color-scheme: light;

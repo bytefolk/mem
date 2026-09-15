@@ -198,8 +198,8 @@ export function MemoriesPage() {
 
   return (
     <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8 lg:py-9">
-      <header className="mb-6 border-l-2 border-accent pl-4">
-        <div className="mb-2 flex flex-wrap items-center gap-2 font-mono text-2xs uppercase tracking-[0.18em] text-fg-subtle">
+      <header className="mb-6 text-center">
+        <div className="mb-2 flex flex-wrap items-center justify-center gap-2 font-mono text-2xs uppercase tracking-[0.18em] text-fg-subtle">
           <ShieldCheck className="h-3.5 w-3.5 text-accent" />
           {t('memory.trustSurface')}
           {capabilities.data.workspace.name && (
@@ -210,7 +210,7 @@ export function MemoriesPage() {
           )}
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">{t('memory.title')}</h1>
-        <p className="mt-1.5 max-w-3xl text-sm leading-6 text-fg-muted">{t('memory.subtitle')}</p>
+        <p className="mx-auto mt-1.5 max-w-3xl text-sm leading-6 text-fg-muted">{t('memory.subtitle')}</p>
       </header>
 
       <div className={memoryId ? 'hidden xl:block' : undefined}>

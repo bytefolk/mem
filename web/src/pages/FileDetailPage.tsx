@@ -103,7 +103,7 @@ export function FileDetailPage() {
           {t('common.back')}
         </Button>
         <div className="flex-1 min-w-0">
-          <div className="text-sm text-fg truncate">{file.name}</div>
+          <div className="text-center text-sm text-fg truncate">{file.name}</div>
           <div className="text-2xs text-fg-subtle font-mono truncate">{file.path}</div>
         </div>
         <Button variant="ghost" size="sm" onClick={copyId}>

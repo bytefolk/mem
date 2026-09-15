@@ -21,7 +21,7 @@ export function CardHeader({ className, ...rest }: React.HTMLAttributes<HTMLDivE
 export function CardTitle({ className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('text-xs font-medium uppercase tracking-wider text-fg-muted', className)}
+      className={cn('flex flex-1 items-center justify-center gap-1.5 text-center text-xs font-medium uppercase tracking-wider text-fg-muted', className)}
       {...rest}
     />
   );

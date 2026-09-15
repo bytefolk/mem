@@ -73,6 +73,7 @@ export function FileGrid(props: FileGridProps) {
         <div className="flex flex-col items-center text-center gap-2 p-2 rounded-lg border border-dashed border-accent/40 bg-accent/5">
           <FolderClosed className="h-12 w-12 text-fg-subtle" />
           <RenameInput
+            className="text-center"
             initial={tt('drive.untitledFolder')}
             placeholder={tt('drive.folderName')}
             preserveExtension={false}
@@ -218,6 +219,7 @@ function FolderCard({
       <FolderClosed className="h-14 w-14 text-accent/80" strokeWidth={1.4} />
       {renaming ? (
         <RenameInput
+            className="text-center"
           initial={folder.name}
           preserveExtension={false}
           onCommit={onCommitRename}
@@ -286,7 +288,7 @@ function FileCard({
         {file.index_status !== 'done' && <StatusOverlay status={file.index_status} />}
       </div>
       {renaming ? (
-        <RenameInput initial={file.name} onCommit={onCommitRename} onCancel={onCancelRename} />
+        <RenameInput className="text-center" initial={file.name} onCommit={onCommitRename} onCancel={onCancelRename} />
       ) : (
         <div className="text-xs text-fg truncate w-full" title={file.name}>
           {file.name}

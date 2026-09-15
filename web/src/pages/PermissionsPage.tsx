@@ -144,7 +144,7 @@ export function PermissionsPage() {
 
   const header = (
     <>
-      <div className="flex items-center gap-3 mb-1">
+      <div className="flex flex-wrap items-center justify-center gap-3 mb-1">
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-accent" /> {t('permissions.title')}
         </h1>
@@ -155,7 +155,7 @@ export function PermissionsPage() {
           </Button>
         )}
       </div>
-      <p className="text-sm text-fg-muted mb-6">{t('permissions.description')}</p>
+      <p className="text-center text-sm text-fg-muted mb-6">{t('permissions.description')}</p>
     </>
   );
 
@@ -207,13 +207,13 @@ export function PermissionsPage() {
 
       {/* ---- Issued tokens / sessions ---- */}
       <section className="mb-10" data-testid="tokens-section">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center justify-center gap-2 mb-1">
           <KeyRound className="h-4 w-4 text-accent" aria-hidden="true" />
           <h2 className="text-base font-semibold tracking-tight">
             {t('permissions.tokens.title')}
           </h2>
         </div>
-        <p className="text-xs text-fg-muted mb-3">{t('permissions.tokens.description')}</p>
+        <p className="text-center text-xs text-fg-muted mb-3">{t('permissions.tokens.description')}</p>
 
         {tokensForbidden ? (
           forbiddenPanel('tokens-forbidden')
@@ -302,13 +302,13 @@ export function PermissionsPage() {
 
       {/* ---- durable-context recall grants ---- */}
       <section data-testid="grants-section">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center justify-center gap-2 mb-1">
           <ScrollText className="h-4 w-4 text-accent" aria-hidden="true" />
           <h2 className="text-base font-semibold tracking-tight">
             {t('permissions.grants.title')}
           </h2>
         </div>
-        <p className="text-xs text-fg-muted mb-3">{t('permissions.grants.description')}</p>
+        <p className="text-center text-xs text-fg-muted mb-3">{t('permissions.grants.description')}</p>
 
         {grantsForbidden ? (
           forbiddenPanel('grants-forbidden')
