@@ -97,13 +97,13 @@ export function FileDetailPage() {
   return (
     <div className="mx-auto max-w-7xl px-8 py-8">
       {/* Top bar */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center justify-end gap-3 mb-6">
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-3.5 w-3.5" />
           {t('common.back')}
         </Button>
-        <div className="flex-1 min-w-0">
-          <div className="text-center text-sm text-fg truncate">{file.name}</div>
+        <div className="flex-1 min-w-0 basis-[calc(100%-7rem)] sm:basis-0">
+          <div className="text-left text-sm text-fg truncate">{file.name}</div>
           <div className="text-2xs text-fg-subtle font-mono truncate">{file.path}</div>
         </div>
         <Button variant="ghost" size="sm" onClick={copyId}>
@@ -270,7 +270,7 @@ function AIInsightsCard({ file }: { file: MemFile }) {
   return (
     <Card>
       <CardHeader className="flex items-center gap-2">
-        <Sparkles className="h-3.5 w-3.5 text-accent" />
+        <Sparkles className="h-3.5 w-3.5 text-ai" />
         <CardTitle>{t('detail.aiInsights')}</CardTitle>
       </CardHeader>
       <CardBody className="space-y-5 text-sm">
@@ -390,7 +390,7 @@ function AIInsightsCard({ file }: { file: MemFile }) {
           <div className="flex items-center justify-between gap-3">
             <div
               id="pending-suggestions-heading"
-              className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-accent"
+              className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-ai"
             >
               <Sparkles className="h-3.5 w-3.5" />
               {t('detail.reviewSuggestions')}
@@ -923,7 +923,7 @@ function RelatedRow({
 function DetailSkeleton() {
   return (
     <div className="mx-auto max-w-7xl px-8 py-8">
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex flex-wrap items-center justify-end gap-3 mb-6">
         <Skeleton className="h-7 w-16" />
         <Skeleton className="h-5 w-64 flex-1" />
         <Skeleton className="h-7 w-20" />

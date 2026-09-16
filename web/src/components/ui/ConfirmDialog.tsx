@@ -33,8 +33,8 @@ export function ConfirmDialog({
           className="fixed left-1/2 top-1/2 z-50 w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2
                      rounded-lg border border-border bg-bg-panel p-5 shadow-soft animate-fade-in"
         >
-          <div className="relative px-7">
-            <Dialog.Title className="text-center text-base font-semibold text-fg">{title}</Dialog.Title>
+          <div className="relative pr-7">
+            <Dialog.Title className="text-left text-base font-semibold text-fg">{title}</Dialog.Title>
             <Dialog.Close asChild>
               <button
                 aria-label={t('action.close')}
@@ -45,11 +45,11 @@ export function ConfirmDialog({
             </Dialog.Close>
           </div>
           {description && (
-            <Dialog.Description className="mt-2 text-center text-sm text-fg-muted leading-relaxed">
+            <Dialog.Description className="mt-2 text-left text-sm text-fg-muted leading-relaxed">
               {description}
             </Dialog.Description>
           )}
-          <div className="mt-5 flex items-center justify-center gap-2">
+          <div className="mt-5 flex items-center justify-end gap-2">
             <Dialog.Close asChild>
               <Button variant="ghost" size="sm">
                 {cancelText ?? t('action.cancel')}

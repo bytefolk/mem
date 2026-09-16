@@ -94,8 +94,8 @@ export function TasksPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-10">
-      <header className="mb-7 text-center">
-        <div className="mb-2 flex flex-wrap items-center justify-center gap-2 font-mono text-2xs uppercase tracking-[0.18em] text-fg-subtle">
+      <header className="mb-7 text-left">
+        <div className="mb-2 flex flex-wrap items-center justify-start gap-2 font-mono text-2xs uppercase tracking-[0.18em] text-fg-subtle">
           <GitCommitHorizontal className="h-3.5 w-3.5 text-accent" />
           {t('task.portableLedger')}
           {capabilities.data?.workspace.name && (

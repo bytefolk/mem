@@ -198,8 +198,8 @@ export function MemoriesPage() {
 
   return (
     <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8 lg:py-9">
-      <header className="mb-6 text-center">
-        <div className="mb-2 flex flex-wrap items-center justify-center gap-2 font-mono text-2xs uppercase tracking-[0.18em] text-fg-subtle">
+      <header className="mb-6 text-left">
+        <div className="mb-2 flex flex-wrap items-center justify-start gap-2 font-mono text-2xs uppercase tracking-[0.18em] text-fg-subtle">
           <ShieldCheck className="h-3.5 w-3.5 text-accent" />
           {t('memory.trustSurface')}
           {capabilities.data.workspace.name && (
@@ -210,7 +210,7 @@ export function MemoriesPage() {
           )}
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">{t('memory.title')}</h1>
-        <p className="mx-auto mt-1.5 max-w-3xl text-sm leading-6 text-fg-muted">{t('memory.subtitle')}</p>
+        <p className="mt-1.5 max-w-3xl text-sm leading-6 text-fg-muted">{t('memory.subtitle')}</p>
       </header>
 
       <div className={memoryId ? 'hidden xl:block' : undefined}>
@@ -219,7 +219,7 @@ export function MemoriesPage() {
 
       <div className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[390px_minmax(0,1fr)] xl:items-start">
         <aside
-          className={'min-w-0 xl:sticky xl:top-16 ' + (memoryId ? 'hidden xl:block' : 'block')}
+          className={'min-w-0 xl:sticky xl:top-16 ' + (memoryId ? 'hidden xl:block' : items.length === 0 ? 'xl:col-span-2' : 'block')}
         >
           {memories.isLoading ? (
             <LedgerSkeleton />
@@ -252,7 +252,7 @@ export function MemoriesPage() {
           )}
         </aside>
 
-        <main className={'min-w-0 ' + (memoryId ? 'block' : 'hidden xl:block')}>
+        <main className={'min-w-0 ' + (memoryId ? 'block' : items.length > 0 ? 'hidden xl:block' : 'hidden')}>
           {memoryId && (
             <Button
               type="button"

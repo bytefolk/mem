@@ -144,7 +144,7 @@ export function PermissionsPage() {
 
   const header = (
     <>
-      <div className="flex flex-wrap items-center justify-center gap-3 mb-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-accent" /> {t('permissions.title')}
         </h1>
@@ -155,7 +155,7 @@ export function PermissionsPage() {
           </Button>
         )}
       </div>
-      <p className="text-center text-sm text-fg-muted mb-6">{t('permissions.description')}</p>
+      <p className="text-left text-sm text-fg-muted mb-6">{t('permissions.description')}</p>
     </>
   );
 
@@ -207,13 +207,13 @@ export function PermissionsPage() {
 
       {/* ---- Issued tokens / sessions ---- */}
       <section className="mb-10" data-testid="tokens-section">
-        <div className="flex items-center justify-center gap-2 mb-1">
+        <div className="flex items-center justify-start gap-2 mb-1">
           <KeyRound className="h-4 w-4 text-accent" aria-hidden="true" />
           <h2 className="text-base font-semibold tracking-tight">
             {t('permissions.tokens.title')}
           </h2>
         </div>
-        <p className="text-center text-xs text-fg-muted mb-3">{t('permissions.tokens.description')}</p>
+        <p className="text-left text-xs text-fg-muted mb-3">{t('permissions.tokens.description')}</p>
 
         {tokensForbidden ? (
           forbiddenPanel('tokens-forbidden')
@@ -237,9 +237,9 @@ export function PermissionsPage() {
             description={t('permissions.tokens.emptyHint')}
           />
         ) : tokens ? (
-          <div className="surface overflow-hidden">
+          <div className="surface overflow-x-auto">
             <div
-              className={`${TOKEN_ROW_GRID} border-b border-border bg-bg-subtle/60 px-4 py-2 text-2xs uppercase tracking-wider text-fg-subtle`}
+              className={`${TOKEN_ROW_GRID} min-w-[640px] border-b border-border bg-bg-subtle/60 px-4 py-2 text-2xs uppercase tracking-wider text-fg-subtle`}
             >
               <span>{t('permissions.tokens.col.name')}</span>
               <span>{t('permissions.tokens.col.scopes')}</span>
@@ -247,7 +247,7 @@ export function PermissionsPage() {
               <span>{t('permissions.tokens.col.lastUsed')}</span>
               <span />
             </div>
-            <ol className="divide-y divide-border">
+            <ol className="min-w-[640px] divide-y divide-border">
               {tokens.map((token) => (
                 <li
                   key={token.id}
@@ -302,13 +302,13 @@ export function PermissionsPage() {
 
       {/* ---- durable-context recall grants ---- */}
       <section data-testid="grants-section">
-        <div className="flex items-center justify-center gap-2 mb-1">
+        <div className="flex items-center justify-start gap-2 mb-1">
           <ScrollText className="h-4 w-4 text-accent" aria-hidden="true" />
           <h2 className="text-base font-semibold tracking-tight">
             {t('permissions.grants.title')}
           </h2>
         </div>
-        <p className="text-center text-xs text-fg-muted mb-3">{t('permissions.grants.description')}</p>
+        <p className="text-left text-xs text-fg-muted mb-3">{t('permissions.grants.description')}</p>
 
         {grantsForbidden ? (
           forbiddenPanel('grants-forbidden')
@@ -332,9 +332,9 @@ export function PermissionsPage() {
             description={t('permissions.grants.emptyHint')}
           />
         ) : grants ? (
-          <div className="surface overflow-hidden">
+          <div className="surface overflow-x-auto">
             <div
-              className={`${GRANT_ROW_GRID} border-b border-border bg-bg-subtle/60 px-4 py-2 text-2xs uppercase tracking-wider text-fg-subtle`}
+              className={`${GRANT_ROW_GRID} min-w-[640px] border-b border-border bg-bg-subtle/60 px-4 py-2 text-2xs uppercase tracking-wider text-fg-subtle`}
             >
               <span>{t('permissions.grants.col.principal')}</span>
               <span>{t('permissions.grants.col.memory')}</span>
@@ -342,7 +342,7 @@ export function PermissionsPage() {
               <span>{t('permissions.grants.col.grantedAt')}</span>
               <span />
             </div>
-            <ol className="divide-y divide-border">
+            <ol className="min-w-[640px] divide-y divide-border">
               {grants.map((grant) => {
                 const statusLabel = KNOWN_GRANT_STATUSES.has(grant.status)
                   ? t(`permissions.status.${grant.status}`)

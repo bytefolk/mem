@@ -1,62 +1,8 @@
+@import './design-tokens.generated.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/*
- * Design tokens
- * ----
- * Style brief: Linear / Vercel / Raycast. Restrained, geometric, dark or light.
- * Accent: indigo-500-ish, tuned independently for each canvas.
- * Color tokens are emitted as space-separated RGB triples so Tailwind's
- * `<alpha-value>` token works (e.g. `bg-bg/60`).
- */
-:root {
-  /* Dark (default) */
-  --bg: 10 11 15; /* near black, slightly warm */
-  --bg-subtle: 14 16 22; /* sidebar / second surface */
-  --bg-panel: 18 21 28; /* cards */
-  --bg-inset: 23 27 36; /* inputs, code blocks */
-
-  --fg: 232 234 240; /* primary text */
-  --fg-muted: 156 163 175; /* secondary text */
-  --fg-subtle: 139 148 165; /* captions remain readable on inset surfaces */
-
-  --border: 30 35 46;
-  --border-strong: 48 55 72;
-
-  --accent: 129 140 248; /* indigo-400 */
-  --accent-hover: 165 180 252; /* indigo-300 */
-  --accent-muted: 67 56 202; /* indigo-700 */
-
-  --success: 52 211 153;
-  --warn: 251 191 36;
-  --danger: 248 113 113;
-
-  --shadow-soft: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 1px 2px 0 rgb(0 0 0 / 0.4);
-
-  color-scheme: dark;
-}
-
-.light {
-  --bg: 250 250 252;
-  --bg-subtle: 244 245 248;
-  --bg-panel: 255 255 255;
-  --bg-inset: 240 242 246;
-  --fg: 17 24 39;
-  --fg-muted: 75 85 99;
-  --fg-subtle: 96 104 118;
-  --border: 226 230 237;
-  --border-strong: 203 213 225;
-  --accent: 79 70 229;
-  --accent-hover: 67 56 202;
-  --accent-muted: 224 231 255;
-  --success: 6 95 70;
-  --warn: 146 64 14;
-  --danger: 153 27 27;
-  --shadow-soft: 0 1px 0 0 rgb(255 255 255 / 0.8) inset, 0 1px 3px 0 rgb(15 23 42 / 0.12);
-
-  color-scheme: light;
-}
 
 @layer base {
   html,
@@ -67,6 +13,8 @@
 
   body {
     @apply bg-bg text-fg font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.5714;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;

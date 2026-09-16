@@ -70,10 +70,10 @@ export function FileGrid(props: FileGridProps) {
   return (
     <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4 px-6 py-5">
       {pendingNewFolder && (
-        <div className="flex flex-col items-center text-center gap-2 p-2 rounded-lg border border-dashed border-accent/40 bg-accent/5">
+        <div className="flex flex-col items-center text-left gap-2 p-2 rounded-lg border border-dashed border-accent/40 bg-accent/5">
           <FolderClosed className="h-12 w-12 text-fg-subtle" />
           <RenameInput
-            className="text-center"
+            className="text-left"
             initial={tt('drive.untitledFolder')}
             placeholder={tt('drive.folderName')}
             preserveExtension={false}
@@ -120,7 +120,7 @@ export function FileGrid(props: FileGridProps) {
       {uploading.map((u, i) => (
         <div
           key={`upl-${i}`}
-          className="flex flex-col items-center text-center gap-2 p-2 rounded-lg border border-dashed border-border bg-bg-subtle/40"
+          className="flex flex-col items-center text-left gap-2 p-2 rounded-lg border border-dashed border-border bg-bg-subtle/40"
         >
           <div className="h-20 w-full rounded-md bg-bg-inset grid place-items-center">
             <div className="h-5 w-5 rounded-full border-2 border-accent border-r-transparent animate-spin" />
@@ -207,7 +207,7 @@ function FolderCard({
       onDragLeave={() => setDropHover(false)}
       onDrop={onDrop}
       className={cn(
-        'flex flex-col items-center text-center gap-2 p-2 rounded-lg cursor-default select-none',
+        'flex flex-col items-center text-left gap-2 p-2 rounded-lg cursor-default select-none',
         'border transition-colors',
         selected
           ? 'border-accent/60 bg-accent/10'
@@ -219,7 +219,7 @@ function FolderCard({
       <FolderClosed className="h-14 w-14 text-accent/80" strokeWidth={1.4} />
       {renaming ? (
         <RenameInput
-            className="text-center"
+            className="text-left"
           initial={folder.name}
           preserveExtension={false}
           onCommit={onCommitRename}
@@ -230,7 +230,7 @@ function FolderCard({
           {folder.name}
         </div>
       )}
-      <div className="text-2xs text-fg-subtle">{tt('drive.itemsN', { n: folder.fileCount })}</div>
+      <div className="w-full text-2xs text-fg-subtle">{tt('drive.itemsN', { n: folder.fileCount })}</div>
     </div>
   );
 }
@@ -267,7 +267,7 @@ function FileCard({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       className={cn(
-        'flex flex-col items-center text-center gap-2 p-2 rounded-lg cursor-default select-none',
+        'flex flex-col items-center text-left gap-2 p-2 rounded-lg cursor-default select-none',
         'border transition-colors',
         selected
           ? 'border-accent/60 bg-accent/10'
@@ -288,7 +288,7 @@ function FileCard({
         {file.index_status !== 'done' && <StatusOverlay status={file.index_status} />}
       </div>
       {renaming ? (
-        <RenameInput className="text-center" initial={file.name} onCommit={onCommitRename} onCancel={onCancelRename} />
+        <RenameInput className="text-left" initial={file.name} onCommit={onCommitRename} onCancel={onCancelRename} />
       ) : (
         <div className="text-xs text-fg truncate w-full" title={file.name}>
           {file.name}
@@ -309,10 +309,12 @@ function KindIcon({ kind }: { kind: FileKind }) {
 
 function StatusOverlay({ status }: { status: IndexStatus }) {
   const text = tt(`status.${status}`);
-  const tone = status === 'failed' ? 'bg-danger/80' : 'bg-bg/70';
+  const tone = status === 'failed'
+    ? 'border border-danger/30 bg-bg-panel text-danger'
+    : 'bg-bg/70 text-fg';
   return (
     <div
-      className={cn('absolute bottom-1 right-1 rounded px-1.5 py-0.5 text-2xs text-fg', tone)}
+      className={cn('absolute bottom-1 right-1 rounded px-1.5 py-0.5 text-2xs', tone)}
     >
       {text}
     </div>

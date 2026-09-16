@@ -102,7 +102,7 @@ function ContextMenuView({ state, onClose }: { state: ContextMenuState; onClose:
                 requestAnimationFrame(() => item.onSelect());
               }}
               className={cn(
-                'grid w-[calc(100%-0.5rem)] grid-cols-[1fr_auto_1fr] items-center gap-2 px-2.5 py-1.5 text-center text-sm rounded-sm mx-1 my-0.5',
+                'grid w-[calc(100%-0.5rem)] grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-2.5 py-1.5 text-left text-sm rounded-sm mx-1 my-0.5',
                 'transition-colors',
                 item.disabled
                   ? 'text-fg-subtle cursor-not-allowed'
@@ -111,9 +111,9 @@ function ContextMenuView({ state, onClose }: { state: ContextMenuState; onClose:
                     : 'text-fg-muted hover:bg-bg-inset hover:text-fg',
               )}
             >
-              <span className="col-start-2">{item.label}</span>
+              <span className="min-w-0">{item.label}</span>
               {item.shortcut && (
-                <span className="col-start-3 justify-self-end text-2xs text-fg-subtle tabular-nums">{item.shortcut}</span>
+                <span className="justify-self-end text-2xs text-fg-subtle tabular-nums">{item.shortcut}</span>
               )}
             </button>
           </React.Fragment>
