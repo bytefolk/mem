@@ -93,11 +93,33 @@ while IFS= read -r version_link; do
 done < <(grep -F -- "[${version}]: " "${changelog}" || true)
 [[ "${#version_links[@]}" == 1 ]] ||
   die "CHANGELOG.md: expected exactly one [${version}] comparison link"
-if [[ "${version_links[0]}" != \
-    "[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}" &&
-  "${version_links[0]}" != \
-    "[${version}]: https://github.com/bytefolk/mem/compare/"*"...v${version}" ]]; then
-  die "CHANGELOG.md: [${version}] link must terminate at v${version}"
+compare_base="$(awk '
+  /^## \[[0-9]/ {
+    if (seen++) {
+      gsub(/^## \[/, "", $0)
+      gsub(/\].*/, "", $0)
+      print $0
+      exit
+    }
+  }
+' "${changelog}")"
+
+# Exactly one link form is correct, decided by whether a release precedes this
+# one: with a predecessor the link must start at that release; without one (a
+# first release such as 0.1.0) there is nothing to compare from, so the release
+# keeps its tag link. Accepting the tag form in both cases would let a later
+# release dodge the predecessor requirement.
+if [[ -n "${compare_base}" ]]; then
+  expected_link="[${version}]: https://github.com/bytefolk/mem/compare/v${compare_base}...v${version}"
+else
+  expected_link="[${version}]: https://github.com/bytefolk/mem/releases/tag/v${version}"
+fi
+
+if [[ "${version_links[0]}" != "${expected_link}" ]]; then
+  if [[ -n "${compare_base}" ]]; then
+    die "CHANGELOG.md: [${version}] link must start at the preceding release v${compare_base}:"$'\n'"  ${expected_link}"
+  fi
+  die "CHANGELOG.md: nothing precedes [${version}], so its link must be exactly:"$'\n'"  ${expected_link}"
 fi
 
 printf 'PASS: all release version surfaces match %s\n' "${version}"
