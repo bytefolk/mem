@@ -82,6 +82,20 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   overview/detail headings. Restore localized cancel/confirm labels when a
   confirmation dialog caller omits custom action text.
 
+- Every MinIO image reference in the test stack, the local development stack and
+  the self-hosted single-node Compose profile now resolves from `quay.io` instead
+  of Docker Hub. MinIO stopped publishing container images in October 2025 and
+  removed the `minio/minio` and `minio/mc` repositories from Docker Hub, so an
+  anonymous `docker compose up` fails with `pull access denied for minio/minio,
+  repository does not exist or may require 'docker login'`. Because `Validate
+  Agent memory` → `HTTP, CLI and MCP lifecycle` is a required status context,
+  that registry withdrawal blocked every pull request from merging (`#207`).
+  `quay.io` still serves the exact digests pinned in `docker-compose.test.yml`,
+  so no image bytes change: the digest-pinned test stack keeps its digests and
+  the release-tagged deployment stack keeps its tags — only the registry host
+  differs. `deploy/compose/compose.yaml` previously carried the same broken
+  reference, so the documented self-hosted path would have failed on a cold
+  host even though no workflow exercises it.
 - A configured URL that carries credentials in a shape `url.Parse` does not
   report as userinfo no longer reaches output. `admin:pw@host` parses as
   `Scheme="admin"` with the credential in `Opaque` and `User` unset, so an
