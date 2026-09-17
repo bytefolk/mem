@@ -312,12 +312,12 @@ function ExportCard({
   const enabled = supported && permitted;
   return (
     <Card className="min-w-0" data-testid="workspace-export-card">
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <CardHeader className="relative pr-14 text-left">
         <div className="min-w-0">
           <CardTitle>{t('transfer.export.eyebrow')}</CardTitle>
           <h2 className="mt-1.5 text-lg font-semibold">{t('transfer.export.title')}</h2>
         </div>
-        <div className="grid h-9 w-9 flex-none place-items-center rounded-md border border-accent/20 bg-accent/10 text-accent">
+        <div className="absolute right-4 top-3 grid h-9 w-9 place-items-center rounded-md border border-accent/20 bg-accent/10 text-accent">
           <ArrowDownToLine className="h-4 w-4" aria-hidden="true" />
         </div>
       </CardHeader>
@@ -483,12 +483,12 @@ function ImportCard({
 
   return (
     <Card className="min-w-0" data-testid="workspace-import-card">
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <CardHeader className="relative pr-14 text-left">
         <div className="min-w-0">
           <CardTitle>{t('transfer.import.eyebrow')}</CardTitle>
           <h2 className="mt-1.5 text-lg font-semibold">{t('transfer.import.title')}</h2>
         </div>
-        <div className="grid h-9 w-9 flex-none place-items-center rounded-md border border-accent/20 bg-accent/10 text-accent">
+        <div className="absolute right-4 top-3 grid h-9 w-9 place-items-center rounded-md border border-accent/20 bg-accent/10 text-accent">
           <ArrowUpFromLine className="h-4 w-4" aria-hidden="true" />
         </div>
       </CardHeader>
@@ -724,12 +724,12 @@ function ImportHistoryCard({ workspaceID }: { workspaceID: string }) {
 
   return (
     <Card className="min-w-0" data-testid="workspace-import-history">
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
+      <CardHeader className="relative pr-14 text-left">
         <div className="min-w-0">
           <CardTitle>{t('transfer.history.eyebrow')}</CardTitle>
           <h2 className="mt-1.5 text-lg font-semibold">{t('transfer.history.title')}</h2>
         </div>
-        <div className="grid h-9 w-9 flex-none place-items-center rounded-md border border-accent/20 bg-accent/10 text-accent">
+        <div className="absolute right-4 top-3 grid h-9 w-9 place-items-center rounded-md border border-accent/20 bg-accent/10 text-accent">
           <History className="h-4 w-4" aria-hidden="true" />
         </div>
       </CardHeader>
@@ -791,19 +791,19 @@ function WorkspaceTransferSurface({ capabilities }: { capabilities: Capabilities
 
   return (
     <main className="mx-auto w-full max-w-6xl space-y-5 px-4 py-7 sm:px-6 sm:py-10">
-      <header className="min-w-0">
+      <header className="min-w-0 text-left">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-accent">
           <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
           {t('transfer.eyebrow')}
         </div>
-        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold sm:text-3xl">{t('transfer.title')}</h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-fg-muted">
               {t('transfer.subtitle')}
             </p>
           </div>
-          <Badge tone="neutral" className="self-start sm:self-auto">
+          <Badge tone="neutral" className="self-start">
             <Fingerprint className="h-3 w-3" aria-hidden="true" />
             {t('transfer.evidenceLedger')}
           </Badge>

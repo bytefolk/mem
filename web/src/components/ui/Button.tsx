@@ -6,7 +6,7 @@ type Size = 'sm' | 'md' | 'lg' | 'icon';
 
 const VARIANT: Record<Variant, string> = {
   primary:
-    'bg-accent text-bg hover:bg-accent-hover shadow-soft active:translate-y-px disabled:bg-accent/40 disabled:text-bg/60',
+    'bg-accent-solid text-accent-foreground hover:bg-accent-solid-hover shadow-soft active:translate-y-px',
   secondary:
     'bg-bg-inset text-fg border border-border hover:border-border-strong hover:bg-bg-panel',
   ghost: 'text-fg-muted hover:text-fg hover:bg-bg-inset',
@@ -36,9 +36,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={disabled || loading}
         className={cn(
-          'inline-flex items-center justify-center rounded-md font-medium',
+          'inline-flex items-center justify-center rounded-md text-center font-medium',
           'transition-colors duration-150 select-none whitespace-nowrap',
-          'disabled:cursor-not-allowed disabled:opacity-60',
+          'disabled:cursor-not-allowed disabled:bg-bg-inset disabled:text-fg-subtle disabled:border-border disabled:shadow-none',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg',
           SIZE[size],
           VARIANT[variant],

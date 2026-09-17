@@ -33,10 +33,10 @@ export interface FileListProps {
 export function FileList(props: FileListProps) {
   const { t } = useT();
   return (
-    <div className="px-4 py-3">
+    <div className="min-w-[640px] px-4 py-3">
       <div className="grid grid-cols-[1fr_120px_180px_120px] gap-3 px-3 py-2 text-2xs uppercase tracking-wider text-fg-subtle font-medium border-b border-border">
         <div>{t('drive.colName')}</div>
-        <div>{t('drive.colSize')}</div>
+        <div className="text-right">{t('drive.colSize')}</div>
         <div>{t('drive.colModified')}</div>
         <div>{t('drive.colType')}</div>
       </div>
@@ -215,7 +215,7 @@ function FolderRow({
           </div>
         )}
       </div>
-      <div className="text-xs text-fg-subtle tabular-nums">{tt('drive.itemsN', { n: folder.fileCount })}</div>
+      <div className="text-xs text-fg-subtle text-right tabular-nums">{tt('drive.itemsN', { n: folder.fileCount })}</div>
       <div className="text-xs text-fg-subtle">—</div>
       <div className="text-xs text-fg-subtle">{tt('drive.folder')}</div>
     </div>
@@ -271,7 +271,7 @@ function FileRow({
           </div>
         )}
       </div>
-      <div className="text-xs text-fg-muted tabular-nums">{formatBytes(file.size)}</div>
+      <div className="text-xs text-fg-muted text-right tabular-nums">{formatBytes(file.size)}</div>
       <div className="text-xs text-fg-muted">{formatRelative(file.updated_at)}</div>
       <div className="text-xs text-fg-subtle">{tt(`kind.${file.kind === 'pdf' ? 'doc' : file.kind}`)}</div>
     </div>
@@ -285,4 +285,3 @@ function KindIconSmall({ kind }: { kind: FileKind }) {
   if (kind === 'pdf' || kind === 'doc' || kind === 'text') return <FileText className={cls} />;
   return <FileQuestion className={cls} />;
 }
-

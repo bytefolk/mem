@@ -5,7 +5,7 @@ export function Card({ className, ...rest }: React.HTMLAttributes<HTMLDivElement
   return (
     <div
       className={cn(
-        'rounded-lg border border-border bg-bg-panel',
+        'min-w-0 rounded-lg border border-border bg-bg-panel',
         'transition-colors',
         className,
       )}
@@ -21,7 +21,7 @@ export function CardHeader({ className, ...rest }: React.HTMLAttributes<HTMLDivE
 export function CardTitle({ className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('text-xs font-medium uppercase tracking-wider text-fg-muted', className)}
+      className={cn('flex flex-1 items-center gap-1.5 text-left text-sm font-semibold text-fg', className)}
       {...rest}
     />
   );

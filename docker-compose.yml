@@ -40,7 +40,9 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # MinIO withdrew its Docker Hub repositories in October 2025; quay.io serves
+    # the same image.
+    image: quay.io/minio/minio:latest
     container_name: mem-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -60,7 +62,7 @@ services:
 
   # Bootstrap: create default bucket
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy

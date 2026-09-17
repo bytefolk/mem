@@ -4,11 +4,6 @@ export type Theme = 'dark' | 'light';
 
 export const THEME_STORAGE_KEY = 'mem.theme';
 
-const THEME_COLORS: Record<Theme, string> = {
-  dark: '#0a0b0f',
-  light: '#fafafc',
-};
-
 type ThemeContextValue = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -27,7 +22,7 @@ function applyDocumentTheme(theme: Theme): void {
   root.classList.add(theme);
   root.dataset.theme = theme;
   root.style.colorScheme = theme;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLORS[theme]);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', `rgb(${getComputedStyle(root).getPropertyValue('--bg').trim()})`);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -48,6 +43,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [setTheme, theme]);
 
   React.useEffect(() => {
+    applyDocumentTheme(themeFromDocument());
     const syncTheme = (event: StorageEvent) => {
       if (event.key !== THEME_STORAGE_KEY) return;
       const nextTheme: Theme = event.newValue === 'light' ? 'light' : 'dark';
