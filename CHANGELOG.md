@@ -9,6 +9,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- HNSW ANN indexes for `embeddings_text`, `embeddings_visual`, and
+  `embeddings_face` (migration 0024, `#173`). Vector search queries now use
+  approximate nearest-neighbor via pgvector `vector_cosine_ops` instead of
+  exact sequential scans.
 - `mem doctor` — a read-only diagnosis of why the CLI cannot talk to a working
   server (`#112`). It reports four checks in a fixed order: reachability of the
   configured server URL, whether a credential exists, the workspace the server
