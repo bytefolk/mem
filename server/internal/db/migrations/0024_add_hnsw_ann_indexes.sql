@@ -1,3 +1,4 @@
+-- +goose NO TRANSACTION
 -- +goose Up
 -- Add HNSW ANN indexes for all embedding tables so vector queries use
 -- approximate nearest-neighbor search instead of exact sequential scans.
@@ -8,6 +9,9 @@
 -- for the personal-corpus scale this server targets. Operators class
 -- vector_cosine_ops matches the <=> distance operator used by search
 -- and relator queries.
+--
+-- CONCURRENTLY requires running outside a transaction block, hence the
+-- NO TRANSACTION annotation above.
 --
 -- Resolves: https://github.com/bytefolk/mem/issues/173
 
