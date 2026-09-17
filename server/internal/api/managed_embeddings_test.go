@@ -573,3 +573,26 @@ func TestReadinessIsDeploymentModeAwareAndPlanIndependent(t *testing.T) {
 		}
 	})
 }
+
+func TestLexicalSearchBypassesManagedEmbeddingReservation(t *testing.T) {
+	searchFake := &managedSearchFake{spec: "openai:text-embedding-3-small"}
+	usageFake := &managedEntitlementFake{reserveErr: errors.New("must not reserve lexical search")}
+	server := &Server{
+		Search: searchFake, DeploymentMode: "saas",
+		ManagedEmbeddingProvider: searchFake.spec, Entitlements: usageFake,
+	}
+	// There is deliberately no paid plan, idempotency key, or model context.
+	request := httptest.NewRequest(http.MethodPost, "/v1/search", nil)
+	query := search.Query{UserID: uuid.New(), Route: search.RouteLexical, Text: "notes"}
+	searcher, executor, err := server.managedSearcher(request, "search.query", nil, query)
+	if err != nil || executor != nil || searcher != searchFake {
+		t.Fatalf("lexical dispatch: searcher=%T executor=%v err=%v", searcher, executor, err)
+	}
+	if _, err := searcher.Search(request.Context(), query); err != nil {
+		t.Fatal(err)
+	}
+	if searchFake.searchCalls != 1 || searchFake.embeddingCalls != 0 || usageFake.reserveCalls != 0 {
+		t.Fatalf("lexical dispatch invoked model policy: search=%d embedding=%d reserve=%d",
+			searchFake.searchCalls, searchFake.embeddingCalls, usageFake.reserveCalls)
+	}
+}
