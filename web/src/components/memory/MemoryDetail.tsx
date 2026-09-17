@@ -396,7 +396,7 @@ export function MemoryDetail({
             <ShieldCheck className="h-3.5 w-3.5 text-accent" />
             <CardTitle>{t('memory.provenance')}</CardTitle>
           </CardHeader>
-          <CardBody className="grid gap-4 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Meta
               icon={<Database className="h-3 w-3" />}
               label={t('memory.sourceType')}
@@ -475,7 +475,7 @@ export function MemoryDetail({
             <Fingerprint className="h-3.5 w-3.5 text-accent" />
             <CardTitle>{t('memory.identity')}</CardTitle>
           </CardHeader>
-          <CardBody className="grid gap-4 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Meta label={t('memory.createdAt')} value={formatDateTime(memory.created_at)} />
             <Meta label={t('memory.updatedAt')} value={formatDateTime(memory.updated_at)} />
             <Meta label={t('memory.feedbackScore')} value={memory.feedback_score} mono />

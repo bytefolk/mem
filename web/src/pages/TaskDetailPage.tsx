@@ -33,8 +33,8 @@ export function TaskDetailPage() {
         {t('task.backToTasks')}
       </Link>
 
-      <header className="mb-7">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+      <header className="mb-7 text-left">
+        <div className="mb-2 flex flex-wrap items-center justify-start gap-2">
           <ScrollText className="h-4 w-4 text-accent" />
           <span className="font-mono text-2xs uppercase tracking-[0.16em] text-fg-subtle">
             {t('task.taskKey')}
@@ -43,7 +43,7 @@ export function TaskDetailPage() {
         </div>
         <h1 className="break-all font-mono text-2xl font-semibold text-fg">{taskKey}</h1>
         {head && (
-          <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-xs text-fg-muted">
+          <div className="mt-2 flex flex-wrap justify-start gap-x-5 gap-y-2 text-xs text-fg-muted">
             <span className="inline-flex items-center gap-1.5">
               <FolderClosed className="h-3.5 w-3.5" />
               <span className="font-mono">{head.scope_path}</span>
@@ -83,7 +83,7 @@ export function TaskDetailPage() {
           <ResumePanel taskKey={taskKey} />
           <div>
             <div className="mb-3 flex items-baseline justify-between gap-3">
-              <h2 className="text-sm font-medium text-fg">{t('task.timeline')}</h2>
+              <h2 className="flex-1 text-left text-sm font-medium text-fg">{t('task.timeline')}</h2>
               <span className="font-mono text-2xs text-fg-subtle">
                 {t('task.latestCount', { n: items.length })}
               </span>

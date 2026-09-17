@@ -40,6 +40,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Button } from '@/components/ui/Button';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { readView, writeView, type ExplorerView } from '@/components/explorer/viewMode';
 import { downloadFile } from '@/lib/api';
 import type { MemFile } from '@/lib/types';
@@ -526,10 +527,7 @@ function ExplorerLayout({ currentPath }: { currentPath: string }) {
 
   return (
     <div className="h-screen flex flex-col bg-bg text-fg">
-      <TopBar>
-        <div className="h-5 w-px bg-border" aria-hidden />
-        <Breadcrumb path={currentPath} onInternalDropToFolder={handleInternalDropTo} />
-      </TopBar>
+      <TopBar />
 
       {/* Two-pane */}
       <div className="flex-1 min-h-0 flex">
@@ -543,6 +541,9 @@ function ExplorerLayout({ currentPath }: { currentPath: string }) {
         </aside>
 
         <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <div className="flex min-h-10 flex-none items-center border-b border-border px-4">
+            <Breadcrumb path={currentPath} onInternalDropToFolder={handleInternalDropTo} />
+          </div>
           <Toolbar
             onNewFolder={() => setPendingNewFolder(true)}
             onUploadClick={() => fileInputRef.current?.click()}
@@ -582,7 +583,6 @@ function ExplorerLayout({ currentPath }: { currentPath: string }) {
               <EmptyFolder
                 path={currentPath}
                 onUploadClick={() => fileInputRef.current?.click()}
-                onNewFolder={() => setPendingNewFolder(true)}
               />
             ) : view === 'grid' ? (
               <FileGrid
@@ -700,33 +700,26 @@ function ContentSkeleton({ view }: { view: ExplorerView }) {
 function EmptyFolder({
   path,
   onUploadClick,
-  onNewFolder,
 }: {
   path: string;
   onUploadClick: () => void;
-  onNewFolder: () => void;
 }) {
   const { t } = useT();
   const crumbs = buildCrumbs(path);
   const leaf = crumbs[crumbs.length - 1];
   const inside = leaf?.path === ROOT_PATH ? t('drive.root') : (leaf?.name ?? t('drive.root'));
   return (
-    <div className="flex flex-col items-center justify-center text-center py-24 px-6 text-fg-muted">
-      <FolderOpen className="h-12 w-12 text-fg-subtle mb-4" strokeWidth={1.3} />
-      <div className="text-sm text-fg">{t('drive.emptyTitle', { name: inside })}</div>
-      <div className="mt-1 text-xs text-fg-subtle">
-        {t('drive.emptyHint')}
-      </div>
-      <div className="mt-5 flex items-center gap-2">
-        <Button variant="secondary" size="sm" onClick={onUploadClick}>
+    <EmptyState
+      icon={<FolderOpen strokeWidth={1.3} />}
+      title={t('drive.emptyTitle', { name: inside })}
+      description={t('drive.emptyHint')}
+      action={
+        <Button variant="primary" size="sm" onClick={onUploadClick}>
           <Upload className="h-3.5 w-3.5" />
           {t('drive.upload')}
         </Button>
-        <Button variant="ghost" size="sm" onClick={onNewFolder}>
-          {t('drive.newFolder')}
-        </Button>
-      </div>
-    </div>
+      }
+    />
   );
 }
 

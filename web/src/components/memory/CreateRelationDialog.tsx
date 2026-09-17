@@ -104,11 +104,11 @@ export function CreateRelationDialog({
           className="fixed left-1/2 top-1/2 z-50 w-[560px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2
                      rounded-lg border border-border bg-bg-panel p-5 shadow-soft animate-fade-in"
         >
-          <div className="flex items-start gap-3">
+          <div className="relative flex items-start gap-3 pr-7">
             <div className="grid h-9 w-9 flex-none place-items-center rounded-md border border-accent/30 bg-accent/10 text-accent">
               <Icon className="h-4 w-4" />
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 w-full text-left">
               <Dialog.Title className="text-base font-semibold text-fg">
                 {t(`memories.relationDialog.title.${relationType}`)}
               </Dialog.Title>
@@ -121,7 +121,7 @@ export function CreateRelationDialog({
                 type="button"
                 disabled={busy}
                 aria-label={t('action.close')}
-                className="text-fg-subtle transition-colors hover:text-fg disabled:opacity-50"
+                className="absolute right-0 top-0 grid h-6 w-6 place-items-center text-fg-subtle transition-colors hover:text-fg disabled:opacity-50"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -166,7 +166,7 @@ export function CreateRelationDialog({
             <select
               value={peerMode}
               onChange={(event) => setPeerMode(event.target.value as 'list' | 'manual')}
-              className="h-9 rounded-md border border-border bg-bg-inset px-3 text-sm text-fg outline-none focus:border-accent/60"
+              className="h-9 rounded-md border border-border bg-bg-inset px-3 text-left [text-align-last:left] text-sm text-fg outline-none focus:border-accent/60"
             >
               <option value="list">{t('memories.relationDialog.peerFromList')}</option>
               <option value="manual">{t('memories.relationDialog.peerManual')}</option>

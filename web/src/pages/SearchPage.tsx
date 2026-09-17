@@ -110,8 +110,8 @@ export function SearchPage() {
         >
           <ArrowLeft className="h-3.5 w-3.5" /> {t('common.backToDrive')}
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight">{t('search.title')}</h1>
-        <p className="mt-1.5 text-sm text-fg-muted">{t('search.subtitle')}</p>
+        <h1 className="text-left text-2xl font-semibold tracking-tight">{t('search.title')}</h1>
+        <p className="mt-1.5 text-left text-sm text-fg-muted">{t('search.subtitle')}</p>
         <div className="mt-5 relative">
           <Input
             value={q}
@@ -269,7 +269,7 @@ export function SearchPage() {
 
       {/* Footer meta */}
       {hasQuery && data && (
-        <div className="mt-10 text-2xs text-fg-subtle text-center">
+        <div className="mt-10 text-2xs text-fg-subtle text-left">
           {t('search.footer', { total: data.total, ms: data._meta?.latency_ms ?? '?' })}
         </div>
       )}
