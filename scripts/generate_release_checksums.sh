@@ -11,11 +11,19 @@ die() {
   exit 1
 }
 
+require_absent_output() {
+  # -e alone misses dangling symlinks. In particular, mv follows an output
+  # symlink to a directory and would publish outside this asset directory.
+  [[ ! -e "${output}" && ! -L "${output}" ]] ||
+    die "checksum output path already exists: ${output}"
+}
+
 if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]]; then
   die "invalid release tag: ${tag:-<empty>}"
 fi
 [[ "${commit}" =~ ^[0-9a-f]{40}$ ]] || die "invalid release commit: ${commit:-<empty>}"
 [[ -d "${asset_dir}" ]] || die "asset directory does not exist: ${asset_dir:-<empty>}"
+require_absent_output
 
 assets=(
   mem-mcp-darwin-amd64
@@ -26,13 +34,19 @@ assets=(
   mem-mcp-windows-arm64.exe
 )
 
+# A process substitution hides find's exit status from the loop below, so a
+# tool failure would surface as the misleading "differ from the exact expected
+# set". Capture the listing first and report a failed listing as what it is.
+asset_listing="$(
+  find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; | LC_ALL=C sort
+)" || die "cannot list release assets in ${asset_dir}"
+
 actual_assets=()
 while IFS= read -r actual_asset; do
+  [[ -n "${actual_asset}" ]] || continue
   actual_assets[${#actual_assets[@]}]="${actual_asset}"
-done < <(
-  find "${asset_dir}" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort
-)
-if [[ "${actual_assets[*]}" != "${assets[*]}" ]]; then
+done <<< "${asset_listing}"
+if [[ "${#actual_assets[@]}" -eq 0 ]] || [[ "${actual_assets[*]}" != "${assets[*]}" ]]; then
   printf 'ERROR: release assets differ from the exact expected set\n' >&2
   printf 'expected: %s\n' "${assets[*]}" >&2
   printf 'actual:   %s\n' "${actual_assets[*]:-<none>}" >&2
@@ -57,6 +71,13 @@ trap cleanup EXIT
     sha256sum "${assets[@]}"
   )
 } > "${tmp_output}"
+# The post-publish self-check below uses --ignore-missing, which by definition
+# tolerates a listed file being absent, so completeness is asserted here while
+# the staging file and the expected set are both known.
+manifest_rows="$(grep -c '' "${tmp_output}")"
+[[ "${manifest_rows}" -eq "${#assets[@]}" ]] ||
+  die "checksum manifest must have ${#assets[@]} rows, got ${manifest_rows}"
+require_absent_output
 mv -- "${tmp_output}" "${output}"
 trap - EXIT
 

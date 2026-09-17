@@ -125,6 +125,17 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   why a request failed is still reported, and a DSN still names the parameters it
   sets — every query parameter *value* is replaced by `REDACTED`, including
   `?password=`, which pgx honours as the real password.
+- Checksum manifest generation rejects existing output files, directories and
+  symlinks without modifying their targets, including dangling symlinks, and
+  will not publish a manifest that is missing a row for an expected asset.
+- Release validation requires a release's CHANGELOG link to start at the
+  preceding CHANGELOG release, and accepts a link to that release's own page
+  only when no release precedes it. Checksum generation handles each asset path
+  separately on GNU and BSD tools, including directories with spaces, rejects
+  empty sets, and reports a failed asset listing as a failed listing.
+- The release guard suites count manifest lines without `wc -l`, whose BSD
+  implementation pads the count with blanks, and no longer need GNU
+  `find -printf`.
 - The npm installer no longer aborts a concurrent first run on Windows. The
   per-asset cache lock previously treated only `EEXIST` as contention, but a
   contended `mkdir` on Windows may raise `EPERM` or `EACCES`, so a process
