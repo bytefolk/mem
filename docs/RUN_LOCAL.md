@@ -1,10 +1,11 @@
-# 本地运行 mem 全栈（裸机 · 无 Docker）
+# 本地运行 mem 全栈（裸机 · 仅限开发）
 
-本文用于启动完整开发栈和手工 smoke。可重复的单元、Race、PostgreSQL 集成、
-Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
+第一次把 mem 跑起来，请走仓库根 README 和 [DEPLOYMENT.md](DEPLOYMENT.md)
+里的 `deploy/compose` 路径，不要从本文开始。本文只覆盖**没有 Docker、需要改
+源码**的开发机。可重复的单元、Race、PostgreSQL 集成、Web 浏览器验收及其通过
+标准统一见 [TESTING.md](TESTING.md)。
 
-在没有 Docker 的 macOS 开发环境中，整套栈可用**本地进程**拉起，不走
-`docker compose`。
+在没有 Docker 的开发环境中，整套栈可用**本地进程**拉起，不走 `docker compose`。
 一条命令起、一条命令停，运行时数据全部落在 `.dev/`（已 gitignore）。
 
 ```
@@ -20,15 +21,23 @@ Web 浏览器验收及其通过标准统一见 [TESTING.md](TESTING.md)。
 
 ## 一次性准备（首次或换机器时）
 
-1. **依赖二进制**（脚本假设它们已就位）：
-   - PostgreSQL + pgvector（brew，keg-only，无需 sudo）：
+1. **依赖二进制**（脚本假设它们已就位）。平台等价：
+
+   | 依赖 | macOS (brew) | Ubuntu / Debian | WSL2 (Ubuntu) |
+   | --- | --- | --- | --- |
+   | PostgreSQL 17 + pgvector | `brew install postgresql@17 pgvector` | `apt install postgresql-17 postgresql-17-pgvector` | 同 Ubuntu（在 WSL2 Ubuntu 中执行） |
+   | MinIO | `brew install minio minio-mc` | 从 https://min.io/download 下载二进制到 `.dev/bin/` | 同 Ubuntu |
+   | Ollama | `brew install ollama` 或从 https://ollama.com 下载 | `curl -fsSL https://ollama.com/install.sh \| sh` | 同 Ubuntu（GPU 走 Windows 侧驱动） |
+   | Go 1.25 / Node 24 / Python 3.11+ / uv / protoc 34.1 | 用各平台官方安装器，版本钉在 `docs/TESTING.md` | 同左 | 同左 |
+
+   - PostgreSQL + pgvector（macOS：brew，keg-only，无需 sudo）：
      ```bash
      brew install postgresql@17 pgvector
      ```
      > 用 `@17` 而不是 `@16`：brew 的 pgvector bottle 只为 postgresql@17/@18
      > 编译了 `vector.so`，装在 @16 上 `CREATE EXTENSION vector` 会失败。
      > `dev_up.sh` 会自动探测 @17/@18/@16 中带匹配 pgvector 的版本。
-   - MinIO server + mc client。推荐用 brew（dl.min.io 在本网络偶发限流/TLS 断连，
+   - MinIO server + mc client。macOS 推荐用 brew（dl.min.io 在本网络偶发限流/TLS 断连，
      brew 走 ghcr.io 更稳）：
      ```bash
      brew install minio minio-mc

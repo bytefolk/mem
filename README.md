@@ -230,12 +230,34 @@ mem 的壁垒不是绑定某个更大的模型，而是长期积累的、用户�
 
 ## 快速开始
 
-项目仍处于 Phase 1 MVP。当前开发体验：
+项目仍处于 Phase 1 MVP。第一次把 mem 跑起来，走 `deploy/compose`：一条命令拉起
+Web、memd、Worker、PostgreSQL、Redis 和 MinIO。这是文档上的主路径。
+`./scripts/dev_up.sh` 只留给要改 Go / Python / Web 的开发机。
+
+`mem doctor` 在一台还没有配置的机器上也会把你指向这条容器路径，而不是裸机配方。
+
+### 通过 Compose 启动（推荐）
+
+前置条件：Docker Engine 和 Docker Compose v2。命令与
+[生产部署指南](docs/DEPLOYMENT.md) 中的权威序列一致。
 
 ```bash
 git clone https://github.com/bytefolk/mem.git
 cd mem
-./scripts/dev_up.sh
+
+cd deploy/compose
+./generate-env.sh
+chmod 600 .env
+docker compose --env-file .env -f compose.yaml up -d --build --wait
+docker compose --env-file .env -f compose.yaml ps
+curl --fail http://127.0.0.1:8080/healthz
+```
+
+启动完成后，浏览器打开 `http://localhost:8080`，完成首次注册（`first_user`
+模式只允许一个账户），然后用 CLI 或 MCP：
+
+```bash
+export MEM_SERVER=http://localhost:8080
 mem auth login
 mem put ~/Photos --recursive
 # 可选：同步端附带可信的拍摄时间、位置和来源；AI 建议稍后在 Web 中确认
@@ -256,9 +278,25 @@ mem resume photos/import
 mem workspace export --output agent-workspace.membundle
 ```
 
-生产部署同时提供单机 Compose 和多机 Helm 方案，完整的密钥、迁移、高可用、
-备份恢复与升级边界见 [生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
-[自然语言搜图基线](docs/acceptance/VISUAL_SEARCH_BASELINE.md)。
+完整的密钥、迁移、高可用、备份恢复与升级边界见
+[生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
+[自然语言搜图基线](docs/acceptance/VISUAL_SEARCH_BASELINE.md)。多机方案见
+`deploy/helm/mem/`。
+
+### 裸机开发环境（仅限开发）
+
+> 裸机路径面向需要修改 Go / Python / Web 代码的开发场景。首次体验或评估请使用
+> 上方的 Compose 路径。
+
+```bash
+git clone https://github.com/bytefolk/mem.git
+cd mem
+./scripts/dev_up.sh
+mem auth login
+```
+
+完整的裸机依赖、Ollama 配置和 smoke 步骤见 [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
+该文档把 macOS brew 步骤并列了 Ubuntu/Debian 与 WSL2 等价命令。
 
 ---
 
