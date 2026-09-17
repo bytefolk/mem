@@ -94,8 +94,8 @@ export function CheckpointDetailPage() {
         {t('task.backToTask')}
       </Link>
 
-      <header className="mb-7 border-l-2 border-accent pl-4">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+      <header className="mb-7 text-left">
+        <div className="mb-2 flex flex-wrap items-center justify-start gap-2">
           <span className="font-mono text-2xs uppercase tracking-[0.16em] text-fg-subtle">
             {taskKey}
           </span>
@@ -106,7 +106,7 @@ export function CheckpointDetailPage() {
           <TaskStatusBadge status={state.status} />
           <CheckpointKindBadge kind={record.checkpoint_kind} />
         </div>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{t('checkpoint.title')}</h1>
             <p className="mt-1.5 max-w-3xl text-sm leading-6 text-fg-muted">

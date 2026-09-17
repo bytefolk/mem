@@ -186,7 +186,7 @@ export function TopBar({ children }: { children?: React.ReactNode }) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="w-full justify-start text-danger hover:text-danger"
+                    className="w-full justify-start text-left text-danger hover:text-danger"
                     onClick={() => {
                       logout();
                       navigate('/login');

@@ -173,7 +173,7 @@ try {
   console.log('✓ unknown managed-embedding errors use the selected locale');
 
   await page.goto(`${baseURL}/search`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: '搜索' }).waitFor();
+  await page.getByRole('heading', { name: '搜索', level: 1, exact: true }).waitFor();
   await page.getByRole('button', { name: '草地上的金毛' }).waitFor();
   assert.equal(await page.evaluate(() => window.__documentLangAtInteractive), 'zh-CN');
 

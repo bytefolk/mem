@@ -171,7 +171,7 @@ export function ProvidersPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-10">
-      <div className="flex items-center gap-3 mb-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
           <Settings className="h-5 w-5 text-accent" /> {t('providers.title')}
         </h1>
@@ -183,7 +183,7 @@ export function ProvidersPage() {
           {t('providers.refresh')}
         </Button>
       </div>
-      <p className="text-sm text-fg-muted mb-6">{t('providers.description')}</p>
+      <p className="text-left text-sm text-fg-muted mb-6">{t('providers.description')}</p>
 
       {entitlement && (
         <section
@@ -259,7 +259,7 @@ export function ProvidersPage() {
             const KindIcon = detail.icon;
             return (
               <section key={kind} className="surface p-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                   <div className="flex min-w-0 items-start gap-2.5">
                     <div className="mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-md border border-border bg-bg-inset text-accent">
                       <KindIcon className="h-4 w-4" />
@@ -283,14 +283,14 @@ export function ProvidersPage() {
                 </div>
                 <p className="mb-3 pl-[42px] text-xs text-fg-muted">{t(detail.descriptionKey)}</p>
 
-                <div className="flex gap-2 items-stretch">
+                <div className="flex flex-wrap justify-end gap-2 items-stretch">
                   <input
                     value={draft}
                     onChange={(e) =>
                       setEditing((m) => ({ ...m, [kind]: e.target.value }))
                     }
                     placeholder="vendor:model"
-                    className="flex-1 h-9 rounded-md border border-border bg-bg-inset px-3 text-sm font-mono outline-none focus:border-accent/60"
+                    className="min-w-0 basis-full sm:basis-0 flex-1 h-9 rounded-md border border-border bg-bg-inset px-3 text-sm font-mono outline-none focus:border-accent/60"
                   />
                   <Button
                     variant="secondary"

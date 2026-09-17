@@ -1,3 +1,5 @@
+const tokenColor = (name) => `rgb(var(--${name}) / calc(var(--${name}-opacity, 1) * <alpha-value>))`;
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
@@ -7,44 +9,36 @@ export default {
       colors: {
         // Surface tokens — driven by CSS variables so themes swap at runtime.
         bg: {
-          DEFAULT: 'rgb(var(--bg) / <alpha-value>)',
-          subtle: 'rgb(var(--bg-subtle) / <alpha-value>)',
-          panel: 'rgb(var(--bg-panel) / <alpha-value>)',
-          inset: 'rgb(var(--bg-inset) / <alpha-value>)',
+          DEFAULT: tokenColor('bg'),
+          subtle: tokenColor('bg-subtle'),
+          panel: tokenColor('bg-panel'),
+          inset: tokenColor('bg-inset'),
         },
         fg: {
-          DEFAULT: 'rgb(var(--fg) / <alpha-value>)',
-          muted: 'rgb(var(--fg-muted) / <alpha-value>)',
-          subtle: 'rgb(var(--fg-subtle) / <alpha-value>)',
+          DEFAULT: tokenColor('fg'),
+          muted: tokenColor('fg-muted'),
+          subtle: tokenColor('fg-subtle'),
         },
         border: {
-          DEFAULT: 'rgb(var(--border) / <alpha-value>)',
-          strong: 'rgb(var(--border-strong) / <alpha-value>)',
+          DEFAULT: tokenColor('border'),
+          strong: tokenColor('border-strong'),
         },
         accent: {
-          DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
-          hover: 'rgb(var(--accent-hover) / <alpha-value>)',
-          muted: 'rgb(var(--accent-muted) / <alpha-value>)',
+          DEFAULT: tokenColor('accent'),
+          hover: tokenColor('accent-hover'),
+          muted: tokenColor('accent-muted'),
+          solid: tokenColor('accent-solid'),
+          'solid-hover': tokenColor('accent-solid-hover'),
+          foreground: tokenColor('accent-foreground'),
         },
-        success: 'rgb(var(--success) / <alpha-value>)',
-        warn: 'rgb(var(--warn) / <alpha-value>)',
-        danger: 'rgb(var(--danger) / <alpha-value>)',
+        ai: tokenColor('ai'),
+        success: tokenColor('success'),
+        warn: tokenColor('warn'),
+        danger: tokenColor('danger'),
       },
-      fontFamily: {
-        sans: [
-          'ui-sans-serif',
-          'system-ui',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          '"PingFang SC"',
-          '"Hiragino Sans GB"',
-          '"Microsoft YaHei"',
-          'sans-serif',
-        ],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
-      },
+      fontFamily: { sans: ['var(--font-sans)'], mono: ['var(--font-mono)'] },
       fontSize: {
-        '2xs': ['0.6875rem', { lineHeight: '0.875rem' }],
+        '2xs': ['0.75rem', { lineHeight: '1rem' }],
       },
       boxShadow: {
         soft: 'var(--shadow-soft)',

@@ -102,7 +102,7 @@ async function addMockSession(context, options = {}) {
 }
 
 async function assertTheme(page, theme) {
-  const expectedColor = theme === 'light' ? '#fafafc' : '#0a0b0f';
+  const expectedColor = theme === 'light' ? 'rgb(245 245 245)' : 'rgb(0 0 0)';
   await page.waitForFunction(
     (expected) =>
       document.documentElement.classList.contains(expected) &&
@@ -154,7 +154,7 @@ try {
       ' ',
       '',
     ),
-    'rgb(250,250,252)',
+    'rgb(245,245,245)',
   );
   await defaultPage.reload({ waitUntil: 'domcontentloaded' });
   await defaultPage.getByRole('button', { name: 'Switch to dark theme' }).waitFor();

@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=1280" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#0a0b0f" />
+    <meta name="theme-color" />
     <script>
       (() => {
         const root = document.documentElement;
@@ -28,9 +28,7 @@
         root.classList.add(theme);
         root.dataset.theme = theme;
         root.style.colorScheme = theme;
-        document
-          .querySelector('meta[name="theme-color"]')
-          ?.setAttribute('content', theme === 'light' ? '#fafafc' : '#0a0b0f');
+
       })();
     </script>
     <title>mem</title>
