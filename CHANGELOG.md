@@ -82,6 +82,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Add cosine HNSW indexes for legacy embedding tables while explicitly preserving the exact per-file text-search semantics and keeping the broader planner-use acceptance open; see `docs/VALIDATION_HNSW.md`.
+
 - Follow the shared design language for reading, numeric and action alignment; generate the existing Web color variables from a pinned design-system token snapshot, and use a single consistent empty-state pattern. Refs #211.
 
 - Improve web caption and status contrast in both themes, including tinted danger

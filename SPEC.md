@@ -537,7 +537,12 @@ embeddings_face (
 - `files` FTS + trigram — 显式指定 `route=lexical` 的文件名无模型词法召回；
   `auto` 只融合 text/visual，不自动回退到 lexical，worker 不可用时仍报错。
   仅搜索 `files.name`，路径只用于筛选，不检索文件正文或路径片段。
-- `embeddings_* (embedding)` — pgvector HNSW
+- `embeddings_* (embedding)` — cosine pgvector HNSW (migration 0025).
+  Index availability does not guarantee route use: text search still selects
+  the best chunk per file exactly before top-k, visual planning depends on the
+  corpus and filters, and face clustering remains in Go. See
+  [HNSW validation](docs/VALIDATION_HNSW.md); #173 planner/recall acceptance is
+  not completed by the index migration.
 - `file_entities (entity_id)` — 反查"和某人有关的所有文件"
 
 ### 6.3 文件夹一致性规则（重要）
