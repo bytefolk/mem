@@ -101,7 +101,7 @@ func TestRecursiveDeleteCleansUpBlobs(t *testing.T) {
 		t.Fatalf("migrate test database: %v", err)
 	}
 
-	userID := createFolderDeleteTenant(t, ctx, database.Pool)
+	userID, _ := createFolderDeleteTenant(t, ctx, database.Pool)
 	store := newTrackingObjectStore()
 	service := New(database.Pool, WithStore(store))
 
@@ -204,7 +204,7 @@ func TestRecursiveDeleteWithoutStore(t *testing.T) {
 		t.Fatalf("migrate test database: %v", err)
 	}
 
-	userID := createFolderDeleteTenant(t, ctx, database.Pool)
+	userID, _ := createFolderDeleteTenant(t, ctx, database.Pool)
 	service := New(database.Pool) // no store
 
 	if _, err := service.Create(ctx, userID, "/Orphan"); err != nil {
@@ -266,15 +266,7 @@ func TestRecursiveDeleteBlocksWhenMemoryCitesFileElsewhere(t *testing.T) {
 		t.Fatalf("migrate test database: %v", err)
 	}
 
-	userID := createFolderDeleteTenant(t, ctx, database.Pool)
-	var workspaceID uuid.UUID
-	if err := database.Pool.QueryRow(ctx, `
-		INSERT INTO workspaces (name, resource_owner_user_id)
-		VALUES ('folder-delete-cite', $1)
-		RETURNING id
-	`, userID).Scan(&workspaceID); err != nil {
-		t.Fatalf("create workspace: %v", err)
-	}
+	userID, workspaceID := createFolderDeleteTenant(t, ctx, database.Pool)
 
 	store := newTrackingObjectStore()
 	service := New(database.Pool, WithStore(store))
@@ -305,15 +297,15 @@ func TestRecursiveDeleteBlocksWhenMemoryCitesFileElsewhere(t *testing.T) {
 		INSERT INTO memories (
 			workspace_id, kind, content, path, source_type,
 			source_file_id, source_file_sha256,
-			idempotency_key, request_sha256, content_sha256,
+			idempotency_key_sha256, request_sha256, content_sha256,
 			lifecycle_status
 		) VALUES (
 			$1, 'note', 'cites a photo', '/Work/task', 'agent',
 			$2, $3,
-			$4, $3, $3,
+			$3, $3, $3,
 			'active'
 		)
-	`, workspaceID, fileID, sha, "folder-delete-cite-"+uuid.NewString()); err != nil {
+	`, workspaceID, fileID, sha); err != nil {
 		t.Fatalf("insert citing memory: %v", err)
 	}
 
@@ -337,7 +329,7 @@ func TestRecursiveDeleteBlocksWhenMemoryCitesFileElsewhere(t *testing.T) {
 	}
 }
 
-func createFolderDeleteTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UUID {
+func createFolderDeleteTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (uuid.UUID, uuid.UUID) {
 	t.Helper()
 	var userID uuid.UUID
 	if err := pool.QueryRow(ctx, `
@@ -352,5 +344,19 @@ func createFolderDeleteTenant(t *testing.T, ctx context.Context, pool *pgxpool.P
 		defer cancel()
 		_, _ = pool.Exec(cleanupCtx, `DELETE FROM users WHERE id = $1`, userID)
 	})
-	return userID
+	var workspaceID uuid.UUID
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO workspaces (name, resource_owner_user_id)
+		VALUES ('folder-delete', $1)
+		RETURNING id
+	`, userID).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO workspace_memberships (workspace_id, user_id, role)
+		VALUES ($1, $2, 'owner')
+	`, workspaceID, userID); err != nil {
+		t.Fatalf("create workspace membership: %v", err)
+	}
+	return userID, workspaceID
 }
