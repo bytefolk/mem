@@ -162,6 +162,74 @@ func TestMCP_ToolsCallRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMCP_LexicalSearchSchemaAndForwarding(t *testing.T) {
+	requests := make(chan map[string]any, 1)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/search" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode search: %v", err)
+		}
+		requests <- body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"results":[]}`))
+	}))
+	defer fake.Close()
+	reg := tools.New()
+	if err := builtin.RegisterAll(reg, apiclient.New(fake.URL, "test-token")); err != nil {
+		t.Fatal(err)
+	}
+	srv, buf := newTestServer(reg)
+	in := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"mem_search","arguments":{"query":"budget","route":"lexical","scope":"/Work","type":"text","limit":3}}}` + "\n")
+	if err := srv.serve(in); err != nil {
+		t.Fatal(err)
+	}
+	responses := readResponses(t, buf)
+	if len(responses) != 2 {
+		t.Fatalf("want list and call responses, got %d", len(responses))
+	}
+	t.Run("exported schema advertises all routes", func(t *testing.T) {
+		for _, item := range responses[0]["result"].(map[string]any)["tools"].([]any) {
+			tool := item.(map[string]any)
+			if tool["name"] != "mem_search" {
+				continue
+			}
+			schema := tool["inputSchema"].(map[string]any)
+			route := schema["properties"].(map[string]any)["route"].(map[string]any)
+			enum := route["enum"].([]any)
+			want := map[string]bool{"text": true, "visual": true, "auto": true, "lexical": true}
+			for _, value := range enum {
+				delete(want, value.(string))
+			}
+			if len(enum) != 4 || len(want) != 0 {
+				t.Fatalf("mem_search route enum = %v; missing %v", enum, want)
+			}
+			return
+		}
+		t.Fatal("mem_search missing from tools/list")
+	})
+	t.Run("lexical call forwards route and filters", func(t *testing.T) {
+		if responses[1]["error"] != nil {
+			t.Fatalf("RPC error: %v", responses[1]["error"])
+		}
+		if result := responses[1]["result"].(map[string]any); result["isError"] != false {
+			t.Fatalf("tool error: %v", result)
+		}
+		select {
+		case body := <-requests:
+			if body["query"] != "budget" || body["route"] != "lexical" ||
+				body["scope"] != "/Work" || body["type"] != "text" || body["limit"] != float64(3) {
+				t.Fatalf("forwarded search = %#v", body)
+			}
+		default:
+			t.Fatal("lexical request was not forwarded")
+		}
+	})
+}
+
 func TestMCP_ToolErrorSurfacedInContent(t *testing.T) {
 	// memd returns 404
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

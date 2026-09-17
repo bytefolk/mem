@@ -90,6 +90,18 @@ coordinates, timezone-free timestamps and control characters are rejected by
 the HTTP API. The metadata is persisted server-side and is not included in an
 enrichment-model prompt.
 
+### Model-free file search
+
+Use `mem_search` with `route=lexical` (or `mem search "query" --route lexical`)
+to search filenames without an embedding worker or managed provider. `scope`
+restricts the virtual-folder subtree; it does not make paths or file contents
+searchable. `route=auto` fuses only the text and visual embedding routes and
+does not fall back to lexical when the worker is unavailable.
+
+Lexical scoring uses name substrings, simple full-text matching, then tolerant
+trigram matching. It scores the files remaining after workspace, path, MIME
+and time filters; no indexed candidate-pruning or latency guarantee is claimed.
+
 ### Reviewing file annotations
 
 Use `mem_info` (or `mem info <file_id> --format json`) to read pending
@@ -138,7 +150,7 @@ The canonical product surface is:
 | `mem_checkpoint_list` | List newest-first bounded checkpoint summaries for one task |
 | `mem_checkpoint_get` | Get one immutable checkpoint and its full handoff payload |
 | `mem_resume` | Restore the current task head or a selected historical checkpoint, including resolved and missing evidence |
-| `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets |
+| `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets. `route=lexical` is model-free (FTS + trigram over file names, no worker needed) |
 | `mem_context` | Build an evidence-backed context pack for the calling Agent |
 | `mem_related` | Top-K files related to a `file_id` by embedding similarity |
 | `mem_face` | Person clusters: `action=list` / `name` / `merge` |
@@ -295,7 +307,8 @@ same logical request should supply and retain a stable key so a committed
 result can replay without another provider invocation or charge. A `504`
 means the provider outcome is uncertain: do not automatically retry, and do
 not invent a new key. `mem_context` with `source=memory` stays lexical and
-model-independent.
+model-independent. `mem_search` with `route=lexical` is likewise model-free:
+it uses FTS + trigram over file names and works without a configured worker.
 
 Its target output is structured for an Agent to consume:
 
