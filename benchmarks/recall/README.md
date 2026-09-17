@@ -1,5 +1,14 @@
 # Multilingual recall benchmark
 
+> **Evidence boundary: producer checks do not complete the live benchmark.**
+>
+> The producer corrections tracked in #196 do not complete #175's acceptance.
+> The original #184 live-run requirement still needs a populated real memd,
+> actual embedding-provider output and saved ranking artifacts. Unit or
+> loopback HTTP fixtures establish transport behavior only. A real model-free
+> lexical run also cannot establish vector/provider quality. See
+> [Exact remaining live prerequisites](#exact-remaining-live-prerequisites).
+
 This directory provides a small, repeatable retrieval benchmark. It is a
 decision aid for comparing lexical, vector and hybrid configurations; it is
 not evidence of production recall.
@@ -167,3 +176,89 @@ time and sanitized query failures. It does not copy query text, corpus text,
 vectors or free-form provider errors. Credential-shaped configuration keys
 such as `api_key`, `password`, `secret`, `token` and `authorization` are
 rejected instead of being copied into an artifact.
+
+## Live memd producer
+
+The `produce` subcommand queries a running `memd` over file-search queries and
+emits a `mem.recall-rankings.v1` file that the existing `run --rankings` path
+consumes. Latency is measured client-side per request; the `0 ms` sentinel
+warning above applies only to the offline lexical lane.
+
+```bash
+python3 -m benchmarks.recall produce \
+  --memd-url http://localhost:8080 \
+  --token "$MEM_TOKEN" \
+  --dataset benchmarks/recall/data/profile-text-v1 \
+  --output /tmp/live-rankings.json \
+  --dimension 768 --provider "$MEM_PROVIDER_LABEL" --model "$MEM_MODEL_LABEL" \
+  --mode vector
+```
+
+Then score the saved rankings (the default v1 baseline uses a different corpus):
+
+```bash
+python3 -m benchmarks.recall run \
+  --dataset benchmarks/recall/data/profile-text-v1 \
+  --rankings /tmp/live-rankings.json \
+  --output /tmp/live-artifact.json
+```
+
+Load the synthetic file corpus into an isolated test deployment first. The
+producer does not ingest it. Supply a token bound to the dataset's workspace;
+its labels do not establish the token's real workspace identity.
+
+The producer maps each API result back to a dataset `doc_id` using the returned
+folder `path` plus file `name`. Cross-workspace path collisions, unknown paths,
+or ambiguous snippets fail the query instead of silently dropping evidence.
+A same-workspace snippet-overlap tie also fails closed: document ID ordering
+would invent identity evidence. Malformed paths, names, snippets and scores
+fail with `invalid_result`, including malformed duplicate hits.
+Query filters are translated where the API supports them: `path_prefix` becomes
+`scope`, and `source_kind` becomes `type` (`image_caption` → `image`,
+`text` → `text`). The `workspace` filter is not sent to the API because the
+auth token determines workspace scope. A single token cannot select several
+workspaces, so use a single-workspace fixture. Metadata filters are unsupported
+and produce `unsupported_filter` without contacting the server; they are never
+silently ignored.
+
+Vector mode sends `route=text`; it does not claim a hybrid lexical/vector or
+multimodal experiment. Lexical mode sends `route=lexical` and requires the
+server capability from #183. It emits null provider/model/dimension as required
+by the ranking schema. Provider, model, dimension and index configuration are
+operator declarations, not discovered or verified server metadata. The
+`hardware.host` value deliberately records only the producer client's
+OS/architecture, never its hostname. It is not the server's hardware inventory
+and cannot establish comparable performance conditions.
+
+The full v1 corpus also contains structured-memory queries. `/v1/search` cannot
+serve these; the producer records `unsupported_source_kind` and exits 2. Any
+HTTP, mapping or response error also exits 2 while retaining an error artifact.
+Use the existing `profile-text-v1` file-only fixture for this producer's bounded
+acceptance. An HTTP fixture test proves transport and artifact handling only;
+it does not establish live provider quality, production latency, or full-corpus
+acceptance. Those remain NOT VERIFIED until a real populated memd run is saved.
+
+
+### Exact remaining live prerequisites
+
+1. Use an isolated authorized memd/Worker deployment and disposable PostgreSQL
+   database, and verify that its token is bound to the intended test workspace.
+2. Load all five synthetic files from `data/profile-text-v1/corpus.jsonl`, keeping
+   paths and content intact. Verify indexing and actual file identities before
+   interpreting the producer's output. Direct database seeding can establish
+   retrieval/transport behavior but does not verify ingestion or Worker indexing.
+3. For vector acceptance, select the same actual embedding model for corpus and
+   queries, record its dimension and profile, and independently inspect the
+   active generation/index and deployment revision. Producer labels alone do
+   not verify any of those properties.
+4. Run the documented producer command, retain its output, score the resulting
+   rankings and record errors and measured client latencies. An empty/error run
+   or a fake embedding provider cannot establish vector quality. A lexical run
+   requires the separate #194 server capability and remains a distinct result.
+5. The bounded file-only experiment does not cover #175's bilingual image-query
+   acceptance or the full v1 structured-memory corpus. The original issue and
+   live quality acceptance must not be described as complete on this evidence.
+
+The producer remains opt-in; the normal recall CI gate runs deterministic unit
+and fixture checks only. No real-model baseline is checked in until its actual
+configuration and saved run are available for review.
