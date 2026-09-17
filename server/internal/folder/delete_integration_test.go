@@ -302,10 +302,10 @@ func TestRecursiveDeleteBlocksWhenMemoryCitesFileElsewhere(t *testing.T) {
 		) VALUES (
 			$1, 'note', 'cites a photo', '/Work/task', 'agent',
 			$2, $3,
-			$3, $3, $3,
+			$4, $5, $6,
 			'active'
 		)
-	`, workspaceID, fileID, sha); err != nil {
+	`, workspaceID, fileID, sha, sha, sha, sha); err != nil {
 		t.Fatalf("insert citing memory: %v", err)
 	}
 
