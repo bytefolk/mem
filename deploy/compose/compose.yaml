@@ -90,7 +90,9 @@ services:
       start_period: 5s
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # MinIO withdrew its Docker Hub repositories in October 2025; quay.io serves
+    # the same release tags.
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     restart: unless-stopped
     command: server /data --console-address :9001
     environment:
@@ -108,7 +110,7 @@ services:
       start_period: 10s
 
   minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
     restart: "no"
     depends_on:
       minio:
@@ -217,7 +219,7 @@ services:
       start_period: 10s
 
   minio-client:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
     profiles: ["tools"]
     environment:
       MEM_S3_BUCKET: ${MEM_S3_BUCKET:-mem}
