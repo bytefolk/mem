@@ -9,6 +9,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Advertise the model-free lexical file-search route in the MCP `mem_search`
+  schema and verify `tools/list` plus route/filter forwarding through `tools/call`.
+
 - `mem doctor` — a read-only diagnosis of why the CLI cannot talk to a working
   server (`#112`). It reports four checks in a fixed order: reachability of the
   configured server URL, whether a credential exists, the workspace the server
@@ -28,6 +31,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   deployment path (`deploy/compose`, `docs/DEPLOYMENT.md`), instead of telling
   somebody to log in against a server that is not running yet. Hosts that already
   have a configuration keep the previous, shorter hint.
+- File search gains a model-free lexical route (`route=lexical`). FTS + trigram
+  over `files.name` — same tier shape as memory Recall — so a deployment with
+  no embedding worker can still find files by name. CLI: `mem search "query"
+  --route lexical`.
 
 ### Changed
 
