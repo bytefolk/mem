@@ -251,7 +251,24 @@ jobs:
 
       - name: Audit dependencies
         working-directory: web
-        run: npm run audit
+        # shell: bash is load-bearing: the default bash -e {0} shell has no
+        # pipefail, so tee would report its own exit status and a failing audit
+        # would pass this gate.
+        shell: bash
+        run: npm run audit 2>&1 | tee "${RUNNER_TEMP}/web-audit-transcript.txt"
+
+      - name: Upload audit evidence
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: web-audit-transcript-${{ github.sha }}
+          path: ${{ runner.temp }}/web-audit-transcript.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Run unit tests
+        working-directory: web
+        run: npm test
 
       - name: Lint
         working-directory: web
@@ -350,6 +367,80 @@ jobs:
           node --check mem-mcp
           node --check platforms.js
           npm pack --dry-run --ignore-scripts
+
+  windows-audit-evidence:
+    name: Windows audit evidence
+    # The batch helper exists to prove audit-retry.mjs works on a real cmd.exe,
+    # where only `npm run` supplies npm_execpath. Its regression test replays the
+    # batch source against a stub npm.cmd, so it proves the mechanics but never
+    # the execution. This job is the execution, and it is a job rather than an
+    # `if: runner.os == 'Windows'` step inside npm-wrapper-compatibility so the
+    # check name itself documents the Windows dependency.
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Test Windows audit evidence helper
+        run: node --test scripts/test_win_audit_verify.mjs
+
+      - name: Run Windows audit evidence helper against the real registry
+        working-directory: web
+        # shell: bash is load-bearing: with the default shell there is no
+        # pipefail, so tee's exit status would replace cmd.exe's and the
+        # helper's nonzero-audit assertion would become unfalsifiable.
+        shell: bash
+        run: |
+          # //d //c, not /d /c: git-bash rewrites a leading /d and /c into D:/
+          # and C:/, which leaves cmd.exe with no option flags. It then prints
+          # its interactive banner and exits 0, so the helper never runs and the
+          # job goes green on an empty transcript.
+          cmd.exe //d //c "..\scripts\win-audit-verify.bat" 2>&1 \
+            | tee "${RUNNER_TEMP}/win-audit-transcript.txt"
+
+      - name: Verify the transcript is real evidence
+        shell: bash
+        # A successful cmd.exe proves nothing on its own; the transcript has to
+        # show the helper actually reached its report and gated on a passing
+        # audit, or this job would silently certify nothing.
+        run: |
+          transcript="${RUNNER_TEMP}/win-audit-transcript.txt"
+          for needle in \
+            "\[win-audit-verify\] starting npm run audit" \
+            "\[win-audit-verify\] finished at" \
+            "\[win-audit-verify\] npm run audit exit code: 0" \
+            "found 0 vulnerabilities"
+          do
+            if ! grep -q -- "$needle" "$transcript"; then
+              echo "::error::win-audit-verify.bat did not produce '$needle'; the Windows audit evidence is not real."
+              sed -n '1,40p' "$transcript"
+              exit 1
+            fi
+          done
+
+      - name: Upload Windows audit evidence
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: win-audit-transcript-${{ github.sha }}
+          path: ${{ runner.temp }}/win-audit-transcript.txt
+          if-no-files-found: error
+          retention-days: 14
 
   deployment:
     name: Deployment profiles

@@ -96,6 +96,19 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   differs. `deploy/compose/compose.yaml` previously carried the same broken
   reference, so the documented self-hosted path would have failed on a cold
   host even though no workflow exercises it.
+- CI Web job now runs unit tests (`npm test`), including audit retry regression
+  tests. `npm run audit` retries recognized transient registry failures up to
+  three attempts per threshold (two retries), with a 60-second limit per attempt
+  and portable backoff. It starts npm through Node on Windows, fails immediately
+  for vulnerabilities, unknown errors or incomplete runs, and echoes the output
+  of every attempt it retries so a self-healing failure still leaves a trace.
+  That transcript is uploaded as a downloadable artifact
+  (`web-audit-transcript-<sha>`, 14-day retention) on the success and failure
+  paths alike, and because the step merges stderr into stdout the artifact also
+  carries the per-attempt diagnostics. A dedicated `Windows audit evidence` job
+  runs the audit through `scripts/win-audit-verify.bat` on a real Windows runner
+  and uploads `win-audit-transcript-<sha>`, so the helper is executed rather
+  than only replayed against a stub by its fixture test.
 - A configured URL that carries credentials in a shape `url.Parse` does not
   report as userinfo no longer reaches output. `admin:pw@host` parses as
   `Scheme="admin"` with the credential in `Opaque` and `User` unset, so an
