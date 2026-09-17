@@ -58,7 +58,7 @@ func TestTextANNFileSemanticsPostgres(t *testing.T) {
 		t.Helper()
 		id := uuid.New()
 		_, err := database.Pool.Exec(ctx, `INSERT INTO files(id,user_id,name,path,size,sha256,mime,storage_key,created_at,timeline_at)
-			VALUES($1,$2,'fixture', $3,0,'fixture',$4,$1::text,$5,$5)`, id, user, path, mime, at)
+			VALUES($1,$2,'fixture',$3,0,'fixture',$4,$5,$6,$6)`, id, user, path, mime, id.String(), at)
 		if err != nil {
 			t.Fatal(err)
 		}
