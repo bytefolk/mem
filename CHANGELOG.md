@@ -59,7 +59,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   is best-effort: a failed object delete does not roll back the folder delete,
   and failures are logged at WARN level so the operator can see which keys
   remain. The folder service now accepts an optional `ObjectStore` and logger
-  via `folder.WithStore` and `folder.WithLogger` options.
+  via `folder.WithStore` and `folder.WithLogger` options. Recursive delete
+  also refuses when an active or archived memory outside the folder still
+  cites a file in the tree via `source_file_id`, so blob cleanup cannot
+  destroy a live citation through `ON DELETE SET NULL`.
 
 ### Security
 

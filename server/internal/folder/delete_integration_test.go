@@ -3,6 +3,7 @@ package folder
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"strings"
@@ -19,9 +20,9 @@ import (
 // trackingObjectStore records which keys are deleted so tests can assert that
 // recursive folder delete cleans up blobs.
 type trackingObjectStore struct {
-	mu       sync.Mutex
-	objects  map[string]bool
-	deleted  []string
+	mu      sync.Mutex
+	objects map[string]bool
+	deleted []string
 }
 
 func newTrackingObjectStore() *trackingObjectStore {
@@ -231,6 +232,108 @@ func TestRecursiveDeleteWithoutStore(t *testing.T) {
 	}
 	if fileCount != 0 {
 		t.Errorf("files remaining = %d, want 0", fileCount)
+	}
+}
+
+// TestRecursiveDeleteBlocksWhenMemoryCitesFileElsewhere is the #210 review
+// regression: a memory living at /Work/task that cites a file under /Photos
+// must block recursive delete of /Photos. Otherwise ON DELETE SET NULL plus
+// blob cleanup would destroy the cited object while the memory stays active.
+func TestRecursiveDeleteBlocksWhenMemoryCitesFileElsewhere(t *testing.T) {
+	dsn := os.Getenv("MEM_TEST_DB")
+	if dsn == "" {
+		t.Skip("MEM_TEST_DB not set; skipping DB integration test")
+	}
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse MEM_TEST_DB: %v", err)
+	}
+	if !strings.HasSuffix(config.ConnConfig.Database, "_test") {
+		t.Fatalf(
+			"refusing to modify non-test database %q; MEM_TEST_DB must end in _test",
+			config.ConnConfig.Database,
+		)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	database, err := memdb.Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(database.Close)
+	if err := database.Migrate(ctx); err != nil {
+		t.Fatalf("migrate test database: %v", err)
+	}
+
+	userID := createFolderDeleteTenant(t, ctx, database.Pool)
+	var workspaceID uuid.UUID
+	if err := database.Pool.QueryRow(ctx, `
+		INSERT INTO workspaces (name, resource_owner_user_id)
+		VALUES ('folder-delete-cite', $1)
+		RETURNING id
+	`, userID).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	store := newTrackingObjectStore()
+	service := New(database.Pool, WithStore(store))
+	if _, err := service.Create(ctx, userID, "/Photos"); err != nil {
+		t.Fatalf("create /Photos: %v", err)
+	}
+	if _, err := service.Create(ctx, userID, "/Work"); err != nil {
+		t.Fatalf("create /Work: %v", err)
+	}
+	photos, err := service.Get(ctx, userID, "/Photos")
+	if err != nil {
+		t.Fatalf("get /Photos: %v", err)
+	}
+
+	fileID := uuid.New()
+	key := "users/" + userID.String() + "/" + fileID.String() + "/cited.txt"
+	if err := store.Put(ctx, key, nil, 0, "text/plain"); err != nil {
+		t.Fatalf("put object: %v", err)
+	}
+	sha := strings.Repeat("ab", 32)
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO files (id, user_id, folder_id, name, path, size, sha256, mime, storage_key, index_status)
+		VALUES ($1, $2, $3, 'cited.txt', '/Photos', 0, $4, 'text/plain', $5, 'ready')
+	`, fileID, userID, photos.ID, sha, key); err != nil {
+		t.Fatalf("insert cited file: %v", err)
+	}
+	if _, err := database.Pool.Exec(ctx, `
+		INSERT INTO memories (
+			workspace_id, kind, content, path, source_type,
+			source_file_id, source_file_sha256,
+			idempotency_key, request_sha256, content_sha256,
+			lifecycle_status
+		) VALUES (
+			$1, 'note', 'cites a photo', '/Work/task', 'agent',
+			$2, $3,
+			$4, $3, $3,
+			'active'
+		)
+	`, workspaceID, fileID, sha, "folder-delete-cite-"+uuid.NewString()); err != nil {
+		t.Fatalf("insert citing memory: %v", err)
+	}
+
+	if err := service.Delete(ctx, userID, "/Photos", true); !errors.Is(err, ErrContainsMemories) {
+		t.Fatalf("recursive delete with cross-path citation = %v, want ErrContainsMemories", err)
+	}
+	if !store.has(key) {
+		t.Fatal("cited blob was deleted despite the blocking memory")
+	}
+	var fileCount int
+	if err := database.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM files WHERE id = $1
+	`, fileID).Scan(&fileCount); err != nil {
+		t.Fatalf("count cited file: %v", err)
+	}
+	if fileCount != 1 {
+		t.Fatalf("cited file remaining = %d, want 1", fileCount)
+	}
+	if _, err := service.Get(ctx, userID, "/Photos"); err != nil {
+		t.Fatalf("/Photos changed despite blocked recursive delete: %v", err)
 	}
 }
 

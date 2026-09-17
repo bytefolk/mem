@@ -648,7 +648,7 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 			if containsTaskState {
 				return ErrContainsTaskState
 			}
-			containsMemories, err := containsMemoriesTx(ctx, tx, userID, src.Path, true)
+			containsMemories, err := containsMemoriesTx(ctx, tx, userID, src.ID, src.Path, true)
 			if err != nil {
 				return fmt.Errorf("check recursive delete memories: %w", err)
 			}
@@ -733,7 +733,11 @@ func (s *Service) cleanupBlobs(ctx context.Context, keys []string) {
 	for _, key := range keys {
 		if err := s.store.Delete(cleanupCtx, key); err != nil {
 			if s.logger != nil {
-				s.logger.Warn("folder delete: blob cleanup failed",
+				msg := "folder delete: blob cleanup failed"
+				if cleanupCtx.Err() != nil {
+					msg = "folder delete: blob cleanup stopped; 30s shared budget exhausted"
+				}
+				s.logger.Warn(msg,
 					"storage_key", key,
 					"error", err,
 				)
@@ -767,7 +771,7 @@ func isEmptyTx(ctx context.Context, tx pgx.Tx, userID, folderID uuid.UUID, path 
 	if containsTaskState {
 		return false, nil
 	}
-	containsMemories, err := containsMemoriesTx(ctx, tx, userID, path, false)
+	containsMemories, err := containsMemoriesTx(ctx, tx, userID, folderID, path, false)
 	if err != nil {
 		return false, fmt.Errorf("check folder memories: %w", err)
 	}
@@ -775,8 +779,15 @@ func isEmptyTx(ctx context.Context, tx pgx.Tx, userID, folderID uuid.UUID, path 
 }
 
 // containsMemoriesTx reports whether a resource owner's workspace contains an
-// active or archived memory at path. When recursive is true, descendants are
-// included with a literal segment-boundary comparison.
+// active or archived memory that would be harmed by deleting this folder.
+// When recursive is true, descendants are included with a literal
+// segment-boundary comparison, and memories that live elsewhere but reference
+// a file in this tree via source_file_id also block the delete.
+//
+// That second check matters once recursive delete removes blobs: ON DELETE
+// SET NULL would otherwise silently drop the citation while this function
+// physically destroys the object, leaving an active memory pointing at
+// bytes that no longer exist.
 //
 // Forgotten/tombstoned rows intentionally do not block folder deletion: an
 // explicit memory lifecycle transition has already happened for those rows.
@@ -784,6 +795,7 @@ func containsMemoriesTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	userID uuid.UUID,
+	folderID uuid.UUID,
 	path string,
 	recursive bool,
 ) (bool, error) {
@@ -796,9 +808,21 @@ func containsMemoriesTx(
 			     JOIN workspaces AS w ON w.id = m.workspace_id
 			    WHERE w.resource_owner_user_id = $1
 			      AND m.lifecycle_status IN ('active', 'archived')
-			      AND (m.path = $2 OR left(m.path, length($2) + 1) = $2 || '/')
+			      AND (
+			            m.path = $2
+			         OR left(m.path, length($2) + 1) = $2 || '/'
+			         OR EXISTS (
+			              SELECT 1
+			                FROM files AS f
+			               WHERE f.id = m.source_file_id
+			                 AND f.user_id = $1
+			                 AND (f.folder_id = $3
+			                      OR f.path = $2
+			                      OR left(f.path, length($2) + 1) = $2 || '/')
+			            )
+			      )
 			 )`,
-			userID, path).Scan(&exists)
+			userID, path, folderID).Scan(&exists)
 		return exists, err
 	}
 	err := tx.QueryRow(ctx,

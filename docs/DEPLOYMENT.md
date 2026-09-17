@@ -270,7 +270,14 @@ remove another row's bytes. No reference counting is needed.
 When a file or folder is deleted, the database row is removed first, then the
 corresponding object is deleted from bucket storage on a best-effort basis. A
 failed object delete does not roll back the database change; the orphaned key
-is logged at `WARN` level so the operator can see which keys remain.
+is logged at `WARN` level so the operator can see which keys remain. If the
+shared 30-second cleanup budget is exhausted mid-batch, later keys log that
+the budget ran out rather than a per-object store error.
+
+Recursive folder delete refuses with the existing `forget` sentinel when an
+active or archived memory — including one whose `path` is outside the folder
+— still cites a file in the tree through `source_file_id`. That keeps blob
+cleanup from destroying a live citation via `ON DELETE SET NULL`.
 
 **Crash window**: if the process is killed after the database transaction
 commits but before the blob delete lands, the object remains in the bucket
