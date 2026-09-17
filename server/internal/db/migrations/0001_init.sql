@@ -106,8 +106,6 @@ CREATE TABLE IF NOT EXISTS embeddings_text (
     embedding       vector(768)
 );
 CREATE INDEX IF NOT EXISTS idx_embeddings_text_file ON embeddings_text (file_id);
--- HNSW index will be added by worker once we settle on a model dimension. Kept off here
--- because pgvector requires the table to have data of consistent dim before building.
 -- +goose StatementEnd
 
 -- +goose StatementBegin
