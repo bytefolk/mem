@@ -18,6 +18,22 @@ assets=(
   mem-mcp-linux-arm64
   mem-mcp-windows-amd64.exe
   mem-mcp-windows-arm64.exe
+  memd-darwin-amd64
+  memd-darwin-arm64
+  memd-linux-amd64
+  memd-linux-arm64
+  mem-migrate-darwin-amd64
+  mem-migrate-darwin-arm64
+  mem-migrate-linux-amd64
+  mem-migrate-linux-arm64
+  mem-healthcheck-darwin-amd64
+  mem-healthcheck-darwin-arm64
+  mem-healthcheck-linux-amd64
+  mem-healthcheck-linux-arm64
+  mem-darwin-amd64
+  mem-darwin-arm64
+  mem-linux-amd64
+  mem-linux-arm64
 )
 commit=1111111111111111111111111111111111111111
 

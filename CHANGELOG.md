@@ -35,6 +35,18 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   over `files.name` — same tier shape as memory Recall — so a deployment with
   no embedding worker can still find files by name. CLI: `mem search "query"
   --route lexical`.
+- Publish installable server binaries (`memd`, `mem-migrate`, `mem-healthcheck`,
+  `mem`) alongside `mem-mcp` in the release workflow for `darwin/arm64`,
+  `darwin/amd64`, `linux/arm64` and `linux/amd64`, with per-group checksum
+  manifests (`#151`).
+- `/v1/version` now exposes `version` (semver), `revision` (40-hex git commit)
+  and `contract` (durable-context wire contract) as distinct fields, so clients
+  can pin a revision or accept a version range without a third mechanism. Both
+  the release workflow and the Docker image inject all three at build time
+  (`#151`).
+- Documented first-run path in `docs/DEPLOYMENT.md` that yields a reachable
+  endpoint, a workspace, a token with write and recall scopes, and the
+  corresponding durable-context grant (`#151`).
 
 ### Changed
 
