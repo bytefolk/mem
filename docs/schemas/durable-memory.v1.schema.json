@@ -1,0 +1,253 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getmem.dev/schemas/durable-memory.v1.schema.json",
+  "title": "mem durable-memory.v1",
+  "description": "Additive derived-memory envelope for RoleWeave MEM-1. Isolation is workspace + position principal + memory_scope + grant/revocation. A free-string scope property is not part of this contract. Pin does not enlarge permission. TTL/expires_at is recall eligibility, not physical deletion of the source log.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "memory_id",
+    "kind",
+    "binding",
+    "grant",
+    "source",
+    "citations",
+    "producer",
+    "event_at",
+    "created_at",
+    "state_version",
+    "pinned",
+    "lifecycle",
+    "trust",
+    "authority",
+    "text",
+    "digest"
+  ],
+  "properties": {
+    "contract": {
+      "const": "durable-memory.v1"
+    },
+    "memory_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "project_decision",
+        "user_preference",
+        "reusable_workflow",
+        "negative_signal",
+        "active_task_state",
+        "compliance_retained",
+        "observation",
+        "decision",
+        "preference",
+        "task_state",
+        "fact",
+        "note",
+        "artifact"
+      ]
+    },
+    "binding": {
+      "$ref": "#/$defs/binding"
+    },
+    "grant": {
+      "$ref": "#/$defs/grant"
+    },
+    "source": {
+      "$ref": "#/$defs/source"
+    },
+    "citations": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "event_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Recall eligibility deadline. Expiry never physically deletes the source log."
+    },
+    "importance": {
+      "type": "string",
+      "enum": ["low", "normal", "high"]
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pinned": {
+      "type": "boolean",
+      "description": "May preserve TTL eligibility. Must not enlarge workspace, principal, memory_scope, or grant."
+    },
+    "lifecycle": {
+      "type": "string",
+      "enum": ["active", "archived", "superseded", "expired", "forgotten"]
+    },
+    "trust": {
+      "const": "untrusted"
+    },
+    "authority": {
+      "const": "none"
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 16384
+    },
+    "digest": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of text UTF-8 bytes. Forgotten tombstones digest the empty string."
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Full SHA-256 digest. Truncated placeholders such as sha256:ab are invalid."
+    },
+    "principal": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+      "description": "Position principal, always position.<position_id>."
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace_id", "position_id", "principal", "memory_scope"],
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "mem workspace. Cross-workspace probes are out of scope."
+        },
+        "position_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,118}$"
+        },
+        "principal": {
+          "$ref": "#/$defs/principal"
+        },
+        "memory_scope": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 1024,
+          "pattern": "^/workspaces/[^/]+/positions/[a-z0-9][a-z0-9._-]{0,118}$",
+          "description": "Canonical MemoryPort virtual path. Not a free-form scope string."
+        }
+      }
+    },
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grant_id",
+        "mode",
+        "grant_version",
+        "permission_digest",
+        "capability_grant",
+        "granted_at",
+        "revoked_at"
+      ],
+      "properties": {
+        "grant_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Existing durable-context.v1 grant row. Grants are not invented here."
+        },
+        "mode": {
+          "const": "read",
+          "description": "Recall grants are read-only, matching durable-context.v1. Forget uses the mem delete token scope, not this field."
+        },
+        "grant_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Monotonic grant revision. Revoke/re-grant advances this."
+        },
+        "permission_digest": {
+          "$ref": "#/$defs/sha256",
+          "description": "SHA-256 of the canonical (workspace_id, principal, memory_scope, mode, grant_version) tuple."
+        },
+        "capability_grant": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema_version", "server"],
+          "properties": {
+            "schema_version": {
+              "const": "capability-grant.v1"
+            },
+            "server": {
+              "const": "mem"
+            }
+          }
+        },
+        "granted_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "revoked_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "Soft revocation. A revoked grant is ineligible for recall and must appear on the receipt."
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "digest"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["segment", "memory", "artifact"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_id"],
+      "properties": {
+        "agent_id": {
+          "$ref": "#/$defs/principal"
+        },
+        "session_id": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "task_id": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  }
+}

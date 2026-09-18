@@ -1,0 +1,46 @@
+{
+  "contract": "durable-memory.v1",
+  "memory_id": "22222222-2222-4222-8222-222222222222",
+  "kind": "project_decision",
+  "binding": {
+    "workspace_id": "11111111-1111-4111-8111-111111111111",
+    "position_id": "repo-owner",
+    "principal": "position.repo-owner",
+    "memory_scope": "/workspaces/44444444-4444-4444-8444-444444444444/positions/repo-owner"
+  },
+  "grant": {
+    "grant_id": "33333333-3333-4333-8333-333333333333",
+    "mode": "read",
+    "grant_version": 1,
+    "permission_digest": "sha256:98056de97087164dd9e0f5235cba6019d9576230faa1e37b104e735e5b5729a6",
+    "capability_grant": {
+      "schema_version": "capability-grant.v1",
+      "server": "mem"
+    },
+    "granted_at": "2026-09-17T12:00:00Z",
+    "revoked_at": null
+  },
+  "source": {
+    "kind": "segment",
+    "id": "seg_01",
+    "digest": "sha256:bee60ba20052b2969621c28f7378297c3b38cfa4eba66b22ff0df381447b2f8c"
+  },
+  "citations": ["turn:t33"],
+  "producer": {
+    "agent_id": "position.repo-owner",
+    "session_id": "sess_1",
+    "task_id": "task_1"
+  },
+  "event_at": "2026-09-17T11:58:00Z",
+  "created_at": "2026-09-17T12:00:00Z",
+  "expires_at": "2026-12-17T12:00:00Z",
+  "importance": "high",
+  "confidence": 0.7,
+  "state_version": 1,
+  "pinned": false,
+  "lifecycle": "active",
+  "trust": "untrusted",
+  "authority": "none",
+  "text": "Search APIs must match title OR body and return matchField.",
+  "digest": "sha256:bfa1e9bb9bacbabafb44c2c89ee7a108e81e10628c53a645af5b49eff081166f"
+}

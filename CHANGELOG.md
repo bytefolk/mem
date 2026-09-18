@@ -9,6 +9,17 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Additive `durable-memory.v1` envelope for derived RoleWeave/mem records
+  (`#220`). Isolation is workspace + position principal + `memory_scope` +
+  grant/revocation (reusing `durable-context.v1` grants and
+  `capability-grant.v1`); a free-string `scope` is rejected. Eligibility treats
+  expired, revoked, malformed, superseded, forgotten, and out-of-scope records
+  as ineligible. Pin does not enlarge permission. TTL/expiry is recall
+  eligibility, not physical deletion of the source log. Forget stays
+  permissioned and never a local fake delete. Grant status and
+  `permission_digest` enter the readback receipt. Contract only: no HTTP,
+  migration, or MCP wiring before Gate D0. Schema:
+  `docs/schemas/durable-memory.v1.schema.json`.
 - Cosine HNSW indexes on `embeddings_text` (768), `embeddings_visual` (512),
   and `embeddings_face` (512) via migration 0025 (`#173`). Text search walks
   `ORDER BY embedding <=> query LIMIT n` (planner-usable) and falls back to
