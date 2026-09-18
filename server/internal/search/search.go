@@ -653,6 +653,9 @@ func (s *Service) runTextANN(ctx context.Context, q Query, vec []float32) ([]Hit
 	if q.Limit <= 0 {
 		q.Limit = 10
 	}
+	if q.Limit > 100 {
+		q.Limit = 100
+	}
 	args := []any{vectorLiteral(vec), q.UserID}
 	where := []string{"f.user_id = $2"}
 	args, where = appendPathFilters(args, where, q.PathPrefix, q.AllowedPaths)
