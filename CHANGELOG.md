@@ -7,6 +7,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Changed
+
+- Align npm/MCP/installer identity to `@bytefolk/mem-mcp@0.1.2` and the ByteFolk executable-cache namespace. Refs #153.
+
 ### Added
 
 - Additive `durable-memory.v1` envelope for derived RoleWeave/mem records

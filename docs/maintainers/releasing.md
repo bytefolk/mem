@@ -104,7 +104,7 @@ creates, moves, or replaces a tag.
    starting npm publication.
 6. In `npm/`, rerun `npm test`, the npm 12 clean-tarball test, and
    `npm pack --dry-run --ignore-scripts`. Confirm
-   `npm view @fullstack-ai-infra/mem-mcp@VERSION version` does not find the
+   `npm view @bytefolk/mem-mcp@VERSION version` does not find the
    version, then publish it once with
    `npm publish --access public --tag latest`.
 7. Install the public package in a clean temporary consumer with lifecycle
@@ -115,7 +115,7 @@ creates, moves, or replaces a tag.
 Trusted Publishing is the target npm credential path. For the bootstrap
 publication, prefer interactive npm 2FA. If a token is required, use a one-day
 granular npm token restricted to read/write access for
-`@fullstack-ai-infra/mem-mcp` only, with no unrelated package or organization
+`@bytefolk/mem-mcp` only, with no unrelated package or organization
 access. Keep it out of repository files, logs, workflow inputs, and issue
 comments. Read the published version back from the registry and complete the
 clean-install smoke test before revoking the token immediately.

@@ -64,7 +64,7 @@ Use an immutable version for all three images. The example below builds the
 model-free Worker; optional heavy extras must be explicitly selected.
 
 ```bash
-export MEM_VERSION=0.1.1
+export MEM_VERSION=0.1.2
 export MEM_REVISION="$(git rev-parse HEAD)"
 export MEM_REGISTRY=registry.example.internal/mem
 
@@ -105,7 +105,7 @@ Every release publishes a single version grammar that clients pin against. The
 
 | Field | Example | Meaning |
 | --- | --- | --- |
-| `version` | `"0.1.1"` | Semver release tag (without the `v` prefix) |
+| `version` | `"0.1.2"` | Semver release tag (without the `v` prefix) |
 | `revision` | `"10d4bf7a48fd5ab0ce6fc67caa407a717f81830e"` | 40-hex git commit the binary was built from |
 | `contract` | `"durable-context.v1"` | Durable-context wire contract the server speaks |
 

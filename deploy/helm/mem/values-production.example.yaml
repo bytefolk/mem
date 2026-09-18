@@ -2,13 +2,13 @@
 images:
   server:
     repository: registry.example.internal/mem/server
-    tag: "0.1.1"
+    tag: "0.1.2"
   worker:
     repository: registry.example.internal/mem/worker
-    tag: "0.1.1"
+    tag: "0.1.2"
   web:
     repository: registry.example.internal/mem/web
-    tag: "0.1.1"
+    tag: "0.1.2"
 
 existingSecret: mem-runtime
 
