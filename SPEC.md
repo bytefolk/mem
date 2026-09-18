@@ -537,7 +537,10 @@ embeddings_face (
 - `files` FTS + trigram — 显式指定 `route=lexical` 的文件名无模型词法召回；
   `auto` 只融合 text/visual，不自动回退到 lexical，worker 不可用时仍报错。
   仅搜索 `files.name`，路径只用于筛选，不检索文件正文或路径片段。
-- `embeddings_* (embedding)` — pgvector HNSW
+- `embeddings_* (embedding)` — pgvector HNSW (`vector_cosine_ops`, migration 0025)
+  on `embeddings_text` (768), `embeddings_visual` (512), `embeddings_face` (512).
+  Text search uses cosine-order candidates plus exact per-file fallback.
+  Face clustering is still in-process. `index_generation_vectors` is not indexed.
 - `file_entities (entity_id)` — 反查"和某人有关的所有文件"
 
 ### 6.3 文件夹一致性规则（重要）

@@ -9,6 +9,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Cosine HNSW indexes on `embeddings_text` (768), `embeddings_visual` (512),
+  and `embeddings_face` (512) via migration 0025 (`#173`). Text search walks
+  `ORDER BY embedding <=> query LIMIT n` (planner-usable) and falls back to
+  exact per-file `DISTINCT ON` when a bounded scan underfills after
+  deduplication. Visual cosine-order queries can use the visual index. Face
+  clustering remains in-process; the face index is DDL only. Recall is not
+  claimed here; the live harness is `#175`.
 - Advertise the model-free lexical file-search route in the MCP `mem_search`
   schema and verify `tools/list` plus route/filter forwarding through `tools/call`.
 

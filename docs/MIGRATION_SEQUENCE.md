@@ -4,9 +4,9 @@ These draft changes are cumulative, not independently deployable:
 
 | Order | Draft / original PR | Migration | Required predecessor |
 | --- | --- | --- | --- |
-| 1 | #194 / #183 | 0024 file lexical lane | released/main schema 23 |
-| 2 | #197 / #180 | 0025 HNSW indexes | #194, schema 24 |
-| 3 | #195 / #185 | 0026 data-plane hygiene | #197, schema 25 |
+| 1 | #194 / #183 | 0024 file lexical lane | released/main schema 23 (merged) |
+| 2 | #173 HNSW completion (supersedes #197 HOLD) | 0025 HNSW indexes + text continuation | #194, schema 24 |
+| 3 | #195 / #185 | 0026 data-plane hygiene | schema 25 |
 
 The PR base chain is `main` → `codex/fix-pr-183` → `codex/fix-pr-180`
 → `codex/fix-pr-185`. Successor branches must include their predecessor schema and source. Local
@@ -19,13 +19,14 @@ tags `v0.1.0` / `v0.1.1` contain only migrations 0001–0023. This does not prov
 that a private deployment never applied a draft. Consequently migration
 numbers and SQL identities are retained, not renumbered on an assumption.
 
-HNSW DDL and shipping text-query planner acceptance are separate evidence:
-creating indexes does not prove that a text query uses them. An index-only
-successor must describe that partial scope and leave the broader #173 acceptance
-open. #195 still requires the predecessor schema 25 regardless of query strategy.
-This document does not approve a product decision or query-strategy change,
-waive a review gate, or authorize deployment. #176's model-free file-lane RFC
-also requires a maintainer decision before this draft is made review-ready.
+Migration 0025 creates the three cosine HNSW indexes. The shipping text route
+no longer uses `DISTINCT ON (f.id) ORDER BY f.id` as its primary plan: it walks
+cosine-ordered candidates and falls back to that exact query only when a bounded
+scan underfills. Visual cosine-order already matched HNSW. Face DDL is not a
+face-query speedup. #195 still requires predecessor schema 25. Recall and live
+latency remain `#175`, not this migration.
+
+This document does not waive a review gate or authorize deployment.
 
 Goose startup remains strict: no `WithAllowMissing` or equivalent option is
 enabled. A database that already applied 26 while omitting 24/25 will correctly
