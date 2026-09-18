@@ -42,7 +42,11 @@ func writeTranscript(t *testing.T, dir, name string) string {
 	if err := os.WriteFile(p, []byte(body+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return p
+	canonical, err := ingest.CanonicalRoot(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
 }
 
 func TestParseQoderTranscript(t *testing.T) {
