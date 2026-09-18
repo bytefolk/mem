@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -58,13 +59,40 @@ type Node struct {
 	Children  []*Node    `json:"children,omitempty"`
 }
 
+// ObjectStore is the subset of storage.Store that folder needs for blob cleanup.
+type ObjectStore interface {
+	Delete(context.Context, string) error
+}
+
 // Service is the folder service.
 type Service struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	store  ObjectStore
+	logger *slog.Logger
+}
+
+// Option configures a folder Service.
+type Option func(*Service)
+
+// WithStore sets the object store used for blob cleanup on recursive delete.
+// If not set, recursive delete removes DB rows but leaves orphan blobs.
+func WithStore(store ObjectStore) Option {
+	return func(s *Service) { s.store = store }
+}
+
+// WithLogger sets the logger for reporting best-effort blob cleanup failures.
+func WithLogger(logger *slog.Logger) Option {
+	return func(s *Service) { s.logger = logger }
 }
 
 // New constructs a folder Service.
-func New(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+func New(pool *pgxpool.Pool, opts ...Option) *Service {
+	s := &Service{pool: pool}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
 
 // Sentinel errors.
 var (
@@ -586,9 +614,10 @@ func rewritePrefixTx(ctx context.Context, tx pgx.Tx, userID, srcID uuid.UUID, ol
 //
 //   - recursive=false (default): folder must be empty (no subfolders, no files)
 //     or ErrNotEmpty is returned.
-//   - recursive=true: subfolders + files are deleted from the DB. S3 cleanup
-//     is TODO — for now we only purge the DB rows; orphan blobs will be
-//     reaped by a future garbage-collection pass.
+//   - recursive=true: subfolders + files are deleted from the DB, and their
+//     blobs are removed from object storage on a best-effort basis after the
+//     transaction commits. A failed blob removal does not roll back the DB
+//     delete; orphaned keys are logged so the operator can see them.
 func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, recursive bool) error {
 	norm, err := pathx.Normalize(path)
 	if err != nil {
@@ -597,7 +626,8 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 	if norm == pathx.Root {
 		return ErrRootOp
 	}
-	return s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
+	var orphanKeys []string
+	err = s.withPathMutationTx(ctx, userID, func(tx pgx.Tx) error {
 		src, err := selectFolderByPathTx(ctx, tx, userID, norm)
 		if err != nil {
 			return err
@@ -618,7 +648,7 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 			if containsTaskState {
 				return ErrContainsTaskState
 			}
-			containsMemories, err := containsMemoriesTx(ctx, tx, userID, src.Path, true)
+			containsMemories, err := containsMemoriesTx(ctx, tx, userID, src.ID, src.Path, true)
 			if err != nil {
 				return fmt.Errorf("check recursive delete memories: %w", err)
 			}
@@ -627,6 +657,14 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 				// deletion. The caller has to use the memory lifecycle's
 				// explicit forget operation first.
 				return ErrContainsMemories
+			}
+			// Collect storage keys before deleting rows so we can clean up
+			// blobs after the transaction commits. Keys are per-row by
+			// construction (see 0013_file_content_identity.sql), so deleting
+			// each key cannot destroy another row's bytes.
+			orphanKeys, err = collectStorageKeysTx(ctx, tx, userID, src.ID, src.Path)
+			if err != nil {
+				return fmt.Errorf("collect storage keys for recursive delete: %w", err)
 			}
 			// Hard delete: remove all descendant files first (FKs cascade
 			// from folders → files would only NULL out folder_id, so we have
@@ -648,6 +686,64 @@ func (s *Service) Delete(ctx context.Context, userID uuid.UUID, path string, rec
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Blob cleanup happens after the transaction commits: a failed object
+	// delete must not roll back the user's folder delete. This matches the
+	// best-effort shape of file.Delete.
+	if len(orphanKeys) > 0 && s.store != nil {
+		s.cleanupBlobs(ctx, orphanKeys)
+	}
+	return nil
+}
+
+// collectStorageKeysTx returns the storage_key values for all files that will
+// be deleted by a recursive folder delete. This must be called before the
+// DELETE FROM files so the keys are available for post-commit blob cleanup.
+func collectStorageKeysTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID, folderID uuid.UUID, folderPath string) ([]string, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT storage_key FROM files
+		  WHERE user_id = $1
+		    AND (folder_id = $2 OR path = $3
+		         OR left(path, length($3) + 1) = $3 || '/')
+		    AND storage_key <> ''`,
+		userID, folderID, folderPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+// cleanupBlobs removes objects from the store on a best-effort basis. Failures
+// are logged so the operator can see which keys remain; they do not propagate
+// to the caller because the DB rows are already gone.
+func (s *Service) cleanupBlobs(ctx context.Context, keys []string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	for _, key := range keys {
+		if err := s.store.Delete(cleanupCtx, key); err != nil {
+			if s.logger != nil {
+				msg := "folder delete: blob cleanup failed"
+				if cleanupCtx.Err() != nil {
+					msg = "folder delete: blob cleanup stopped; 30s shared budget exhausted"
+				}
+				s.logger.Warn(msg,
+					"storage_key", key,
+					"error", err,
+				)
+			}
+		}
+	}
 }
 
 func isEmptyTx(ctx context.Context, tx pgx.Tx, userID, folderID uuid.UUID, path string) (bool, error) {
@@ -675,7 +771,7 @@ func isEmptyTx(ctx context.Context, tx pgx.Tx, userID, folderID uuid.UUID, path 
 	if containsTaskState {
 		return false, nil
 	}
-	containsMemories, err := containsMemoriesTx(ctx, tx, userID, path, false)
+	containsMemories, err := containsMemoriesTx(ctx, tx, userID, folderID, path, false)
 	if err != nil {
 		return false, fmt.Errorf("check folder memories: %w", err)
 	}
@@ -683,8 +779,15 @@ func isEmptyTx(ctx context.Context, tx pgx.Tx, userID, folderID uuid.UUID, path 
 }
 
 // containsMemoriesTx reports whether a resource owner's workspace contains an
-// active or archived memory at path. When recursive is true, descendants are
-// included with a literal segment-boundary comparison.
+// active or archived memory that would be harmed by deleting this folder.
+// When recursive is true, descendants are included with a literal
+// segment-boundary comparison, and memories that live elsewhere but reference
+// a file in this tree via source_file_id also block the delete.
+//
+// That second check matters once recursive delete removes blobs: ON DELETE
+// SET NULL would otherwise silently drop the citation while this function
+// physically destroys the object, leaving an active memory pointing at
+// bytes that no longer exist.
 //
 // Forgotten/tombstoned rows intentionally do not block folder deletion: an
 // explicit memory lifecycle transition has already happened for those rows.
@@ -692,6 +795,7 @@ func containsMemoriesTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	userID uuid.UUID,
+	folderID uuid.UUID,
 	path string,
 	recursive bool,
 ) (bool, error) {
@@ -704,9 +808,21 @@ func containsMemoriesTx(
 			     JOIN workspaces AS w ON w.id = m.workspace_id
 			    WHERE w.resource_owner_user_id = $1
 			      AND m.lifecycle_status IN ('active', 'archived')
-			      AND (m.path = $2 OR left(m.path, length($2) + 1) = $2 || '/')
+			      AND (
+			            m.path = $2
+			         OR left(m.path, length($2) + 1) = $2 || '/'
+			         OR EXISTS (
+			              SELECT 1
+			                FROM files AS f
+			               WHERE f.id = m.source_file_id
+			                 AND f.user_id = $1
+			                 AND (f.folder_id = $3
+			                      OR f.path = $2
+			                      OR left(f.path, length($2) + 1) = $2 || '/')
+			            )
+			      )
 			 )`,
-			userID, path).Scan(&exists)
+			userID, path, folderID).Scan(&exists)
 		return exists, err
 	}
 	err := tx.QueryRow(ctx,

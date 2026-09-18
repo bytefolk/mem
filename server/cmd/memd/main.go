@@ -119,7 +119,10 @@ func run() error {
 			"providers", cfg.ManagedEmbeddingProviders,
 		)
 	}
-	folderSvc := folder.New(database.Pool)
+	folderSvc := folder.New(database.Pool,
+		folder.WithStore(store),
+		folder.WithLogger(logger),
+	)
 	fileSvc := file.New(database.Pool, store, folderSvc)
 	memorySvc := memory.New(database.Pool)
 	durableContextSvc := durablecontext.New(database.Pool, memorySvc)

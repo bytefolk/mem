@@ -51,6 +51,19 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   repository coordinate the installer itself uses, so the next rename cannot
   leave a stale identifier behind unnoticed.
 
+### Fixed
+
+- Recursive folder delete now removes the corresponding objects from bucket
+  storage after the database transaction commits (`#177`). Previously, the DB
+  rows were deleted but the blobs remained orphaned in the bucket. The cleanup
+  is best-effort: a failed object delete does not roll back the folder delete,
+  and failures are logged at WARN level so the operator can see which keys
+  remain. The folder service now accepts an optional `ObjectStore` and logger
+  via `folder.WithStore` and `folder.WithLogger` options. Recursive delete
+  also refuses when an active or archived memory outside the folder still
+  cites a file in the tree via `source_file_id`, so blob cleanup cannot
+  destroy a live citation through `ON DELETE SET NULL`.
+
 ### Security
 
 - Normalize the client-declared MIME type of a stored file before deciding how

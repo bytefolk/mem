@@ -261,6 +261,36 @@ Redis AOF protects normal restarts but is not in the portable backup. A restore
 therefore starts with an empty queue/replay window. Requeue or reindex any file
 whose processing did not reach a terminal state before the backup.
 
+### Object storage retention
+
+Object keys are per-file by construction: each key embeds the row's own file ID
+(`users/<user_id>/<file_id>/<basename>`), so deleting one row's key cannot
+remove another row's bytes. No reference counting is needed.
+
+When a file or folder is deleted, the database row is removed first, then the
+corresponding object is deleted from bucket storage on a best-effort basis. A
+failed object delete does not roll back the database change; the orphaned key
+is logged at `WARN` level so the operator can see which keys remain. If the
+shared 30-second cleanup budget is exhausted mid-batch, later keys log that
+the budget ran out rather than a per-object store error.
+
+Recursive folder delete refuses with the existing `forget` sentinel when an
+active or archived memory — including one whose `path` is outside the folder
+— still cites a file in the tree through `source_file_id`. That keeps blob
+cleanup from destroying a live citation via `ON DELETE SET NULL`.
+
+**Crash window**: if the process is killed after the database transaction
+commits but before the blob delete lands, the object remains in the bucket
+permanently. There is currently no reaper or garbage-collection pass to sweep
+these residues. The server has no listing capability against the bucket (the
+`storage.Store` interface exposes only `Put`/`Get`/`Delete`), so a reaper would
+need to record keys whose delete was never attempted. This is a known gap;
+operators should monitor bucket growth against expected database row counts.
+
+To manually reconcile, compare the bucket contents against the `files` table's
+`storage_key` column. Objects present in the bucket but absent from the database
+are safe to delete — they cannot be referenced by any live row.
+
 ### Restore drill
 
 Restore only into an empty installation. The script verifies every checksum

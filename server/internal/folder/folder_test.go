@@ -211,6 +211,7 @@ func TestMemoryPathLifecycleIntegration(t *testing.T) {
 			workspace_id     uuid NOT NULL,
 			path             text NOT NULL,
 			lifecycle_status text NOT NULL,
+			source_file_id   uuid,
 			updated_at       timestamptz NOT NULL DEFAULT now()
 		) ON COMMIT PRESERVE ROWS
 	`); err != nil {
