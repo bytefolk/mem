@@ -141,7 +141,7 @@ func TestIndexGenerationStatusHandlersStayWorkspaceScoped(t *testing.T) {
 		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 			t.Fatal(err)
 		}
-		if len(response.Items) != 1 || response.Items[0].ID != buildID || !response.ExecutionWired {
+		if len(response.Items) != 1 || response.Items[0].ID != buildID || response.ExecutionWired {
 			t.Fatalf("response = %#v", response)
 		}
 	})
@@ -195,20 +195,38 @@ func TestIndexGenerationMutationHandlers(t *testing.T) {
 		request := indexGenerationMutationRequest(http.MethodPost,
 			"/v1/workspaces/current/index-generations", workspaceID, actorID, "", body)
 		server.handleCreateIndexGeneration(recorder, request)
-		if recorder.Code != http.StatusCreated {
+		if recorder.Code != http.StatusServiceUnavailable {
 			t.Fatalf("status = %d; body = %s", recorder.Code, recorder.Body.String())
 		}
-		if service.lastProfile != "local-fast-v2" {
-			t.Fatalf("profile = %q", service.lastProfile)
+		var response map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
 		}
-		if service.lastActor != actorID {
-			t.Fatalf("actor = %s, want %s", service.lastActor, actorID)
+		if response["error"] != "execution_unavailable" {
+			t.Fatalf("error = %v, want execution_unavailable", response["error"])
+		}
+		if response["execution_wired"] != false {
+			t.Fatalf("execution_wired = %v, want false", response["execution_wired"])
+		}
+		if service.lastProfile != "" {
+			t.Fatalf("service.Create should not have been called, but profile = %q", service.lastProfile)
 		}
 	})
 
 	t.Run("create_rejects_empty_profile", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		body := strings.NewReader(`{"profile_id":""}`)
+		request := indexGenerationMutationRequest(http.MethodPost,
+			"/v1/workspaces/current/index-generations", workspaceID, actorID, "", body)
+		server.handleCreateIndexGeneration(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d; body = %s", recorder.Code, recorder.Body.String())
+		}
+	})
+
+	t.Run("create_rejects_malformed_body", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		body := strings.NewReader(`{{{{`)
 		request := indexGenerationMutationRequest(http.MethodPost,
 			"/v1/workspaces/current/index-generations", workspaceID, actorID, "", body)
 		server.handleCreateIndexGeneration(recorder, request)
@@ -254,9 +272,113 @@ func TestIndexGenerationMutationHandlers(t *testing.T) {
 			t.Fatalf("status = %d; body = %s", recorder.Code, recorder.Body.String())
 		}
 	})
+
+	t.Run("activate_blocked", func(t *testing.T) {
+		service.lastAction = ""
+		recorder := httptest.NewRecorder()
+		request := indexGenerationMutationRequest(http.MethodPost,
+			"/v1/workspaces/current/index-generations/"+buildID.String()+"/activate",
+			workspaceID, actorID, buildID.String(), nil)
+		server.handleActivateIndexGeneration(recorder, request)
+		if recorder.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d; body = %s", recorder.Code, recorder.Body.String())
+		}
+		var response map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response["error"] != "execution_unavailable" {
+			t.Fatalf("error = %v, want execution_unavailable", response["error"])
+		}
+		if response["execution_wired"] != false {
+			t.Fatalf("execution_wired = %v, want false", response["execution_wired"])
+		}
+		if service.lastAction != "" {
+			t.Fatalf("service.Activate should not have been called, but action = %q", service.lastAction)
+		}
+	})
+
+	t.Run("rollback_blocked", func(t *testing.T) {
+		service.lastAction = ""
+		recorder := httptest.NewRecorder()
+		request := indexGenerationMutationRequest(http.MethodPost,
+			"/v1/workspaces/current/index-generations/"+buildID.String()+"/rollback",
+			workspaceID, actorID, buildID.String(), nil)
+		server.handleRollbackIndexGeneration(recorder, request)
+		if recorder.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d; body = %s", recorder.Code, recorder.Body.String())
+		}
+		var response map[string]any
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response["error"] != "execution_unavailable" {
+			t.Fatalf("error = %v, want execution_unavailable", response["error"])
+		}
+		if response["execution_wired"] != false {
+			t.Fatalf("execution_wired = %v, want false", response["execution_wired"])
+		}
+		if service.lastAction != "" {
+			t.Fatalf("service.Rollback should not have been called, but action = %q", service.lastAction)
+		}
+	})
 }
 
-func TestIndexGenerationPublicRoutesAreReadOnly(t *testing.T) {
+func TestExecutionWiredFlagMatchesCapability(t *testing.T) {
+	workspaceID := uuid.New()
+	actorID := uuid.New()
+	buildID := uuid.New()
+	service := &fakeIndexGenerationService{buildID: buildID}
+	server := &Server{IndexGenerations: service}
+
+	listRecorder := httptest.NewRecorder()
+	listRequest := indexGenerationRequest(http.MethodGet,
+		"/v1/workspaces/current/index-generations?limit=25", workspaceID, "")
+	server.handleListIndexGenerations(listRecorder, listRequest)
+	var listResponse struct {
+		ExecutionWired bool `json:"execution_wired"`
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listResponse); err != nil {
+		t.Fatal(err)
+	}
+	if listResponse.ExecutionWired {
+		t.Fatal("execution_wired must be false when no worker executor exists")
+	}
+
+	eventsRecorder := httptest.NewRecorder()
+	eventsRequest := indexGenerationRequest(http.MethodGet,
+		"/v1/workspaces/current/index-generations/"+buildID.String()+"/events", workspaceID, buildID.String())
+	server.handleListIndexGenerationEvents(eventsRecorder, eventsRequest)
+	var eventsResponse struct {
+		ExecutionWired bool `json:"execution_wired"`
+	}
+	if err := json.Unmarshal(eventsRecorder.Body.Bytes(), &eventsResponse); err != nil {
+		t.Fatal(err)
+	}
+	if eventsResponse.ExecutionWired {
+		t.Fatal("events execution_wired must be false")
+	}
+
+	createRecorder := httptest.NewRecorder()
+	createBody := strings.NewReader(`{"profile_id":"local-fast-v2"}`)
+	createRequest := indexGenerationMutationRequest(http.MethodPost,
+		"/v1/workspaces/current/index-generations", workspaceID, actorID, "", createBody)
+	server.handleCreateIndexGeneration(createRecorder, createRequest)
+	if createRecorder.Code == http.StatusCreated {
+		t.Fatal("create must not succeed when execution_wired is false")
+	}
+
+	activateRecorder := httptest.NewRecorder()
+	activateRequest := indexGenerationMutationRequest(http.MethodPost,
+		"/v1/workspaces/current/index-generations/"+buildID.String()+"/activate",
+		workspaceID, actorID, buildID.String(), nil)
+	server.handleActivateIndexGeneration(activateRecorder, activateRequest)
+	if activateRecorder.Code == http.StatusOK {
+		t.Fatal("activate must not succeed when execution_wired is false")
+	}
+}
+
+func TestIndexGenerationPublicRoutesAreRegistered(t *testing.T) {
 	routes, ok := (&Server{}).Router().(chi.Routes)
 	if !ok {
 		t.Fatal("Server.Router did not return chi.Routes")

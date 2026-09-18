@@ -7,6 +7,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Changed
+
+- Index generation HTTP create/activate/rollback stay `503 execution_unavailable` with `execution_wired: false` on that body, and the same flag is now on events as well as list/status/cancel/resume/discard. Create still returns `400` for malformed JSON or an empty `profile_id` before the 503. Refs #174.
+
 ### Added
 
 - Additive `durable-memory.v1` envelope for derived RoleWeave/mem records
