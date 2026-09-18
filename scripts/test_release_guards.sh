@@ -294,7 +294,10 @@ server_manifest="${asset_dir}/mem-checksums.txt"
 # BSD wc pads its count with blanks, so a line count must not come from wc -l.
 [[ "$(grep -c '' "${mcp_manifest}")" == 6 ]] || die "mcp checksum manifest must have six rows"
 [[ "$(grep -c '' "${server_manifest}")" == 16 ]] || die "server checksum manifest must have 16 rows"
-actual_manifest_names="$(sed -E 's/^[0-9a-f]{64}  //' "${mcp_manifest}" | LC_ALL=C sort)"
+actual_manifest_names="$(
+  sed -E 's/^[0-9a-f]{64}  //' "${mcp_manifest}" "${server_manifest}" |
+    LC_ALL=C sort
+)"
 expected_manifest_names="$(printf '%s\n' "${assets[@]}" | LC_ALL=C sort)"
 [[ "${actual_manifest_names}" == "${expected_manifest_names}" ]] ||
   die "portable asset enumeration lost or combined a basename"
