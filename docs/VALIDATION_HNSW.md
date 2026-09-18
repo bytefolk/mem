@@ -52,9 +52,9 @@ contract on pathological corpora. Iterative-scan GUC is not enabled.
 MEM_TEST_DB="$MEM_TEST_DB" ./scripts/verify.sh integration
 ```
 
-`run_hnsw_migration` creates a fresh `_test` database, runs
-`TestHNSWMigrationPostgres`, then `scripts/verify_hnsw_indexes.sh` when `psql`
-is available.
+`run_hnsw_migration` creates a fresh `_test` database and runs
+`TestHNSWMigrationPostgres`, which records EXPLAIN ANALYZE. `scripts/verify_hnsw_indexes.sh`
+is a manual `psql` helper; CI does not call it because libpq rejects some pgx URIs.
 
 Face evidence is valid DDL and populated-table migration, not a measured
 face-query speedup.

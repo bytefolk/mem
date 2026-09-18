@@ -409,13 +409,7 @@ run_hnsw_migration() {
     MEM_HNSW_TEST_DB="$MEM_TEST_DB" go test -v -count=1 \
       -run '^TestHNSWMigrationPostgres$' ./internal/db
   )
-  if command -v psql >/dev/null 2>&1; then
-    log "Read-only HNSW planner script on the populated corpus"
-    bash "${REPO_ROOT}/scripts/verify_hnsw_indexes.sh" \
-      "$MEM_TEST_DB" "00000000-0000-0000-0000-000000000173"
-  else
-    log "psql not present; TestHNSWMigrationPostgres EXPLAIN is the planner gate"
-  fi
+  log "Planner EXPLAIN is recorded by TestHNSWMigrationPostgres (psql URI script is manual)"
 }
 
 run_integration_race() {
