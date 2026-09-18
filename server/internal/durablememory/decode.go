@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/PeterGuy326/mem/server/internal/pathx"
 	"github.com/google/uuid"
@@ -24,10 +25,12 @@ const (
 )
 
 var (
-	principalRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
-	positionRE  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,118}$`)
-	sha256RE    = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-	kindSet     = map[string]struct{}{
+	principalRE   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	positionRE    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,118}$`)
+	sha256RE      = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+	memoryScopeRE = regexp.MustCompile(`^/workspaces/[^/]+/positions/[a-z0-9][a-z0-9._-]{0,118}$`)
+	importanceSet = map[string]struct{}{"low": {}, "normal": {}, "high": {}}
+	kindSet       = map[string]struct{}{
 		KindProjectDecision:  {},
 		KindUserPreference:   {},
 		KindReusableWorkflow: {},
@@ -50,9 +53,7 @@ var (
 		LifecycleForgotten:  {},
 	}
 	grantModeSet = map[string]struct{}{
-		GrantModeRead:   {},
-		GrantModeWrite:  {},
-		GrantModeDelete: {},
+		GrantModeRead: {},
 	}
 	sourceKindSet = map[string]struct{}{
 		SourceKindSegment:  {},
@@ -105,17 +106,20 @@ func validateRecord(rec Record) error {
 	if _, ok := sourceKindSet[rec.Source.Kind]; !ok {
 		return malformed("source.kind is invalid")
 	}
-	if strings.TrimSpace(rec.Source.ID) == "" || len(rec.Source.ID) > maxIDRunes {
+	if strings.TrimSpace(rec.Source.ID) == "" || utf8.RuneCountInString(rec.Source.ID) > maxIDRunes {
 		return malformed("source.id is required")
 	}
 	if !sha256RE.MatchString(rec.Source.Digest) {
 		return malformed("source.digest must be sha256:<64 hex>")
 	}
+	if rec.Citations == nil {
+		return malformed("citations is required")
+	}
 	if len(rec.Citations) > maxCitations {
 		return malformed("too many citations")
 	}
 	for _, citation := range rec.Citations {
-		if strings.TrimSpace(citation) == "" || len(citation) > maxCitationRunes {
+		if strings.TrimSpace(citation) == "" || utf8.RuneCountInString(citation) > maxCitationRunes {
 			return malformed("citation is invalid")
 		}
 	}
@@ -140,12 +144,19 @@ func validateRecord(rec Record) error {
 	if rec.Authority != AuthorityNone {
 		return malformed("authority must be none")
 	}
-	if rec.Lifecycle != LifecycleForgotten {
-		if strings.TrimSpace(rec.Text) == "" || len(rec.Text) > maxTextRunes {
-			return malformed("text is required")
+	if rec.Lifecycle == LifecycleForgotten {
+		if rec.Text != "" {
+			return malformed("forgotten records must redact text")
 		}
-		if !sha256RE.MatchString(rec.Digest) {
-			return malformed("digest must be sha256:<64 hex>")
+	} else if strings.TrimSpace(rec.Text) == "" || utf8.RuneCountInString(rec.Text) > maxTextRunes {
+		return malformed("text is required")
+	}
+	if rec.Digest != ContentDigest(rec.Text) {
+		return malformed("digest must be sha256 of text UTF-8 bytes")
+	}
+	if rec.Importance != "" {
+		if _, ok := importanceSet[rec.Importance]; !ok {
+			return malformed("importance is invalid")
 		}
 	}
 	if rec.Confidence != nil && (*rec.Confidence < 0 || *rec.Confidence > 1) {
@@ -178,11 +189,10 @@ func validateBinding(b Binding) error {
 	if normalized != scope {
 		return malformed("binding.memory_scope must already be canonical")
 	}
-	if len(scope) > maxScopeRunes {
+	if utf8.RuneCountInString(scope) > maxScopeRunes {
 		return malformed("binding.memory_scope exceeds %d characters", maxScopeRunes)
 	}
-	suffix := "/positions/" + b.PositionID
-	if !strings.HasPrefix(scope, "/workspaces/") || !strings.HasSuffix(scope, suffix) {
+	if !memoryScopeRE.MatchString(scope) || !strings.HasSuffix(scope, "/positions/"+b.PositionID) {
 		return malformed("binding.memory_scope must bind /workspaces/<id>/positions/<position_id>")
 	}
 	return nil
@@ -221,8 +231,11 @@ func malformed(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrMalformed, fmt.Sprintf(format, args...))
 }
 
-func sha256Digest(value string) bool {
-	return sha256RE.MatchString(value)
+// ContentDigest is SHA-256 of the envelope text (UTF-8). Forgotten
+// tombstones digest the empty string.
+func ContentDigest(text string) string {
+	sum := sha256.Sum256([]byte(text))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // PermissionDigest is the SHA-256 of the canonical grant tuple. It is what

@@ -21,7 +21,8 @@ const (
 	exampleScope       = "/workspaces/44444444-4444-4444-8444-444444444444/positions/repo-owner"
 	exampleSourceDig   = "sha256:bee60ba20052b2969621c28f7378297c3b38cfa4eba66b22ff0df381447b2f8c"
 	examplePermDig     = "sha256:98056de97087164dd9e0f5235cba6019d9576230faa1e37b104e735e5b5729a6"
-	exampleTextDig     = "sha256:f695bb9d1be18d8498657537efa5effa2809dedd30dabcf5913d021c4fa9d9b7"
+	exampleText        = "Search APIs must match title OR body and return matchField."
+	exampleTextDig     = "sha256:bfa1e9bb9bacbabafb44c2c89ee7a108e81e10628c53a645af5b49eff081166f"
 )
 
 func TestDecodeRejectsFreeStringScope(t *testing.T) {
@@ -179,7 +180,7 @@ func TestRecallEligibility(t *testing.T) {
 		}
 	})
 
-	t.Run("superseded archived forgotten malformed out-of-scope", func(t *testing.T) {
+	t.Run("superseded archived forgotten malformed", func(t *testing.T) {
 		cases := []struct {
 			name   string
 			mutate func(*Record)
@@ -187,15 +188,12 @@ func TestRecallEligibility(t *testing.T) {
 		}{
 			{"superseded", func(r *Record) { r.Lifecycle = LifecycleSuperseded }, OmitSuperseded},
 			{"archived", func(r *Record) { r.Lifecycle = LifecycleArchived }, OmitSuperseded},
-			{"forgotten", func(r *Record) { r.Lifecycle = LifecycleForgotten; r.Text = "" }, OmitForgotten},
+			{"forgotten", func(r *Record) {
+				r.Lifecycle = LifecycleForgotten
+				r.Text = ""
+				r.Digest = ContentDigest("")
+			}, OmitForgotten},
 			{"malformed digest", func(r *Record) { r.Digest = "sha256:ab" }, OmitMalformed},
-			{"cross principal", func(r *Record) { r.Binding.Principal = "position.other" }, OmitOutOfScope},
-			{"cross workspace", func(r *Record) {
-				r.Binding.WorkspaceID = uuid.MustParse("55555555-5555-4555-8555-555555555555")
-			}, OmitOutOfScope},
-			{"scope mismatch", func(r *Record) {
-				r.Binding.MemoryScope = "/workspaces/44444444-4444-4444-8444-444444444444/positions/other"
-			}, OmitOutOfScope},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -204,6 +202,34 @@ func TestRecallEligibility(t *testing.T) {
 				got := EvaluateRecall(rec, caller)
 				if got.Eligible || got.OmitReason != tc.want {
 					t.Fatalf("got %+v want omit %s", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("out of scope is caller mismatch not record mutation", func(t *testing.T) {
+		rec := validRecord(t)
+		cases := []struct {
+			name   string
+			caller RecallCaller
+		}{
+			{"cross principal", func() RecallCaller { c := caller; c.Principal = "position.other-agent"; return c }()},
+			{"cross workspace", func() RecallCaller {
+				c := caller
+				c.WorkspaceID = "55555555-5555-4555-8555-555555555555"
+				return c
+			}()},
+			{"scope mismatch", func() RecallCaller {
+				c := caller
+				c.MemoryScope = "/workspaces/44444444-4444-4444-8444-444444444444/positions/other-agent"
+				return c
+			}()},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				got := EvaluateRecall(rec, tc.caller)
+				if got.Eligible || got.OmitReason != OmitOutOfScope {
+					t.Fatalf("got %+v", got)
 				}
 			})
 		}
@@ -311,6 +337,40 @@ func TestReceiptSurfacesGrantAndRevocation(t *testing.T) {
 	}
 }
 
+func TestReceiptHidesOutOfScopeMetadata(t *testing.T) {
+	now := time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)
+	rec := validRecord(t)
+	foreign := RecallCaller{
+		WorkspaceID: exampleWorkspaceID,
+		Principal:   "position.other-agent",
+		MemoryScope: exampleScope,
+		At:          now,
+	}
+	receipt := BuildReceipt(rec, foreign)
+	if receipt.Eligible || receipt.MemoryID != uuid.Nil || receipt.Locator != "" || receipt.Grant.GrantID != uuid.Nil {
+		t.Fatalf("out-of-scope receipt must not disclose the foreign record: %+v", receipt)
+	}
+}
+
+func TestGrantModeIsReadOnly(t *testing.T) {
+	rec := validRecord(t)
+	body := mustJSON(t, rec)
+	var loose map[string]any
+	if err := json.Unmarshal(body, &loose); err != nil {
+		t.Fatal(err)
+	}
+	grant, _ := loose["grant"].(map[string]any)
+	grant["mode"] = "delete"
+	grant["permission_digest"] = PermissionDigest(rec.Binding, "delete", rec.Grant.GrantVersion)
+	raw, err := json.Marshal(loose)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeRecord(raw); err == nil {
+		t.Fatal("grant.mode other than read must fail; forget uses token delete scope")
+	}
+}
+
 func TestCheckedInSchemaForbidsScopeProperty(t *testing.T) {
 	raw, err := os.ReadFile(schemaPath(t))
 	if err != nil {
@@ -369,8 +429,8 @@ func validRecord(t *testing.T) Record {
 		Lifecycle:    LifecycleActive,
 		Trust:        TrustUntrusted,
 		Authority:    AuthorityNone,
-		Text:         "Search APIs must match title OR body and return matchField.",
-		Digest:       exampleTextDig,
+		Text:         exampleText,
+		Digest:       ContentDigest(exampleText),
 	}
 	rec.Grant.PermissionDigest = PermissionDigest(rec.Binding, rec.Grant.Mode, rec.Grant.GrantVersion)
 	return rec

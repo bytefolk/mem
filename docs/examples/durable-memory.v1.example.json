@@ -42,5 +42,5 @@
   "trust": "untrusted",
   "authority": "none",
   "text": "Search APIs must match title OR body and return matchField.",
-  "digest": "sha256:f695bb9d1be18d8498657537efa5effa2809dedd30dabcf5913d021c4fa9d9b7"
+  "digest": "sha256:bfa1e9bb9bacbabafb44c2c89ee7a108e81e10628c53a645af5b49eff081166f"
 }

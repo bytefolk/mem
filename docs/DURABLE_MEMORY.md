@@ -24,8 +24,13 @@ all four of:
 2. position principal `position.<position_id>`;
 3. canonical `memory_scope` (`/workspaces/<instance>/positions/<position_id>`);
 4. a grant/revocation tuple (`grant_id`, `grant_version`, `permission_digest`,
-   `revoked_at`) that reuses `durable-context.v1` grants and
-   `capability-grant.v1`.
+   `revoked_at`). `grant_id` is the existing `durable-context.v1` allowlist
+   row. `grant.mode` is always `read` (the same constraint as that table).
+   `grant_version` is an envelope-side monotonic revision because the grant
+   row has no version column today. Forget still requires the mem `delete`
+   token scope plus a workspace role that allows deletion; it is not a grant
+   mode. `capability-grant.v1` is a normative pointer (`server=mem`), not a
+   second allowlist.
 
 Cross-principal access is denied by default. Pinning cannot enlarge that
 boundary.
@@ -47,8 +52,10 @@ boundary.
   cache drop as success. Failure is a visible `forget_denied`.
 - Exact readback compares the canonical envelope. A digest, `state_version`,
   binding, or text drift is a mismatch, not a silent resume.
-- Digests are full `sha256:` + 64 lowercase hex. Placeholders such as
-  `sha256:ab` are malformed.
+- `digest` is SHA-256 of `text` UTF-8 bytes. Forgotten tombstones digest the
+  empty string. Placeholders such as `sha256:ab` are malformed.
+- Exact readback compares decoded envelope fields after `validateRecord`. It
+  is not RFC 8785 JSON canonicalization.
 
 ## How grant and revocation enter readback / receipt
 
@@ -87,6 +94,15 @@ Recall of one record returns a receipt, not a bare string:
 `capability-grant.v1` remains the digital-employee capability document. This
 envelope stores a normative pointer (`schema_version=capability-grant.v1`,
 `server=mem`); it does not reimplement grants.
+
+`binding.workspace_id` is the **mem** workspace. `memory_scope` uses the
+digital-employee workspace instance id (`/workspaces/<instance>/positions/<position>`).
+Those UUIDs are different namespaces and must not be required to match.
+
+Out-of-scope and malformed probes produce an empty receipt: no `memory_id`,
+locator, grant block, or pin. In-scope denials (`revoked`, `expired`,
+`forgotten`, `superseded`) keep grant status so the operator can see why
+recall stopped.
 
 MemoryPort continues to hold no grant/revoke/forget methods. Operators
 provision tokens and grants on mem's admin surface. RoleWeave UI may request

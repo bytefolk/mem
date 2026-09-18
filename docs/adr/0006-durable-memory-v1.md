@@ -26,8 +26,9 @@ Ship `durable-memory.v1` as an additive envelope:
 
 - Required `binding` (`workspace_id`, `position_id`, `principal`,
   `memory_scope`) instead of `scope`.
-- Required `grant` that reuses `durable-context.v1` grant ids and points at
-  `capability-grant.v1`. `revoked_at` and `permission_digest` are first-class.
+- Required `grant` that reuses `durable-context.v1` grant **ids** and points at
+  `capability-grant.v1`. `grant.mode` is `read` only. `grant_version` is
+  envelope-side. `revoked_at` and `permission_digest` are first-class.
 - Eligibility treats expired, revoked, malformed, superseded, forgotten, and
   out-of-scope records as ineligible.
 - Pin may preserve TTL eligibility and must not enlarge permission.

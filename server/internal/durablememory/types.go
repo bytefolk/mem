@@ -101,8 +101,9 @@ type Binding struct {
 	MemoryScope string    `json:"memory_scope"`
 }
 
-// Grant reuses mem durable-context grants and capability-grant.v1. Revocation
-// is a first-class field so receipts can show why recall was denied.
+// Grant reuses a durable-context.v1 grant id. Mode is always read. Forget uses
+// the mem delete token scope, not this field. Revocation is first-class so
+// in-scope receipts can show why recall was denied.
 type Grant struct {
 	GrantID          uuid.UUID          `json:"grant_id"`
 	Mode             string             `json:"mode"`

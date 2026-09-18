@@ -116,7 +116,8 @@
       "maxLength": 16384
     },
     "digest": {
-      "$ref": "#/$defs/sha256"
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of text UTF-8 bytes. Forgotten tombstones digest the empty string."
     }
   },
   "$defs": {
@@ -175,8 +176,8 @@
           "description": "Existing durable-context.v1 grant row. Grants are not invented here."
         },
         "mode": {
-          "type": "string",
-          "enum": ["read", "write", "delete"]
+          "const": "read",
+          "description": "Recall grants are read-only, matching durable-context.v1. Forget uses the mem delete token scope, not this field."
         },
         "grant_version": {
           "type": "integer",

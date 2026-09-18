@@ -1,8 +1,6 @@
 package durablememory
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,7 +10,7 @@ import (
 // EvaluateRecall decides whether one record may be injected. Pin may preserve
 // TTL eligibility; it never enlarges workspace, principal, scope, or grant.
 func EvaluateRecall(rec Record, caller RecallCaller) Eligibility {
-	if reason := malformedReason(rec); reason != "" {
+	if err := validateRecord(rec); err != nil {
 		return Eligibility{OmitReason: OmitMalformed}
 	}
 	if !sameBinding(rec.Binding, caller) {
@@ -45,19 +43,38 @@ func PhysicalDeleteImplied(rec Record, caller RecallCaller) bool {
 	return false
 }
 
-// ExactReadback requires the observed record to match the stored canonical
-// envelope byte-for-byte after JSON canonicalization.
+// ExactReadback compares decoded envelope fields after the same validateRecord
+// gate used on decode. It is not RFC 8785 JSON canonicalization.
 func ExactReadback(stored, observed Record) error {
-	want, err := json.Marshal(stored)
-	if err != nil {
-		return fmt.Errorf("%w: marshal stored: %v", ErrReadbackMismatch, err)
+	if err := validateRecord(stored); err != nil {
+		return fmt.Errorf("%w: stored: %v", ErrReadbackMismatch, err)
 	}
-	got, err := json.Marshal(observed)
-	if err != nil {
-		return fmt.Errorf("%w: marshal observed: %v", ErrReadbackMismatch, err)
+	if err := validateRecord(observed); err != nil {
+		return fmt.Errorf("%w: observed: %v", ErrReadbackMismatch, err)
 	}
-	if !bytes.Equal(want, got) {
+	if stored.MemoryID != observed.MemoryID ||
+		stored.Kind != observed.Kind ||
+		stored.Binding != observed.Binding ||
+		stored.Grant.GrantID != observed.Grant.GrantID ||
+		stored.Grant.Mode != observed.Grant.Mode ||
+		stored.Grant.GrantVersion != observed.Grant.GrantVersion ||
+		stored.Grant.PermissionDigest != observed.Grant.PermissionDigest ||
+		stored.Source != observed.Source ||
+		stored.Producer != observed.Producer ||
+		stored.Text != observed.Text ||
+		stored.Digest != observed.Digest ||
+		stored.StateVersion != observed.StateVersion ||
+		stored.Pinned != observed.Pinned ||
+		stored.Lifecycle != observed.Lifecycle {
 		return ErrReadbackMismatch
+	}
+	if len(stored.Citations) != len(observed.Citations) {
+		return ErrReadbackMismatch
+	}
+	for i := range stored.Citations {
+		if stored.Citations[i] != observed.Citations[i] {
+			return ErrReadbackMismatch
+		}
 	}
 	return nil
 }
@@ -66,6 +83,9 @@ func ExactReadback(stored, observed Record) error {
 // contract evaluator never reports a local fake delete as success.
 func EvaluateForget(rec Record, actor ForgetActor) ForgetDecision {
 	denied := ForgetDecision{ErrorCode: ErrorForgetDenied}
+	if err := validateRecord(rec); err != nil {
+		return denied
+	}
 	if !sameBinding(rec.Binding, RecallCaller{
 		WorkspaceID: actor.WorkspaceID,
 		Principal:   actor.Principal,
@@ -80,9 +100,13 @@ func EvaluateForget(rec Record, actor ForgetActor) ForgetDecision {
 }
 
 // BuildReceipt projects grant/revocation into the readback envelope.
+// Out-of-scope and malformed probes are indistinguishable from absence.
 func BuildReceipt(rec Record, caller RecallCaller) RecallReceipt {
-	at := caller.At
 	elig := EvaluateRecall(rec, caller)
+	if elig.OmitReason == OmitOutOfScope || elig.OmitReason == OmitMalformed {
+		return RecallReceipt{Contract: ContractVersion, Eligible: false}
+	}
+	at := caller.At
 	receipt := RecallReceipt{
 		Contract:     ContractVersion,
 		MemoryID:     rec.MemoryID,
@@ -101,10 +125,29 @@ func BuildReceipt(rec Record, caller RecallCaller) RecallReceipt {
 		},
 	}
 	if elig.Eligible {
-		clone := rec
-		receipt.Readback = &clone
+		receipt.Readback = cloneRecord(rec)
 	}
 	return receipt
+}
+
+func cloneRecord(rec Record) *Record {
+	clone := rec
+	if rec.ExpiresAt != nil {
+		expires := *rec.ExpiresAt
+		clone.ExpiresAt = &expires
+	}
+	if rec.Confidence != nil {
+		conf := *rec.Confidence
+		clone.Confidence = &conf
+	}
+	if rec.Grant.RevokedAt != nil {
+		revoked := *rec.Grant.RevokedAt
+		clone.Grant.RevokedAt = &revoked
+	}
+	if rec.Citations != nil {
+		clone.Citations = append([]string(nil), rec.Citations...)
+	}
+	return &clone
 }
 
 func locator(memoryID uuid.UUID, stateVersion int64) string {
@@ -128,29 +171,4 @@ func hasScope(scopes []string, want string) bool {
 		}
 	}
 	return false
-}
-
-func malformedReason(rec Record) string {
-	if rec.Contract != ContractVersion {
-		return OmitMalformed
-	}
-	if rec.MemoryID == uuid.Nil || rec.Binding.WorkspaceID == uuid.Nil || rec.Grant.GrantID == uuid.Nil {
-		return OmitMalformed
-	}
-	if rec.Trust != TrustUntrusted || rec.Authority != AuthorityNone {
-		return OmitMalformed
-	}
-	if rec.StateVersion < 1 || rec.Grant.GrantVersion < 1 {
-		return OmitMalformed
-	}
-	if !sha256Digest(rec.Grant.PermissionDigest) || !sha256Digest(rec.Source.Digest) {
-		return OmitMalformed
-	}
-	if rec.Lifecycle != LifecycleForgotten && !sha256Digest(rec.Digest) {
-		return OmitMalformed
-	}
-	if rec.Binding.Principal == "" || rec.Binding.MemoryScope == "" {
-		return OmitMalformed
-	}
-	return ""
 }
