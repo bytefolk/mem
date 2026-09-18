@@ -44,6 +44,7 @@ const LOCK_WAIT_TIMEOUT_MS = 120 * 1000;
 const LOCK_STALE_MS = 10 * 60 * 1000;
 const LOCK_ORPHAN_GRACE_MS = 5 * 1000;
 const LOCK_POLL_MS = 50;
+const WINDOWS_MISSING_LOCK_GRACE_MS = 250;
 const guardedResponses = new WeakSet();
 
 // Version from package.json — single source of truth for both release URLs.
@@ -86,7 +87,12 @@ function removeOwnedPath(target) {
   try {
     const info = lstatSync(target);
     if (info.isDirectory() && !info.isSymbolicLink()) {
-      rmSync(target, { recursive: true, force: true });
+      rmSync(target, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 10,
+      });
     } else {
       unlinkSync(target);
     }
@@ -194,14 +200,22 @@ function resolvedCachePath(target) {
   absolutePath(target, platform(), "mem-mcp cache directory");
   const missing = [];
   let current = target;
+  let concurrentCreateRetries = 0;
   for (;;) {
     try {
       return path.join(realpathSync.native(current), ...missing);
     } catch (err) {
       if (err.code !== "ENOENT") throw err;
       try {
-        lstatSync(current);
-        throw new Error(`Cannot safely resolve mem-mcp cache path: ${current}`);
+        const info = lstatSync(current);
+        if (info.isSymbolicLink() || concurrentCreateRetries >= 3) {
+          throw new Error(`Cannot safely resolve mem-mcp cache path: ${current}`);
+        }
+        // Another installer created this non-link ancestor after realpath
+        // returned ENOENT. Retry the same path instead of mistaking that safe
+        // creation race for a dangling symlink.
+        concurrentCreateRetries += 1;
+        continue;
       } catch (inspectionError) {
         if (inspectionError.code !== "ENOENT") throw inspectionError;
       }
@@ -328,11 +342,12 @@ function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkd
   try {
     info = lstatSync(lockPath);
   } catch (err) {
-    // An EEXIST result followed by ENOENT means a competing owner released
-    // the lock before inspection. It is safe to retry, but it must take the
-    // normal deadline/delay path rather than spin synchronously. A Windows
-    // EPERM/EACCES without a lock to inspect remains a real permission failure.
-    if (err.code === "ENOENT" && mkdirError.code === "EEXIST") return;
+    // The owner may release the lock between our failed mkdir and inspection.
+    // Windows can report that mkdir race as EPERM/EACCES rather than EEXIST.
+    // Return "not observed" so the caller can retry those ambiguous Windows
+    // results for a short, bounded grace period without hiding a persistent
+    // permission failure.
+    if (err.code === "ENOENT" && isLockContention(mkdirError, "win32")) return false;
     if (err.code === "ENOENT") throw mkdirError;
     throw err;
   }
@@ -348,7 +363,7 @@ function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkd
     : alive === true
       ? false
       : age >= staleMs;
-  if (!reclaimable) return;
+  if (!reclaimable) return true;
 
   const quarantine = `${lockPath}.stale.${process.pid}.${randomBytes(12).toString("hex")}`;
   try {
@@ -356,7 +371,7 @@ function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkd
   } catch (err) {
     // Another contender changed the lock after we inspected it. Retrying is
     // safe, but uses the normal poll path so repeated races cannot busy-loop.
-    if (err.code === "ENOENT" || err.code === "EEXIST") return;
+    if (err.code === "ENOENT" || err.code === "EEXIST") return true;
     throw err;
   }
 
@@ -366,6 +381,7 @@ function reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkd
     }
   }
   removeOwnedPath(quarantine);
+  return true;
 }
 
 async function acquireAssetLock(cacheDir, asset, options = {}) {
@@ -377,6 +393,7 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
   const signal = options.signal;
   const lockPath = path.join(cacheDir, `.${asset}.lock`);
   const deadline = Date.now() + waitTimeoutMs;
+  let missingWindowsLockSince = null;
 
   for (;;) {
     throwIfAborted(signal);
@@ -404,8 +421,30 @@ async function acquireAssetLock(cacheDir, asset, options = {}) {
     // pass through the same deadline and abort-aware poll. This prevents a
     // repeated create/release race from bypassing the wait budget in a tight
     // synchronous loop.
-    reclaimStaleLock(lockPath, cacheDir, asset, staleMs, orphanGraceMs, mkdirError);
-    if (Date.now() >= deadline) {
+    const lockObserved = reclaimStaleLock(
+      lockPath,
+      cacheDir,
+      asset,
+      staleMs,
+      orphanGraceMs,
+      mkdirError,
+    );
+    const now = Date.now();
+    const ambiguousWindowsRace = osPlatform === "win32"
+      && mkdirError.code !== "EEXIST"
+      && lockObserved === false;
+    if (ambiguousWindowsRace) {
+      missingWindowsLockSince ??= now;
+      if (
+        now >= deadline
+        || now - missingWindowsLockSince >= WINDOWS_MISSING_LOCK_GRACE_MS
+      ) {
+        throw mkdirError;
+      }
+    } else {
+      missingWindowsLockSince = null;
+    }
+    if (now >= deadline) {
       throw new Error(`Timed out waiting for mem-mcp cache lock: ${lockPath}`);
     }
     await delay(Math.max(1, pollMs), signal);

@@ -249,6 +249,13 @@ and unchanged other tags, and verifies registry signatures/attestations through
 `npm audit signatures` in a clean consumer. Its receipt records only `next`.
 No automatic dist-tag promotion, access grant, deprecation or rollback occurs.
 
+The npm release proof deliberately fixes `channel` to `next`; changing that
+channel is a release-policy change and requires updating the proof validator,
+workflow assertions, rollback analysis and independent review together. The
+MCP Registry workflow likewise pins `mcp-publisher` to an explicit upstream
+version and per-platform SHA-256 digest. Upgrade both values from the same
+upstream release asset set; never switch the publish job back to `latest`.
+
 If publish fails or subsequent readback/audit fails, **stop**. The version may
 already exist even if the run is red. Inspect the exact package/version,
 preflight integrity and run before deciding recovery; never rerun publish as

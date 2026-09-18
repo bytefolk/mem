@@ -7,6 +7,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-18
+
 ### Added
 
 - Additive `durable-memory.v1` envelope for derived RoleWeave/mem records

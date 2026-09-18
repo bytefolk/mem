@@ -852,6 +852,43 @@ test("a contended Windows lock reported as EPERM waits for a proven lock", async
   assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
 });
 
+test("a Windows EPERM lock released before inspection is retried", async (t) => {
+  // This is the race observed in the real node24-windows job: mkdir reports
+  // EPERM for a competing lock, but that owner removes it before lstat.
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    let attempts = 0;
+    fs.mkdirSync = function (target, ...rest) {
+      if (String(target).endsWith(".lock") && attempts++ === 0) {
+        throw Object.assign(new Error("simulated released Windows lock"), {
+          code: "EPERM",
+          syscall: "mkdir",
+        });
+      }
+      return realMkdirSync.call(this, target, ...rest);
+    };
+    const { acquireAssetLock, releaseAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    acquireAssetLock(${JSON.stringify(cacheDir)}, ${JSON.stringify(ASSET)}, {
+      osPlatform: "win32",
+      pollMs: 1,
+      waitTimeoutMs: 5000,
+    })
+      .then((lock) => {
+        if (attempts !== 2) throw new Error("expected exactly one retry, saw " + attempts);
+        releaseAssetLock(lock);
+      })
+      .catch((error) => {
+        console.error(error.stack || String(error));
+        process.exitCode = 1;
+      });
+  `);
+  assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
+});
+
 test("an EEXIST lock that disappears before inspection observes the timeout without spinning", async (t) => {
   const root = testDirectory(t);
   const cacheDir = join(root, "cache");
@@ -967,7 +1004,7 @@ test("a stale-lock rename race observes the timeout without spinning", async (t)
   `);
 });
 
-test("a persistent Windows EPERM without a lock fails promptly instead of retrying", async (t) => {
+test("a persistent Windows EPERM without a lock fails after a bounded grace", async (t) => {
   const root = testDirectory(t);
   const cacheDir = join(root, "cache");
   mkdirSync(cacheDir, { recursive: true });
@@ -995,7 +1032,10 @@ test("a persistent Windows EPERM without a lock fails promptly instead of retryi
       })
       .catch((error) => {
         if (error.code !== "EPERM") throw error;
-        if (Date.now() - startedAt >= 1000) throw new Error("permission error entered the retry loop");
+        const elapsed = Date.now() - startedAt;
+        if (elapsed < 200 || elapsed >= 1000) {
+          throw new Error("permission ambiguity grace was not bounded: " + elapsed + "ms");
+        }
       });
   `);
 });
@@ -1041,6 +1081,81 @@ test("a Windows lock inspection permission error fails promptly", async (t) => {
         if (Date.now() - startedAt >= 1000) throw new Error("inspection error entered the retry loop");
       });
   `);
+});
+
+test("lock release retries a transient non-empty directory race", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  mkdirSync(cacheDir, { recursive: true });
+  await runWorker(t, `
+    const fs = require("node:fs");
+    const realRmSync = fs.rmSync;
+    fs.rmSync = function (target, options) {
+      if (
+        String(target).endsWith(".lock")
+        && (
+          !options
+          || (options.maxRetries ?? 0) < 3
+          || (options.retryDelay ?? 0) < 10
+        )
+      ) {
+        throw Object.assign(new Error("simulated transient non-empty lock"), {
+          code: "ENOTEMPTY",
+          syscall: "rmdir",
+        });
+      }
+      return realRmSync.call(this, target, options);
+    };
+    const { acquireAssetLock, releaseAssetLock } = require(${JSON.stringify(require.resolve("./install"))});
+    acquireAssetLock(${JSON.stringify(cacheDir)}, ${JSON.stringify(ASSET)})
+      .then((lock) => releaseAssetLock(lock))
+      .catch((error) => {
+        console.error(error.stack || String(error));
+        process.exitCode = 1;
+      });
+  `);
+  assert.equal(existsSync(join(cacheDir, `.${ASSET}.lock`)), false);
+});
+
+test("cache resolution retries a directory created between realpath and lstat", async (t) => {
+  const root = testDirectory(t);
+  const cacheDir = join(root, "cache");
+  await runWorker(t, `
+    const crypto = require("node:crypto");
+    const fs = require("node:fs");
+    const realMkdirSync = fs.mkdirSync;
+    const realRealpathNative = fs.realpathSync.native;
+    const cacheDir = ${JSON.stringify(cacheDir)};
+    let armed = true;
+    fs.realpathSync.native = function (target, ...rest) {
+      if (armed && target === cacheDir) {
+        armed = false;
+        realMkdirSync(cacheDir, { recursive: true });
+        throw Object.assign(new Error("simulated concurrent cache creation"), {
+          code: "ENOENT",
+          syscall: "realpath",
+        });
+      }
+      return realRealpathNative.call(this, target, ...rest);
+    };
+    const { install } = require(${JSON.stringify(require.resolve("./install"))});
+    const bytes = Buffer.from("verified concurrent cache fixture");
+    const digest = crypto.createHash("sha256").update(bytes).digest("hex");
+    install({
+      osPlatform: "linux",
+      osArch: "x64",
+      cacheDir,
+      logger: { log() {}, warn() {} },
+      downloadText: async () => digest + "  ${ASSET}\\n",
+      downloadFile: async (_url, destination) => {
+        fs.writeFileSync(destination, bytes, { flag: "wx", mode: 0o600 });
+      },
+    }).catch((error) => {
+      console.error(error.stack || String(error));
+      process.exitCode = 1;
+    });
+  `);
+  assert.deepEqual(readFileSync(join(cacheDir, ASSET)), Buffer.from("verified concurrent cache fixture"));
 });
 
 test("a non-contention error propagates immediately instead of entering the wait loop", async (t) => {
