@@ -7,7 +7,7 @@ This package distributes the `mem-mcp` stdio MCP server binary so it can be inst
 ## Install
 
 ```bash
-npm install @fullstack-ai-infra/mem-mcp
+npm install @bytefolk/mem-mcp@0.1.2
 ```
 
 ## Usage
@@ -39,11 +39,33 @@ a later diagnostic sink fails.
 The executable cache is outside the installed npm package and is isolated by
 package version and platform. Defaults are `$XDG_CACHE_HOME` (or `~/.cache`) on
 Linux, `~/Library/Caches` on macOS, and `%LOCALAPPDATA%` on Windows, below
-`fullstack-ai-infra/mem-mcp`. Set `MEM_MCP_CACHE_DIR` to an absolute path to use
+`bytefolk/mem-mcp`. Set `MEM_MCP_CACHE_DIR` to an absolute path to use
 a different writable cache root. A per-asset cross-process lock serializes
 verification and atomic replacement, so concurrent hosts cannot expose or
 delete each other's downloads. Stale-lock recovery removes only artifacts named
 by that lock owner's nonce and leaves foreign temporary files untouched.
+
+With the default cache root, the wrapper also checks the old
+`fullstack-ai-infra/mem-mcp/v<version>/<platform>-<arch>` location for the
+exact requested version and platform. A regular file matching the current
+Release checksum is copied into the new cache, verified again, and atomically
+installed under the new cache lock. The old file and its permissions are left
+untouched, even on failure. Missing, corrupt, unreadable, or symlinked legacy
+entries fall back to the normal verified download. A 0.1.1 binary is never
+substituted for 0.1.2. Setting `MEM_MCP_CACHE_DIR` disables this default legacy
+binary lookup; its selected cache retains the verification and cleanup rules
+above. Before any directory, lock, permission or cleanup change, the installer
+resolves the destination and legacy cache paths, including existing ancestors
+of directories not yet created. If the trees overlap in either direction
+(including namespace, root, version or platform symlink aliases), startup fails
+without changing either cache or downloading a manifest. Choose a separate
+`MEM_MCP_CACHE_DIR` to recover; do not remove the old cache to resolve the error.
+Explicit `MEM_MCP_CACHE_DIR` and programmatic `cacheDir` selections also reject
+overlap with the default legacy tree. They disable reuse, not data protection.
+Existing destination and same-version legacy entries are also compared by
+device and inode: a hardlink is rejected before mutation even when the resolved
+paths differ. These checks inspect only the selected paths, without scanning
+other cached versions or platforms.
 
 Bootstrap and verification diagnostics use stderr. Stdout is inherited by the
 verified binary and remains clean for the MCP stdio protocol. This first-run
@@ -59,7 +81,7 @@ bounded shutdown grace period.
   "mcpServers": {
     "mem": {
       "command": "npx",
-      "args": ["-y", "@fullstack-ai-infra/mem-mcp"],
+      "args": ["-y", "@bytefolk/mem-mcp@0.1.2"],
       "env": {
         "MEM_SERVER": "http://localhost:8787",
         "MEM_TOKEN": "mem_..."
@@ -75,8 +97,28 @@ bounded shutdown grace period.
 claude mcp add --scope project --transport stdio \
   --env MEM_SERVER=http://localhost:8787 \
   --env MEM_TOKEN=mem_... \
-  mem -- npx -y @fullstack-ai-infra/mem-mcp
+  mem -- npx -y @bytefolk/mem-mcp@0.1.2
 ```
+
+## Migrating from 0.1.1
+
+The npm package is now `@bytefolk/mem-mcp`; the MCP registry identifier is
+`io.github.bytefolk/mem-mcp`. The executable and MCP handshake name remain
+`mem-mcp`. Replace the old dependency key in your project's `package.json`
+with `"@bytefolk/mem-mcp": "0.1.2"` and run `npm install`, or update your host's
+`npx` argument to `@bytefolk/mem-mcp@0.1.2` as shown above. Keep the existing
+server, token and workspace settings.
+
+The wrapper requires the matching `v0.1.2` GitHub Release binaries and checksum
+manifest. Source/package metadata alone does not establish that a clean
+installation can launch; those assets and the npm publication must be verified
+before rolling out the new coordinates.
+
+Migration does not move stored memories or delete old caches. Keep
+`@fullstack-ai-infra/mem-mcp@0.1.1` available until the new package has passed
+installation and launch checks. To roll back, restore that exact dependency or
+host argument and retain the same connection settings. Do not unpublish the
+old package; deprecation follows verified consumer and directory migration.
 
 ## Configuration
 

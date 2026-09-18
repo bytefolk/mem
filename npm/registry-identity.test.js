@@ -41,10 +41,9 @@ test("both manifests name the same server", () => {
   assert.equal(serverManifest.version, packageManifest.version);
 });
 
-// A registry identifier is a primary key, so the npm scope is allowed to differ
-// from it while the package name is not allowed to drift from it: `mcpName`
-// ends in the unscoped package name by construction, and moving the package
-// without moving the identifier would silently fork the registry record.
+// A registry identifier is a primary key. After the ByteFolk cutover the npm
+// scope matches the GitHub owner; the trailing mcpName segment must still be
+// the unscoped package name.
 test("the registry name is the unscoped package name", () => {
   const [, packageName] = packageManifest.name.split("/");
   assert.equal(
