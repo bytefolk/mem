@@ -178,8 +178,9 @@ func (s *Service) fileMeta(ctx context.Context, id uuid.UUID) (userID uuid.UUID,
 // recomputeText finds the top-K text-embedding nearest neighbors for srcID
 // (within the same user) and rewrites file_relations rows of type same_topic.
 //
-// Strategy: take the first chunk of src as the seed; ANN against ALL chunks
-// of OTHER files, DISTINCT ON dst file (best chunk wins).
+// Strategy: take the first chunk of src as the seed; walk cosine-ordered
+// chunks of OTHER files (HNSW-compatible) and fall back to DISTINCT ON when
+// a bounded scan underfills after per-file deduplication.
 func (s *Service) recomputeText(ctx context.Context, srcID, userID uuid.UUID, topK int) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -194,46 +195,21 @@ func (s *Service) recomputeText(ctx context.Context, srcID, userID uuid.UUID, to
 		return fmt.Errorf("clear: %w", err)
 	}
 
-	rows, err := tx.Query(ctx, `
-		WITH seed AS (
-		  SELECT embedding FROM embeddings_text
-		   WHERE file_id = $1 AND chunk_index = 0
-		   LIMIT 1
-		)
-		SELECT DISTINCT ON (e.file_id)
-		       e.file_id,
-		       (1 - (e.embedding <=> (SELECT embedding FROM seed)))::real AS score
-		  FROM embeddings_text e
-		  JOIN files f ON f.id = e.file_id
-		 WHERE f.user_id = $2
-		   AND e.file_id != $1
-		   AND (SELECT embedding FROM seed) IS NOT NULL
-		 ORDER BY e.file_id, e.embedding <=> (SELECT embedding FROM seed) ASC
-		 LIMIT $3
-	`, srcID, userID, topK)
+	neighbors, err := textNeighbors(ctx, tx, srcID, userID, topK)
 	if err != nil {
 		return fmt.Errorf("knn: %w", err)
 	}
-	defer rows.Close()
 
 	batch := &pgx.Batch{}
 	count := 0
-	for rows.Next() {
-		var dstID uuid.UUID
-		var score float32
-		if err := rows.Scan(&dstID, &score); err != nil {
-			return fmt.Errorf("scan: %w", err)
-		}
+	for _, n := range neighbors {
 		batch.Queue(`
 			INSERT INTO file_relations (src_id, dst_id, type, score, computed_at)
 			VALUES ($1, $2, $3, $4, now())
 			ON CONFLICT (src_id, dst_id, type)
 			  DO UPDATE SET score = EXCLUDED.score, computed_at = EXCLUDED.computed_at
-		`, srcID, dstID, TypeSameTopic, score)
+		`, srcID, n.fileID, TypeSameTopic, n.score)
 		count++
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 	if count > 0 {
 		br := tx.SendBatch(ctx, batch)
@@ -248,6 +224,143 @@ func (s *Service) recomputeText(ctx context.Context, srcID, userID uuid.UUID, to
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+type textNeighbor struct {
+	fileID uuid.UUID
+	score  float32
+}
+
+// textNeighbors preserves best-chunk-per-file top-K. It walks cosine-order
+// candidates (HNSW-compatible) and falls back to exact DISTINCT ON when a
+// bounded scan underfills after per-file deduplication.
+func textNeighbors(ctx context.Context, tx pgx.Tx, srcID, userID uuid.UUID, topK int) ([]textNeighbor, error) {
+	if topK <= 0 {
+		return nil, nil
+	}
+	selected := make([]uuid.UUID, 0, topK)
+	seen := make(map[uuid.UUID]struct{}, topK)
+	out := make([]textNeighbor, 0, topK)
+	for round := 0; round <= topK && len(out) < topK; round++ {
+		remaining := topK - len(out)
+		batch, err := queryTextNeighborsDistanceOrder(ctx, tx, srcID, userID, selected, remaining)
+		if err != nil {
+			return nil, err
+		}
+		added := 0
+		for _, n := range batch {
+			if _, ok := seen[n.fileID]; ok {
+				continue
+			}
+			seen[n.fileID] = struct{}{}
+			selected = append(selected, n.fileID)
+			out = append(out, n)
+			added++
+			if len(out) >= topK {
+				break
+			}
+		}
+		if added == 0 {
+			rest, err := queryTextNeighborsExact(ctx, tx, srcID, userID, selected, remaining)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, rest...)
+			break
+		}
+	}
+	if len(out) > topK {
+		out = out[:topK]
+	}
+	return out, nil
+}
+
+func excludeIDs(ids []uuid.UUID) []uuid.UUID {
+	if ids == nil {
+		return []uuid.UUID{}
+	}
+	return ids
+}
+
+func queryTextNeighborsDistanceOrder(
+	ctx context.Context,
+	tx pgx.Tx,
+	srcID, userID uuid.UUID,
+	selected []uuid.UUID,
+	limit int,
+) ([]textNeighbor, error) {
+	rows, err := tx.Query(ctx, `
+		WITH seed AS (
+		  SELECT embedding FROM embeddings_text
+		   WHERE file_id = $1 AND chunk_index = 0
+		   LIMIT 1
+		)
+		SELECT e.file_id,
+		       (1 - (e.embedding <=> (SELECT embedding FROM seed)))::real AS score
+		  FROM embeddings_text e
+		  JOIN files f ON f.id = e.file_id
+		 WHERE f.user_id = $2
+		   AND e.file_id != $1
+		   AND (SELECT embedding FROM seed) IS NOT NULL
+		   AND NOT (e.file_id = ANY($4::uuid[]))
+		 ORDER BY e.embedding <=> (SELECT embedding FROM seed) ASC
+		 LIMIT $3
+	`, srcID, userID, limit, excludeIDs(selected))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTextNeighbors(rows)
+}
+
+func queryTextNeighborsExact(
+	ctx context.Context,
+	tx pgx.Tx,
+	srcID, userID uuid.UUID,
+	selected []uuid.UUID,
+	limit int,
+) ([]textNeighbor, error) {
+	rows, err := tx.Query(ctx, `
+		WITH seed AS (
+		  SELECT embedding FROM embeddings_text
+		   WHERE file_id = $1 AND chunk_index = 0
+		   LIMIT 1
+		)
+		SELECT file_id, score FROM (
+		  SELECT DISTINCT ON (e.file_id)
+		         e.file_id,
+		         (1 - (e.embedding <=> (SELECT embedding FROM seed)))::real AS score
+		    FROM embeddings_text e
+		    JOIN files f ON f.id = e.file_id
+		   WHERE f.user_id = $2
+		     AND e.file_id != $1
+		     AND (SELECT embedding FROM seed) IS NOT NULL
+		     AND NOT (e.file_id = ANY($4::uuid[]))
+		   ORDER BY e.file_id, e.embedding <=> (SELECT embedding FROM seed) ASC
+		) hits
+		ORDER BY score DESC
+		LIMIT $3
+	`, srcID, userID, limit, excludeIDs(selected))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanTextNeighbors(rows)
+}
+
+func scanTextNeighbors(rows pgx.Rows) ([]textNeighbor, error) {
+	out := make([]textNeighbor, 0, 8)
+	for rows.Next() {
+		var n textNeighbor
+		if err := rows.Scan(&n.fileID, &n.score); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
+		}
+		out = append(out, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Service) recomputeVisual(ctx context.Context, srcID, userID uuid.UUID, topK int) error {

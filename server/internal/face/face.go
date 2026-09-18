@@ -10,9 +10,10 @@
 //     to that entity. Otherwise we create a new entity (unnamed).
 //  4. Insert embeddings_face (file_id, entity_id, bbox, embedding).
 //
-// This is intentionally O(n) per insert — fine for a personal drive up to
-// thousands of faces. For larger corpora swap in pgvector HNSW + offline
-// re-clustering.
+// Clustering is intentionally O(n) per insert (in-process centroid distance).
+// Migration 0025 adds a cosine HNSW index on embeddings_face; assignCluster
+// does not query it yet. A future SQL kNN plus offline re-clustering can use
+// that index without changing the 512-d insightface space.
 package face
 
 import (

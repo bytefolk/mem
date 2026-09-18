@@ -4,7 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-unit}"
-EXPECTED_MIGRATION_HEAD=24
+EXPECTED_MIGRATION_HEAD=25
 MIGRATION_ROLLBACK_TARGET=11
 MODEL_TEXT_CANONICAL_BASE=15
 WORKSPACE_AI_PROFILE_BASE=16
@@ -349,6 +349,7 @@ run_postgres_tests() {
     TestManagedAISettlementOutboxPostgres
     TestReleasedFileStageRetryPostgres
     TestDurableContextPostgres
+    TestTextANNFileSemanticsPostgres
   )
 
   integration_log="$(mktemp "${TMPDIR:-/tmp}/mem-integration.XXXXXX")"
@@ -359,7 +360,7 @@ run_postgres_tests() {
     MEM_TEST_DB="$MEM_TEST_DB" go test \
       ${race_flag:+"$race_flag"} \
       -v -count=1 -p 1 -timeout 20m \
-      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestWorkspaceTransferMergeConservativePostgres|TestHandoffCrossAgentHTTPIntegration|TestRelocateHTTPPostgres|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestAnnotationDecisionIntegration|TestIndexerEnrichmentIntegration|TestRecomputePerson|TestManagedEmbeddingEntitlementPostgres|TestManagedSearchReplayPostgres|TestManagedEmbeddingHTTPAuthorizationPostgres|TestAIProfilePostgres|TestIndexGenerationPostgres|TestManagedAISettlementOutboxPostgres|TestReleasedFileStageRetryPostgres|TestDurableContextPostgres)$' \
+      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestWorkspaceTransferMergeConservativePostgres|TestHandoffCrossAgentHTTPIntegration|TestRelocateHTTPPostgres|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestAnnotationDecisionIntegration|TestIndexerEnrichmentIntegration|TestRecomputePerson|TestManagedEmbeddingEntitlementPostgres|TestManagedSearchReplayPostgres|TestManagedEmbeddingHTTPAuthorizationPostgres|TestAIProfilePostgres|TestIndexGenerationPostgres|TestManagedAISettlementOutboxPostgres|TestReleasedFileStageRetryPostgres|TestDurableContextPostgres|TestTextANNFileSemanticsPostgres)$' \
       ./internal/memory \
       ./internal/handoff \
       ./internal/workspacetransfer \
@@ -397,7 +398,24 @@ run_integration() {
   validate_test_database
   with_fresh_test_database migration_sequence run_migration_sequence
   with_fresh_test_database migration run_migration_round_trip
+  with_fresh_test_database hnsw_migration run_hnsw_migration
   with_fresh_test_database integration run_postgres_integration
+}
+
+run_hnsw_migration() {
+  log "Populated HNSW migration, rollback, ingest, dimension rejection and EXPLAIN"
+  (
+    cd "${REPO_ROOT}/server"
+    MEM_HNSW_TEST_DB="$MEM_TEST_DB" go test -v -count=1 \
+      -run '^TestHNSWMigrationPostgres$' ./internal/db
+  )
+  if command -v psql >/dev/null 2>&1; then
+    log "Read-only HNSW planner script on the populated corpus"
+    bash "${REPO_ROOT}/scripts/verify_hnsw_indexes.sh" \
+      "$MEM_TEST_DB" "00000000-0000-0000-0000-000000000173"
+  else
+    log "psql not present; TestHNSWMigrationPostgres EXPLAIN is the planner gate"
+  fi
 }
 
 run_integration_race() {

@@ -264,8 +264,10 @@ CREATE INDEX idx_index_generation_targets_file_hash
 -- +goose StatementBegin
 -- `vector` intentionally has no table-wide dimension. Every row is validated
 -- against its immutable generation.output_dimension by the canonical service.
--- Future ANN indexes must be route/dimension-specific expression or partition
--- indexes; silently padding or truncating vectors is never allowed.
+-- ANN indexes on this undimensioned table must be route/dimension-specific
+-- expression or partition indexes; silently padding or truncating vectors is
+-- never allowed. Legacy embeddings_text/visual/face tables are indexed by
+-- migration 0025; this table waits for the generation executor.
 CREATE TABLE index_generation_vectors (
     generation_id           uuid NOT NULL REFERENCES index_generations(id) ON DELETE CASCADE,
     workspace_id            uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
