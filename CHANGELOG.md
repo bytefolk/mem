@@ -38,6 +38,12 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- README onboarding now leads with the `deploy/compose` path as the recommended
+  first-run experience (one-shot: `generate-env` → `compose up` → register →
+  use CLI/MCP). The bare-metal development path (`scripts/dev_up.sh`) is
+  demoted to a development-only subsection, and `docs/RUN_LOCAL.md` adds a
+  platform-equivalence table covering macOS, Ubuntu/Debian and WSL2 (`#109`).
+  `mem doctor` already names `deploy/compose` on a machine with no config.
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
   to the canonical `bytefolk` organization while retaining the published npm
   scope and the existing cache paths.
