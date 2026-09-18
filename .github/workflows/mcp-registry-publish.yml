@@ -1,0 +1,101 @@
+name: MCP Registry Publish
+
+# G5: official MCP Registry metadata. Does not host the binary.
+# Requires G4: @bytefolk/mem-mcp must already be on npm with matching mcpName.
+# Auth is GitHub OIDC against io.github.bytefolk/* — not a personal device login.
+# Founder gate: environment mcp-registry (same owner as npm-release).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published npm/package version (e.g. 0.1.2, no v prefix)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-registry-publish-bytefolk-mem-mcp
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish io.github.bytefolk/mem-mcp (OIDC)
+    if: github.repository == 'bytefolk/mem'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: mcp-registry
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out default branch for registry manifest
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require @bytefolk/mem-mcp on npm before Registry write
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${VERSION}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "expected X.Y.Z, got ${VERSION}" >&2
+            exit 1
+          fi
+          meta="$(curl -fsS "https://registry.npmjs.org/@bytefolk/mem-mcp/${VERSION}")"
+          name="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])' <<<"${meta}")"
+          mcp="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("mcpName",""))' <<<"${meta}")"
+          [[ "${name}" == "@bytefolk/mem-mcp" ]]
+          [[ "${mcp}" == "io.github.bytefolk/mem-mcp" ]]
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" \
+            | tar -xz mcp-publisher
+          chmod +x ./mcp-publisher
+
+      - name: Stage official server.json
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          path = "npm/mcp-registry.server.json"
+          with open(path) as f:
+              doc = json.load(f)
+          version = os.environ["VERSION"]
+          doc["version"] = version
+          doc["packages"][0]["version"] = version
+          with open("server.json", "w") as f:
+              json.dump(doc, f, indent=2)
+              f.write("\n")
+          PY
+
+      - name: Login with GitHub OIDC and publish
+        run: |
+          set -euo pipefail
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
+      - name: Read back Registry search
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.bytefolk/mem-mcp" \
+            | tee "${RUNNER_TEMP}/mcp-registry-readback.json"
+          python3 - <<'PY'
+          import json, os, sys
+          data = json.load(open(os.environ["RUNNER_TEMP"] + "/mcp-registry-readback.json"))
+          servers = data.get("servers") or data.get("result") or []
+          if not servers:
+              sys.exit("HOLD: registry search returned no servers")
+          print("G5 readback: %s" % json.dumps(servers[0])[:2000])
+          PY
