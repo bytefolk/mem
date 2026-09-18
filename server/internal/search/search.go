@@ -650,11 +650,12 @@ func (s *Service) mergeAutoResults(q Query, tr, vr autoResult) ([]Hit, error) {
 // many near chunks, or post-filters emptying the HNSW candidate list — the
 // original exact DISTINCT ON query fills the remaining slots.
 func (s *Service) runTextANN(ctx context.Context, q Query, vec []float32) ([]Hit, error) {
+	const maxTextANNLimit = 100
 	if q.Limit <= 0 {
 		q.Limit = 10
 	}
-	if q.Limit > 100 {
-		q.Limit = 100
+	if q.Limit > maxTextANNLimit {
+		q.Limit = maxTextANNLimit
 	}
 	args := []any{vectorLiteral(vec), q.UserID}
 	where := []string{"f.user_id = $2"}
@@ -662,9 +663,10 @@ func (s *Service) runTextANN(ctx context.Context, q Query, vec []float32) ([]Hit
 	args, where = appendMIMEFilter(args, where, q.Type)
 	args, where = appendTimeFilters(args, where, q.Since, q.Until)
 
-	selected := make([]uuid.UUID, 0, q.Limit)
-	seen := make(map[uuid.UUID]struct{}, q.Limit)
-	out := make([]Hit, 0, q.Limit)
+	// Constant caps: CodeQL still treats a sanitized q.Limit as user-controlled.
+	selected := make([]uuid.UUID, 0, maxTextANNLimit)
+	seen := make(map[uuid.UUID]struct{}, maxTextANNLimit)
+	out := make([]Hit, 0, maxTextANNLimit)
 	for round := 0; round <= q.Limit && len(out) < q.Limit; round++ {
 		remaining := q.Limit - len(out)
 		batch, err := s.queryTextDistanceOrder(ctx, q, args, where, selected, remaining)
