@@ -710,7 +710,64 @@ func excludeFileIDs(selected []uuid.UUID) []uuid.UUID {
 	return selected
 }
 
-const textANNHitSQL = `
+func (s *Service) queryTextDistanceOrder(
+	ctx context.Context,
+	q Query,
+	args []any,
+	where []string,
+	selected []uuid.UUID,
+	limit int,
+) ([]Hit, error) {
+	queryArgs := cloneArgs(args)
+	excludeSQL := "TRUE"
+	if len(selected) > 0 {
+		queryArgs = append(queryArgs, selected)
+		excludeSQL = fmt.Sprintf("NOT (e.file_id = ANY($%d::uuid[]))", len(queryArgs))
+	}
+	queryArgs = append(queryArgs, limit)
+	limitIdx := len(queryArgs)
+	// ANN first so the planner can use HNSW; file filters apply after.
+	sql := fmt.Sprintf(`
+		WITH nearest AS (
+		  SELECT e.id, e.file_id, e.chunk_index, e.chunk_text,
+		         e.embedding <=> $1::vector AS dist
+		    FROM embeddings_text e
+		   WHERE %s
+		   ORDER BY e.embedding <=> $1::vector ASC
+		   LIMIT $%d
+		)
+		SELECT e.id::text, f.id, f.name, f.path, f.mime, f.sha256,
+		       e.chunk_index, (1 - e.dist) AS score, e.chunk_text, f.summary,
+		       f.timeline_at, f.created_at
+		  FROM nearest e
+		  JOIN files f ON f.id = e.file_id
+		 WHERE %s
+		 ORDER BY e.dist ASC
+	`, excludeSQL, limitIdx, strings.Join(where, " AND "))
+	return s.scanHits(ctx, sql, queryArgs, RouteText, q.SnippetChars)
+}
+
+func (s *Service) queryTextExactRemaining(
+	ctx context.Context,
+	q Query,
+	args []any,
+	where []string,
+	selected []uuid.UUID,
+	limit int,
+) ([]Hit, error) {
+	queryArgs := cloneArgs(args)
+	excludeSQL := "TRUE"
+	if len(selected) > 0 {
+		queryArgs = append(queryArgs, selected)
+		excludeSQL = fmt.Sprintf("NOT (e.file_id = ANY($%d::uuid[]))", len(queryArgs))
+	}
+	queryArgs = append(queryArgs, limit)
+	limitIdx := len(queryArgs)
+	sql := fmt.Sprintf(`
+		SELECT evidence_id, file_id, name, path, mime, content_sha256,
+		       chunk_index, score, snippet, summary, timeline_at, created_at
+		FROM (
+		  SELECT DISTINCT ON (f.id)
 		    e.id::text    AS evidence_id,
 		    f.id          AS file_id,
 		    f.name        AS name,
@@ -724,57 +781,14 @@ const textANNHitSQL = `
 		    f.timeline_at AS timeline_at,
 		    f.created_at  AS created_at
 		  FROM embeddings_text e
-		  JOIN files f ON f.id = e.file_id`
-
-func (s *Service) queryTextDistanceOrder(
-	ctx context.Context,
-	q Query,
-	args []any,
-	where []string,
-	selected []uuid.UUID,
-	limit int,
-) ([]Hit, error) {
-	queryArgs := cloneArgs(args)
-	queryArgs = append(queryArgs, excludeFileIDs(selected))
-	excludeIdx := len(queryArgs)
-	queryArgs = append(queryArgs, limit)
-	limitIdx := len(queryArgs)
-	sql := fmt.Sprintf(`
-		SELECT `+textANNHitSQL+`
-		 WHERE %s
-		   AND NOT (f.id = ANY($%d::uuid[]))
-		 ORDER BY e.embedding <=> $1::vector ASC
-		 LIMIT $%d
-	`, strings.Join(where, " AND "), excludeIdx, limitIdx)
-	return s.scanHits(ctx, sql, queryArgs, RouteText, q.SnippetChars)
-}
-
-func (s *Service) queryTextExactRemaining(
-	ctx context.Context,
-	q Query,
-	args []any,
-	where []string,
-	selected []uuid.UUID,
-	limit int,
-) ([]Hit, error) {
-	queryArgs := cloneArgs(args)
-	queryArgs = append(queryArgs, excludeFileIDs(selected))
-	excludeIdx := len(queryArgs)
-	queryArgs = append(queryArgs, limit)
-	limitIdx := len(queryArgs)
-	sql := fmt.Sprintf(`
-		SELECT evidence_id, file_id, name, path, mime, content_sha256,
-		       chunk_index, score, snippet, summary, timeline_at, created_at
-		FROM (
-		  SELECT DISTINCT ON (f.id)
-		  `+textANNHitSQL+`
+		  JOIN files f ON f.id = e.file_id
 		   WHERE %s
-		     AND NOT (f.id = ANY($%d::uuid[]))
+		     AND %s
 		   ORDER BY f.id, e.embedding <=> $1::vector ASC
 		) hits
 		ORDER BY score DESC
 		LIMIT $%d
-	`, strings.Join(where, " AND "), excludeIdx, limitIdx)
+	`, strings.Join(where, " AND "), excludeSQL, limitIdx)
 	return s.scanHits(ctx, sql, queryArgs, RouteText, q.SnippetChars)
 }
 

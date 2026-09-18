@@ -275,13 +275,6 @@ func textNeighbors(ctx context.Context, tx pgx.Tx, srcID, userID uuid.UUID, topK
 	return out, nil
 }
 
-func excludeIDs(ids []uuid.UUID) []uuid.UUID {
-	if ids == nil {
-		return []uuid.UUID{}
-	}
-	return ids
-}
-
 func queryTextNeighborsDistanceOrder(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -289,23 +282,39 @@ func queryTextNeighborsDistanceOrder(
 	selected []uuid.UUID,
 	limit int,
 ) ([]textNeighbor, error) {
-	rows, err := tx.Query(ctx, `
-		WITH seed AS (
-		  SELECT embedding FROM embeddings_text
-		   WHERE file_id = $1 AND chunk_index = 0
-		   LIMIT 1
+	var seed string
+	err := tx.QueryRow(ctx, `
+		SELECT embedding::text FROM embeddings_text
+		 WHERE file_id = $1 AND chunk_index = 0
+		 LIMIT 1
+	`, srcID).Scan(&seed)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	excludeSQL := "TRUE"
+	args := []any{seed, srcID, userID, limit}
+	if len(selected) > 0 {
+		args = append(args, selected)
+		excludeSQL = fmt.Sprintf("NOT (e.file_id = ANY($%d::uuid[]))", len(args))
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		WITH nearest AS (
+		  SELECT e.file_id, e.embedding <=> $1::vector AS dist
+		    FROM embeddings_text e
+		   WHERE e.file_id != $2
+		     AND %s
+		   ORDER BY e.embedding <=> $1::vector ASC
+		   LIMIT $4
 		)
-		SELECT e.file_id,
-		       (1 - (e.embedding <=> (SELECT embedding FROM seed)))::real AS score
-		  FROM embeddings_text e
-		  JOIN files f ON f.id = e.file_id
-		 WHERE f.user_id = $2
-		   AND e.file_id != $1
-		   AND (SELECT embedding FROM seed) IS NOT NULL
-		   AND NOT (e.file_id = ANY($4::uuid[]))
-		 ORDER BY e.embedding <=> (SELECT embedding FROM seed) ASC
-		 LIMIT $3
-	`, srcID, userID, limit, excludeIDs(selected))
+		SELECT n.file_id, (1 - n.dist)::real AS score
+		  FROM nearest n
+		  JOIN files f ON f.id = n.file_id
+		 WHERE f.user_id = $3
+		 ORDER BY n.dist ASC
+	`, excludeSQL), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +329,13 @@ func queryTextNeighborsExact(
 	selected []uuid.UUID,
 	limit int,
 ) ([]textNeighbor, error) {
-	rows, err := tx.Query(ctx, `
+	excludeSQL := "TRUE"
+	args := []any{srcID, userID, limit}
+	if len(selected) > 0 {
+		args = append(args, selected)
+		excludeSQL = fmt.Sprintf("NOT (e.file_id = ANY($%d::uuid[]))", len(args))
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		WITH seed AS (
 		  SELECT embedding FROM embeddings_text
 		   WHERE file_id = $1 AND chunk_index = 0
@@ -335,12 +350,12 @@ func queryTextNeighborsExact(
 		   WHERE f.user_id = $2
 		     AND e.file_id != $1
 		     AND (SELECT embedding FROM seed) IS NOT NULL
-		     AND NOT (e.file_id = ANY($4::uuid[]))
+		     AND %s
 		   ORDER BY e.file_id, e.embedding <=> (SELECT embedding FROM seed) ASC
 		) hits
 		ORDER BY score DESC
 		LIMIT $3
-	`, srcID, userID, limit, excludeIDs(selected))
+	`, excludeSQL), args...)
 	if err != nil {
 		return nil, err
 	}

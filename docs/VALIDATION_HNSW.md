@@ -25,13 +25,13 @@ A bounded `ORDER BY distance LIMIT n` scan can underfill after per-file
 deduplication (`ef_search=40` returning 40 chunks of one file). The shipping
 path:
 
-1. Query nearest remaining chunks with `ORDER BY embedding <=> $1 LIMIT remaining`
-   and `NOT (file_id = ANY(selected))`.
-2. Keep the first sighting of each file (that chunk is the file's best).
-3. Repeat until k files are collected.
-4. If a round returns no new files, fill the remainder with the original
-   exact `DISTINCT ON (f.id) ORDER BY f.id, distance` query, excluding
-   already-selected files.
+1. Run a CTE `ORDER BY embedding <=> $1 LIMIT remaining` on `embeddings_text`
+   (HNSW-compatible; omit `ANY(exclude)` when the exclude list is empty).
+2. Join those candidates to `files` and apply owner/path/MIME/time filters.
+3. Keep the first sighting of each file (that chunk is the file's best).
+4. Repeat, excluding selected files, until k files are collected.
+5. If a round returns no new files, fill the remainder with the original
+   exact `DISTINCT ON (f.id) ORDER BY f.id, distance` query.
 
 Step 1 is the planner-usable shape. Step 4 preserves the previous result
 contract on pathological corpora. Iterative-scan GUC is not enabled.

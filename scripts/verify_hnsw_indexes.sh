@@ -42,18 +42,17 @@ assert_plan() {
     fail=$((fail + 1))
   fi
 }
-# Match queryTextDistanceOrder: cosine order + empty exclude list + LIMIT.
-# DISTINCT ON (f.id) ORDER BY f.id is the exact fallback, not the primary plan.
-assert_plan text "SELECT e.id, f.id
-  FROM embeddings_text e JOIN files f ON f.id=e.file_id
-  WHERE f.user_id='${CORPUS_USER}'::uuid
-    AND NOT (f.id = ANY('{}'::uuid[]))
-  ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector ASC
-  LIMIT 10"
-assert_plan visual "SELECT e.file_id,
-  (1 - (e.embedding <=> array_fill(0.1::real, ARRAY[512])::vector))::real AS score
-  FROM embeddings_visual e JOIN files f ON f.id=e.file_id
-  WHERE f.user_id='${CORPUS_USER}'::uuid
-  ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[512])::vector ASC LIMIT 10"
+# Match queryTextDistanceOrder: ANN CTE then file join. DISTINCT ON is fallback.
+assert_plan text "WITH nearest AS (
+  SELECT e.id, e.file_id, e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector AS dist
+    FROM embeddings_text e
+   ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector ASC
+   LIMIT 10
+)
+SELECT e.id, f.id FROM nearest e JOIN files f ON f.id=e.file_id
+ WHERE f.user_id='${CORPUS_USER}'::uuid ORDER BY e.dist ASC"
+assert_plan visual "SELECT e.file_id
+  FROM embeddings_visual e
+ ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[512])::vector ASC LIMIT 10"
 echo "Results: ${pass} passed, ${fail} failed"
 [[ "$fail" -eq 0 ]]

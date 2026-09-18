@@ -119,17 +119,24 @@ func TestHNSWMigrationPostgres(t *testing.T) {
 		}
 	}
 	assertState(1, 2001)
+	if _, err := db.ExecContext(ctx, `ANALYZE embeddings_text; ANALYZE embeddings_visual; ANALYZE files`); err != nil {
+		t.Fatal(err)
+	}
 	assertIndexScan(t, ctx, db, "idx_embeddings_text_embedding_hnsw", `
+		WITH nearest AS (
+		  SELECT e.id, e.file_id, e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector AS dist
+		    FROM embeddings_text e
+		   ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector ASC
+		   LIMIT 10
+		)
 		SELECT e.id, f.id
-		  FROM embeddings_text e JOIN files f ON f.id = e.file_id
+		  FROM nearest e
+		  JOIN files f ON f.id = e.file_id
 		 WHERE f.user_id = '`+hnswCorpusUser+`'::uuid
-		   AND NOT (f.id = ANY('{}'::uuid[]))
-		 ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[768])::vector ASC
-		 LIMIT 10`)
+		 ORDER BY e.dist ASC`)
 	assertIndexScan(t, ctx, db, "idx_embeddings_visual_embedding_hnsw", `
 		SELECT e.file_id
-		  FROM embeddings_visual e JOIN files f ON f.id = e.file_id
-		 WHERE f.user_id = '`+hnswCorpusUser+`'::uuid
+		  FROM embeddings_visual e
 		 ORDER BY e.embedding <=> array_fill(0.1::real, ARRAY[512])::vector ASC
 		 LIMIT 10`)
 	if err := (&DB{url: dsn}).Migrate(ctx); err != nil {
