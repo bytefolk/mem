@@ -640,23 +640,134 @@ func (s *Service) mergeAutoResults(q Query, tr, vr autoResult) ([]Hit, error) {
 	return out, nil
 }
 
-// runTextANN issues the text-route SQL and scans results.
+// runTextANN returns the k files whose best chunk is nearest the query.
+//
+// The previous DISTINCT ON (f.id) ORDER BY f.id, distance shape cannot use a
+// cosine HNSW index. The shipping path now walks globally ordered chunks
+// (HNSW-compatible ORDER BY distance LIMIT n), keeps the first sighting of
+// each file (that chunk is the file's best), and excludes selected files on
+// the next round. If a bounded approximate scan underfills — one file owning
+// many near chunks, or post-filters emptying the HNSW candidate list — the
+// original exact DISTINCT ON query fills the remaining slots.
 func (s *Service) runTextANN(ctx context.Context, q Query, vec []float32) ([]Hit, error) {
+	const maxTextANNLimit = 100
+	if q.Limit <= 0 {
+		q.Limit = 10
+	}
+	if q.Limit > maxTextANNLimit {
+		q.Limit = maxTextANNLimit
+	}
 	args := []any{vectorLiteral(vec), q.UserID}
 	where := []string{"f.user_id = $2"}
 	args, where = appendPathFilters(args, where, q.PathPrefix, q.AllowedPaths)
 	args, where = appendMIMEFilter(args, where, q.Type)
-	if q.Since != nil {
-		args = append(args, *q.Since)
-		where = append(where, fmt.Sprintf("COALESCE(f.timeline_at, f.created_at) >= $%d", len(args)))
-	}
-	if q.Until != nil {
-		args = append(args, *q.Until)
-		where = append(where, fmt.Sprintf("COALESCE(f.timeline_at, f.created_at) <= $%d", len(args)))
-	}
-	args = append(args, q.Limit)
-	limitIdx := len(args)
+	args, where = appendTimeFilters(args, where, q.Since, q.Until)
 
+	// Constant caps: CodeQL still treats a sanitized q.Limit as user-controlled.
+	selected := make([]uuid.UUID, 0, maxTextANNLimit)
+	seen := make(map[uuid.UUID]struct{}, maxTextANNLimit)
+	out := make([]Hit, 0, maxTextANNLimit)
+	for round := 0; round <= q.Limit && len(out) < q.Limit; round++ {
+		remaining := q.Limit - len(out)
+		batch, err := s.queryTextDistanceOrder(ctx, q, args, where, selected, remaining)
+		if err != nil {
+			return nil, err
+		}
+		added := 0
+		for _, h := range batch {
+			if _, ok := seen[h.FileID]; ok {
+				continue
+			}
+			seen[h.FileID] = struct{}{}
+			selected = append(selected, h.FileID)
+			out = append(out, h)
+			added++
+			if len(out) >= q.Limit {
+				break
+			}
+		}
+		if added == 0 {
+			rest, err := s.queryTextExactRemaining(ctx, q, args, where, selected, remaining)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, rest...)
+			break
+		}
+	}
+	sortHitsByScoreDesc(out)
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
+	}
+	return out, nil
+}
+
+func cloneArgs(args []any) []any {
+	out := make([]any, len(args))
+	copy(out, args)
+	return out
+}
+
+func excludeFileIDs(selected []uuid.UUID) []uuid.UUID {
+	if selected == nil {
+		return []uuid.UUID{}
+	}
+	return selected
+}
+
+func (s *Service) queryTextDistanceOrder(
+	ctx context.Context,
+	q Query,
+	args []any,
+	where []string,
+	selected []uuid.UUID,
+	limit int,
+) ([]Hit, error) {
+	queryArgs := cloneArgs(args)
+	excludeSQL := "TRUE"
+	if len(selected) > 0 {
+		queryArgs = append(queryArgs, selected)
+		excludeSQL = fmt.Sprintf("NOT (e.file_id = ANY($%d::uuid[]))", len(queryArgs))
+	}
+	queryArgs = append(queryArgs, limit)
+	limitIdx := len(queryArgs)
+	// ANN first so the planner can use HNSW; file filters apply after.
+	sql := fmt.Sprintf(`
+		WITH nearest AS (
+		  SELECT e.id, e.file_id, e.chunk_index, e.chunk_text,
+		         e.embedding <=> $1::vector AS dist
+		    FROM embeddings_text e
+		   WHERE %s
+		   ORDER BY e.embedding <=> $1::vector ASC
+		   LIMIT $%d
+		)
+		SELECT e.id::text, f.id, f.name, f.path, f.mime, f.sha256,
+		       e.chunk_index, (1 - e.dist) AS score, e.chunk_text, f.summary,
+		       f.timeline_at, f.created_at
+		  FROM nearest e
+		  JOIN files f ON f.id = e.file_id
+		 WHERE %s
+		 ORDER BY e.dist ASC
+	`, excludeSQL, limitIdx, strings.Join(where, " AND "))
+	return s.scanHits(ctx, sql, queryArgs, RouteText, q.SnippetChars)
+}
+
+func (s *Service) queryTextExactRemaining(
+	ctx context.Context,
+	q Query,
+	args []any,
+	where []string,
+	selected []uuid.UUID,
+	limit int,
+) ([]Hit, error) {
+	queryArgs := cloneArgs(args)
+	excludeSQL := "TRUE"
+	if len(selected) > 0 {
+		queryArgs = append(queryArgs, selected)
+		excludeSQL = fmt.Sprintf("NOT (e.file_id = ANY($%d::uuid[]))", len(queryArgs))
+	}
+	queryArgs = append(queryArgs, limit)
+	limitIdx := len(queryArgs)
 	sql := fmt.Sprintf(`
 		SELECT evidence_id, file_id, name, path, mime, content_sha256,
 		       chunk_index, score, snippet, summary, timeline_at, created_at
@@ -676,14 +787,14 @@ func (s *Service) runTextANN(ctx context.Context, q Query, vec []float32) ([]Hit
 		    f.created_at  AS created_at
 		  FROM embeddings_text e
 		  JOIN files f ON f.id = e.file_id
-		  WHERE %s
-		  ORDER BY f.id, e.embedding <=> $1::vector ASC
+		   WHERE %s
+		     AND %s
+		   ORDER BY f.id, e.embedding <=> $1::vector ASC
 		) hits
 		ORDER BY score DESC
 		LIMIT $%d
-	`, strings.Join(where, " AND "), limitIdx)
-
-	return s.scanHits(ctx, sql, args, RouteText, q.SnippetChars)
+	`, strings.Join(where, " AND "), excludeSQL, limitIdx)
+	return s.scanHits(ctx, sql, queryArgs, RouteText, q.SnippetChars)
 }
 
 // runVisualANN issues the visual-route SQL.
