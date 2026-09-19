@@ -3,6 +3,12 @@ package ingest
 import (
 	"fmt"
 	"os"
+	"time"
+)
+
+const (
+	cursorLockWait  = 5 * time.Second
+	cursorLockRetry = 10 * time.Millisecond
 )
 
 // cursorLock holds an advisory lock on one cursor sidecar. The sidecar
@@ -14,15 +20,27 @@ type cursorLock struct {
 }
 
 func acquireCursorLock(cursorPath string) (*cursorLock, error) {
+	return acquireCursorLockWithTimeout(cursorPath, cursorLockWait)
+}
+
+func acquireCursorLockWithTimeout(cursorPath string, timeout time.Duration) (*cursorLock, error) {
 	file, err := os.OpenFile(cursorPath+".lock", os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
-	if err := lockCursorFile(file); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("acquire OS lock: %w", err)
+	deadline := time.Now().Add(timeout)
+	for {
+		if err := tryLockCursorFile(file); err == nil {
+			return &cursorLock{file: file}, nil
+		} else if !isCursorLockBusy(err) {
+			_ = file.Close()
+			return nil, fmt.Errorf("acquire OS lock: %w", err)
+		} else if !time.Now().Before(deadline) {
+			_ = file.Close()
+			return nil, fmt.Errorf("acquire OS lock: timed out after %s: %w", timeout, err)
+		}
+		time.Sleep(cursorLockRetry)
 	}
-	return &cursorLock{file: file}, nil
 }
 
 func (l *cursorLock) release() error {

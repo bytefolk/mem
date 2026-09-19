@@ -7,6 +7,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Changed
+
+- Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.
+
 ### Added
 
 - Additive `durable-memory.v1` envelope for derived RoleWeave/mem records
