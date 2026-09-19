@@ -1224,37 +1224,68 @@ func TestMemoryPostgres(t *testing.T) {
 			t.Fatalf("superseded markers = %+v", superseded)
 		}
 
-		outbound, err := service.ListRelations(ctx, ListRelationsQuery{
+		outboundResult, err := service.ListRelations(ctx, ListRelationsQuery{
 			WorkspaceID:  workspaceA,
 			MemoryID:     fresh.Memory.ID,
 			Direction:    "source",
 			AllowedPaths: []string{scope},
 		})
-		if err != nil || len(outbound) != 1 ||
-			outbound[0].TargetID != old.Memory.ID ||
-			outbound[0].RelationType != RelSupersedes ||
-			outbound[0].Reason != "decision updated" {
-			t.Fatalf("outbound relations = %+v err=%v", outbound, err)
+		if err != nil || len(outboundResult.Relations) != 1 ||
+			outboundResult.Relations[0].TargetID != old.Memory.ID ||
+			outboundResult.Relations[0].RelationType != RelSupersedes ||
+			outboundResult.Relations[0].Reason != "decision updated" {
+			t.Fatalf("outbound relations = %+v err=%v", outboundResult, err)
 		}
-		inbound, err := service.ListRelations(ctx, ListRelationsQuery{
+		inboundResult, err := service.ListRelations(ctx, ListRelationsQuery{
 			WorkspaceID:  workspaceA,
 			MemoryID:     old.Memory.ID,
 			Direction:    "target",
 			RelationType: RelSupersedes,
 			AllowedPaths: []string{scope},
 		})
-		if err != nil || len(inbound) != 1 || inbound[0].SourceID != fresh.Memory.ID {
-			t.Fatalf("inbound relations = %+v err=%v", inbound, err)
+		if err != nil || len(inboundResult.Relations) != 1 || inboundResult.Relations[0].SourceID != fresh.Memory.ID {
+			t.Fatalf("inbound relations = %+v err=%v", inboundResult, err)
 		}
-		typed, err := service.ListRelations(ctx, ListRelationsQuery{
+		typedResult, err := service.ListRelations(ctx, ListRelationsQuery{
 			WorkspaceID:  workspaceA,
 			MemoryID:     old.Memory.ID,
 			Direction:    "target",
 			RelationType: RelCorrects,
 			AllowedPaths: []string{scope},
 		})
-		if err != nil || len(typed) != 0 {
-			t.Fatalf("type-filtered relations = %+v err=%v", typed, err)
+		if err != nil || len(typedResult.Relations) != 0 {
+			t.Fatalf("type-filtered relations = %+v err=%v", typedResult, err)
+		}
+
+		// Keyset pages must preserve equal-timestamp ties without duplicates.
+		for _, target := range []uuid.UUID{old.Memory.ID, newest.Memory.ID} {
+			if _, err := service.CreateRelation(ctx, CreateRelationCommand{
+				WorkspaceID: workspaceA, SourceID: fresh.Memory.ID,
+				TargetID: target, RelationType: RelOccurrenceOf, AllowedPaths: []string{scope},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := database.Pool.Exec(ctx, `UPDATE memory_relations SET created_at = '2026-01-01T00:00:00Z'
+			WHERE workspace_id = $1 AND source_id = $2 AND relation_type = $3`,
+			workspaceA, fresh.Memory.ID, RelOccurrenceOf); err != nil {
+			t.Fatal(err)
+		}
+		pageQuery := ListRelationsQuery{WorkspaceID: workspaceA, MemoryID: fresh.Memory.ID,
+			RelationType: RelOccurrenceOf, AllowedPaths: []string{scope}, Limit: 1}
+		firstPage, err := service.ListRelations(ctx, pageQuery)
+		if err != nil || len(firstPage.Relations) != 1 || firstPage.NextCursor == "" {
+			t.Fatalf("first relation page = %+v, err=%v", firstPage, err)
+		}
+		pageQuery.Cursor = firstPage.NextCursor
+		secondPage, err := service.ListRelations(ctx, pageQuery)
+		if err != nil || len(secondPage.Relations) != 1 || secondPage.NextCursor != "" ||
+			secondPage.Relations[0].ID == firstPage.Relations[0].ID {
+			t.Fatalf("second relation page = %+v, err=%v", secondPage, err)
+		}
+		pageQuery.RelationType = RelSupersedes
+		if _, err := service.ListRelations(ctx, pageQuery); err == nil {
+			t.Fatal("relation cursor reused with a different filter")
 		}
 
 		// Anchors the caller cannot read are hidden as not found.

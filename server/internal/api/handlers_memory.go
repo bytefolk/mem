@@ -763,18 +763,21 @@ func (s *Server) handleListMemoryRelations(w http.ResponseWriter, r *http.Reques
 	}
 
 	tok := r.Context().Value(ctxToken).(*auth.Token)
-	relations, err := s.Memory.ListRelations(r.Context(), memory.ListRelationsQuery{
+	result, err := s.Memory.ListRelations(r.Context(), memory.ListRelationsQuery{
 		WorkspaceID:  currentWorkspace(r).ID,
 		MemoryID:     id,
 		Direction:    direction,
 		RelationType: relationType,
 		AllowedPaths: tok.Paths,
 		Limit:        limit,
+		Cursor:       r.URL.Query().Get("cursor"),
 	})
 	if err != nil {
 		switch {
 		case errors.Is(err, memory.ErrInvalidCommand):
 			writeError(w, http.StatusBadRequest, "invalid_relation_query", err.Error())
+		case errors.Is(err, memory.ErrInvalidCursor):
+			writeError(w, http.StatusBadRequest, "invalid_cursor", err.Error())
 		case errors.Is(err, memory.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "memory not found")
 		case errors.Is(err, memory.ErrForgotten):
@@ -789,8 +792,12 @@ func (s *Server) handleListMemoryRelations(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	if relations == nil {
-		relations = []memory.Relation{}
+	resp := map[string]any{"relations": result.Relations}
+	if result.Relations == nil {
+		resp["relations"] = []memory.Relation{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"relations": relations})
+	if result.NextCursor != "" {
+		resp["next_cursor"] = result.NextCursor
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

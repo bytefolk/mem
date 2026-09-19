@@ -150,6 +150,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Fixed
 
+- Enforce text-chunk uniqueness, index nullable memory references, cascade memory relations with workspace deletion, batch generation listings, and paginate relation listings with opaque cursors. Refs #178.
+
 - Follow the shared design language for reading, numeric and action alignment; generate the existing Web color variables from a pinned design-system token snapshot, and use a single consistent empty-state pattern. Refs #211.
 
 - Improve web caption and status contrast in both themes, including tinted danger
