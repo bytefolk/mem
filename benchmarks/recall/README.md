@@ -2,11 +2,11 @@
 
 > **Evidence boundary: producer checks do not complete the live benchmark.**
 >
-> The producer corrections tracked in #196 do not complete #175's acceptance.
-> The original #184 live-run requirement still needs a populated real memd,
-> actual embedding-provider output and saved ranking artifacts. Unit or
-> loopback HTTP fixtures establish transport behavior only. A real model-free
-> lexical run also cannot establish vector/provider quality. See
+> The producer can emit `mem.recall-rankings.v1` from a running memd and copies
+> engine/profile identity from that process. It still needs a populated real
+> memd, actual embedding-provider output, and a saved ranking artifact before
+> a real-memd baseline can land in `baselines/`. Unit or loopback HTTP fixtures
+> establish transport behavior only. See
 > [Exact remaining live prerequisites](#exact-remaining-live-prerequisites).
 
 This directory provides a small, repeatable retrieval benchmark. It is a
@@ -184,21 +184,32 @@ emits a `mem.recall-rankings.v1` file that the existing `run --rankings` path
 consumes. Latency is measured client-side per request; the `0 ms` sentinel
 warning above applies only to the offline lexical lane.
 
+Engine, provider, model/profile identity and embedding dimension are read from
+the running process (`GET /v1/version` and
+`GET /v1/workspaces/current/ai-profile`). They are not CLI flags. The artifact
+cannot be labeled `lexical-reference`. ANN identity is not advertised by those
+endpoints, so `configuration.index.kind` is recorded as `not-advertised`
+rather than guessed.
+
+The default dataset is the multilingual v1 fixture. Scoring the same run
+reports Recall@1/5/10 and nDCG@10 under `metrics.by_language` (`en`, `zh`)
+and `metrics.by_source_kind` (`text`, `image_caption`, `structured`). The
+Chinese set includes image-description queries (`q-zh-image-paraphrase`).
+Structured-memory queries cannot be served by `POST /v1/search`; they are
+recorded as `unsupported_source_kind` and do not fail the producer.
+
 ```bash
 python3 -m benchmarks.recall produce \
   --memd-url http://localhost:8080 \
   --token "$MEM_TOKEN" \
-  --dataset benchmarks/recall/data/profile-text-v1 \
   --output /tmp/live-rankings.json \
-  --dimension 768 --provider "$MEM_PROVIDER_LABEL" --model "$MEM_MODEL_LABEL" \
   --mode vector
 ```
 
-Then score the saved rankings (the default v1 baseline uses a different corpus):
+Then score the saved rankings:
 
 ```bash
 python3 -m benchmarks.recall run \
-  --dataset benchmarks/recall/data/profile-text-v1 \
   --rankings /tmp/live-rankings.json \
   --output /tmp/live-artifact.json
 ```
@@ -224,11 +235,9 @@ silently ignored.
 Vector mode sends `route=text`; it does not claim a hybrid lexical/vector or
 multimodal experiment. Lexical mode sends `route=lexical` and requires the
 server capability from #183. It emits null provider/model/dimension as required
-by the ranking schema. Provider, model, dimension and index configuration are
-operator declarations, not discovered or verified server metadata. The
-`hardware.host` value deliberately records only the producer client's
-OS/architecture, never its hostname. It is not the server's hardware inventory
-and cannot establish comparable performance conditions.
+by the ranking schema. The `hardware.host` value deliberately records only the
+producer client's OS/architecture, never its hostname. It is not the server's
+hardware inventory and cannot establish comparable performance conditions.
 
 The full v1 corpus also contains structured-memory queries. `/v1/search` cannot
 serve these; the producer records `unsupported_source_kind` and exits 2. Any
@@ -248,17 +257,20 @@ acceptance. Those remain NOT VERIFIED until a real populated memd run is saved.
    interpreting the producer's output. Direct database seeding can establish
    retrieval/transport behavior but does not verify ingestion or Worker indexing.
 3. For vector acceptance, select the same actual embedding model for corpus and
-   queries, record its dimension and profile, and independently inspect the
-   active generation/index and deployment revision. Producer labels alone do
-   not verify any of those properties.
+   queries. The producer now copies provider/model/dimension from the active
+   workspace AI profile; independently inspect the ANN index and deployment
+   revision. `configuration.index.kind=not-advertised` means those endpoints
+   do not expose ANN identity, not that no index exists.
 4. Run the documented producer command, retain its output, score the resulting
    rankings and record errors and measured client latencies. An empty/error run
    or a fake embedding provider cannot establish vector quality. A lexical run
    requires the separate #194 server capability and remains a distinct result.
-5. The bounded file-only experiment does not cover #175's bilingual image-query
-   acceptance or the full v1 structured-memory corpus. The original issue and
-   live quality acceptance must not be described as complete on this evidence.
+5. Score the v1 artifact's `metrics.by_language.zh` and
+   `metrics.by_source_kind.image_caption` for GOAL.md §6. Structured-memory
+   rows remain `unsupported_source_kind` because `/v1/search` is file search.
 
-The producer remains opt-in; the normal recall CI gate runs deterministic unit
-and fixture checks only. No real-model baseline is checked in until its actual
-configuration and saved run are available for review.
+The producer remains **on-demand**. `make test-recall` and CI run deterministic
+unit and fixture checks only; they never start memd or call a provider. No
+real-memd baseline is checked into `benchmarks/recall/baselines/` until a
+populated deployment's saved rankings are reviewed. That remaining #175
+acceptance bullet is still open.

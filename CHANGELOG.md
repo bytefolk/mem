@@ -9,6 +9,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.
 
 ### Added
