@@ -1,47 +1,54 @@
 name: NPM Publish
 
-# G4 (npm publish) lives in its own workflow because scripts/test_release_guards.sh
-# forbids `npm publish` inside release.yml and requires the draft publication to
-# remain release.yml's final command. G1 (GitHub Release) must exist first:
-# install.js pulls the platform binaries from the Release at install time.
-
+# GitHub binary publication stays in release.yml. A Release created with the
+# repository GITHUB_TOKEN may not trigger this workflow; dispatch the exact tag
+# explicitly after G1 asset verification (see docs/maintainers/releasing.md).
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       version:
-        description: "Existing published release tag to publish to npm (e.g., v0.1.0)"
+        description: "Existing stable tag, also selected as the workflow ref (v0.1.2)"
         required: true
         type: string
 
 permissions:
   contents: read
-  id-token: write
 
+# Serialize every version of this package: next is shared across releases.
 concurrency:
-  group: npm-publish-${{ inputs.version || github.event.release.tag_name }}
+  group: npm-publish-bytefolk-mem-mcp
   cancel-in-progress: false
 
 jobs:
   npm-publish:
-    name: Publish npm package (OIDC Trusted Publishing)
+    name: Publish verified npm tarball to next (OIDC)
+    if: github.repository == 'bytefolk/mem'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NPM_RELEASE_PROOF: ${{ vars.NPM_RELEASE_PROOF }}
     steps:
-      - name: Resolve release tag
+      - name: Validate exact stable event and tag before checkout
         id: tag
         env:
           INPUT_VERSION: ${{ inputs.version }}
           RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          TAG="${INPUT_VERSION:-${RELEASE_TAG_NAME}}"
-          if [[ ! "${TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "expected a release tag such as v0.1.0, got: ${TAG:-<empty>}" >&2
+          tag="${INPUT_VERSION:-${RELEASE_TAG_NAME}}"
+          if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo 'HOLD: an exact stable vX.Y.Z tag is required' >&2
             exit 1
           fi
-          printf 'tag=%s\n' "${TAG}" >> "${GITHUB_OUTPUT}"
+          [[ "${GITHUB_REF}" == "refs/tags/${tag}" ]]
+          [[ "${GITHUB_EVENT_NAME}" == release || "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]
+          printf 'tag=%s\n' "${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Check out exact tag commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,22 +57,56 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require the GitHub Release (G1) to exist before npm publish (G4)
+      - name: Set up Node 24 without release caches
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Require current release-owner org and publisher proof
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          node --input-type=module -e '
+            import { checkProof } from "./scripts/npm-release.mjs";
+            checkProof(JSON.parse(process.env.NPM_RELEASE_PROOF || "null"),
+              process.env.RELEASE_TAG, process.env.GITHUB_SHA);
+          '
+
+      - name: Install reviewed npm CLI with lifecycle scripts disabled
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs"), p = process.env.RUNNER_TEMP;
+            fs.writeFileSync(p + "/bootstrap-user.npmrc", "", {flag: "wx", mode: 0o600});
+            fs.writeFileSync(p + "/bootstrap-global.npmrc", "", {flag: "wx", mode: 0o600});
+          '
+          NPM_CONFIG_USERCONFIG="${RUNNER_TEMP}/bootstrap-user.npmrc" \
+          NPM_CONFIG_GLOBALCONFIG="${RUNNER_TEMP}/bootstrap-global.npmrc" \
+          NPM_CONFIG_CACHE="${RUNNER_TEMP}/bootstrap-npm-cache" \
+            npm install --global npm@11.15.0 --ignore-scripts --registry=https://registry.npmjs.org
+
+      - name: Test release refusal paths and npm wrapper
+        run: |
+          node --test scripts/npm-release.test.mjs
+          npm test --prefix npm
+
+      - name: Set up Go for read-only binary metadata inspection
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: server/go.mod
+          cache: false
+
+      - name: Preflight, publish next with provenance, verify registry and signatures
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: node scripts/npm-release.mjs "${RELEASE_TAG}"
+
+      - name: Record next receipt and separate owner gates
         run: |
-          set -euo pipefail
-          gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null
-
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-
-      - name: Publish @fullstack-ai-infra/mem-mcp (OIDC)
-        working-directory: npm
-        # No NPM_TOKEN / NODE_AUTH_TOKEN: auth is exchanged from the GitHub OIDC
-        # id-token against the npmjs Trusted Publisher configured for
-        # org=fullstack-ai-infra / repo=mem / workflow=npm-publish.yml.
-        run: npm publish --provenance --access public
+          node <<'NODE'
+          const fs = require("node:fs");
+          const receipt = fs.readFileSync(process.env.RUNNER_TEMP + "/mem-npm-release/receipt.json", "utf8");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "Published to next; latest requires release-owner acceptance.\n\n```json\n" + receipt + "\n```\n");
+          NODE

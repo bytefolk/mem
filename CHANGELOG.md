@@ -11,6 +11,8 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 - Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.
 
+## [0.1.2] - 2026-09-18
+
 ### Added
 
 - Additive `durable-memory.v1` envelope for derived RoleWeave/mem records
@@ -79,17 +81,18 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   platform-equivalence table covering macOS, Ubuntu/Debian and WSL2 (`#109`).
   `mem doctor` already names `deploy/compose` on a machine with no config.
 - Migrate GitHub repository, Release, issue, badge, and raw-content coordinates
-  to the canonical `bytefolk` organization while retaining the published npm
-  scope and the existing cache paths.
-- Follow the registry identifier after that rename: `mcpName` becomes
-  `io.github.bytefolk/mem-mcp`, because the official MCP Registry namespace is
-  derived from the repository owner and the previous value, naming the
-  organization this repository used to belong to, cannot resolve. The npm
-  package name and the installer's cache directory are deliberately unchanged,
-  so an existing installation keeps working and keeps its cache.
-  `npm/registry-identity.test.js` now asserts the identifier against the
-  repository coordinate the installer itself uses, so the next rename cannot
-  leave a stale identifier behind unnoticed.
+  to the canonical `bytefolk` organization.
+- Rename the npm wrapper to `@bytefolk/mem-mcp@0.1.2` and the MCP registry
+  identity to `io.github.bytefolk/mem-mcp`. New executable caches use
+  `bytefolk/mem-mcp`; a matching version/platform in the old
+  `fullstack-ai-infra/mem-mcp` cache can seed a separately verified copy.
+  Old cache entries, including 0.1.1, are never changed or removed by this
+  compatibility lookup. Explicit cache overrides keep their existing meaning.
+  The old npm package remains available for rollback; migration does not
+  unpublish it or change stored memories. Update host package arguments using
+  the migration guide in `npm/README.md`.
+  `npm/registry-identity.test.js` asserts the identifier against the
+  repository coordinate the installer itself uses.
 - Internal: the local ingestion mechanics used by
   `mem ingest qoder` — deterministic recursive transcript walk, per-path line
   cursors (atomic rename write, reset when a file is rewritten shorter), the
@@ -567,6 +570,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 - Preserve the primary Web acceptance failure when browser or Vite cleanup
   also fails.
 
-[Unreleased]: https://github.com/bytefolk/mem/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/bytefolk/mem/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/bytefolk/mem/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/bytefolk/mem/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/bytefolk/mem/releases/tag/v0.1.0

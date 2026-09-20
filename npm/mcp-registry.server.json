@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.bytefolk/mem-mcp",
+  "description": "MCP server for mem — a portable, self-hosted memory plane for AI agents",
+  "repository": {
+    "url": "https://github.com/bytefolk/mem",
+    "source": "github"
+  },
+  "version": "0.1.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@bytefolk/mem-mcp",
+      "version": "0.1.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

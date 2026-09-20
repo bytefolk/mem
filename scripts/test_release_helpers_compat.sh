@@ -27,7 +27,7 @@ if ! (
   exit 1
 fi
 
-asset_dir="${tmp_dir}/assets"
+asset_dir="${tmp_dir}/assets with spaces"
 mkdir -p -- "${asset_dir}"
 assets=(
   memd-darwin-amd64
