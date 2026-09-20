@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 func newPutCmd() *cobra.Command {
 	var (
 		recursive  bool
+		watch      bool
 		tag        []string
 		name       string
 		mimeFlag   string
@@ -80,15 +82,22 @@ func newPutCmd() *cobra.Command {
 				return err
 			}
 			if st.IsDir() {
+				if watch {
+					return watchDir(cmd, c, target, toFolder, tag, sourceMetadata, format)
+				}
 				if !recursive {
 					return errors.New("path is a directory; pass --recursive to upload its contents")
 				}
 				return uploadDir(c, target, toFolder, tag, sourceMetadata, format)
 			}
+			if watch {
+				return errors.New("--watch requires a directory path")
+			}
 			return uploadFile(c, target, name, mimeFlag, toFolder, tag, sourceMetadata, format)
 		},
 	}
 	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "recurse into directories")
+	cmd.Flags().BoolVarP(&watch, "watch", "w", false, "watch directory for new/changed files (one-way daemon)")
 	cmd.Flags().StringArrayVar(&tag, "tag", nil, "tag(s) to attach (repeatable)")
 	cmd.Flags().StringVar(&name, "name", "", "override file name (required for stdin)")
 	cmd.Flags().StringVar(&mimeFlag, "mime", "", "override MIME type")
@@ -524,3 +533,146 @@ func isTextLike(ctype string) bool {
 	}
 	return false
 }
+
+// watchDir implements the --watch daemon: polls a directory for new/changed
+// files and ingests them one-way into mem. Per-cycle reports are printed to
+// stdout. The daemon runs until interrupted (SIGINT/SIGTERM) or the watched
+// directory disappears.
+func watchDir(cmd *cobra.Command, c *httpClient, root, targetFolder string, tags []string, sourceMetadata *apiclient.FileSourceMetadata, format string) error {
+	// Polling interval (could be made configurable via flag in future)
+	interval := 5 * time.Second
+
+	// Track file states: path -> last known size
+	fileStates := make(map[string]int64)
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Watching %s (polling every %v, Ctrl+C to stop)\n", root, interval)
+
+	// Set up signal handling for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, os.Kill)
+	defer signal.Stop(sigCh)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	cycleNum := 0
+	for {
+		select {
+		case <-sigCh:
+			fmt.Fprintf(cmd.OutOrStdout(), "\nStopping watch daemon\n")
+			return nil
+		case <-ticker.C:
+			cycleNum++
+			report, err := runWatchCycle(c, root, targetFolder, tags, sourceMetadata, fileStates)
+			if err != nil {
+				// If root directory is gone, exit cleanly
+				if errors.Is(err, os.ErrNotExist) {
+					fmt.Fprintf(cmd.OutOrStdout(), "Watched directory no longer exists, stopping\n")
+					return nil
+				}
+				fmt.Fprintf(cmd.ErrOrStderr(), "Cycle %d error: %v\n", cycleNum, err)
+				continue
+			}
+			// Print per-cycle report
+			if format == "json" {
+				printWatchReportJSON(cmd.OutOrStdout(), cycleNum, report)
+			} else {
+				printWatchReportText(cmd.OutOrStdout(), cycleNum, report)
+			}
+		}
+	}
+}
+
+// watchCycleReport holds the results of a single watch cycle.
+type watchCycleReport struct {
+	Scanned   int      `json:"scanned"`
+	Ingested  int      `json:"ingested"`
+	Unchanged int      `json:"unchanged"`
+	Failed    int      `json:"failed"`
+	Failures  []string `json:"failures,omitempty"`
+}
+
+// runWatchCycle walks the directory, detects new/changed files, and ingests them.
+func runWatchCycle(c *httpClient, root, targetFolder string, tags []string, sourceMetadata *apiclient.FileSourceMetadata, fileStates map[string]int64) (watchCycleReport, error) {
+	report := watchCycleReport{}
+
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		// Skip directories and hidden files
+		if info.IsDir() {
+			if strings.HasPrefix(info.Name(), ".") && path != root {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(info.Name(), ".") {
+			return nil
+		}
+
+		report.Scanned++
+
+		// Check if file has changed (size-based detection)
+		lastSize, known := fileStates[path]
+		if known && lastSize == info.Size() {
+			report.Unchanged++
+			return nil
+		}
+
+		// File is new or changed, ingest it
+		// Compute relative path for target folder
+		relPath, err := filepath.Rel(root, path)
+		if err != nil {
+			relPath = filepath.Base(path)
+		}
+		destPath := targetFolder
+		if relPath != "." && relPath != "" {
+			destPath = strings.TrimSuffix(targetFolder, "/") + "/" + filepath.ToSlash(relPath)
+		}
+
+		err = uploadFile(c, path, "", "", destPath, tags, sourceMetadata, "text")
+		if err != nil {
+			report.Failed++
+			report.Failures = append(report.Failures, fmt.Sprintf("%s: %v", path, err))
+			return nil // Continue watching other files
+		}
+
+		// Update state
+		fileStates[path] = info.Size()
+		report.Ingested++
+		return nil
+	})
+
+	return report, err
+}
+
+func printWatchReportText(w io.Writer, cycle int, report watchCycleReport) {
+	fmt.Fprintf(w, "Cycle %d: scanned=%d ingested=%d unchanged=%d failed=%d\n",
+		cycle, report.Scanned, report.Ingested, report.Unchanged, report.Failed)
+	if len(report.Failures) > 0 {
+		for _, f := range report.Failures {
+			fmt.Fprintf(w, "  - %s\n", f)
+		}
+	}
+}
+
+func printWatchReportJSON(w io.Writer, cycle int, report watchCycleReport) {
+	// Simple JSON output without importing encoding/json to keep dependencies minimal
+	fmt.Fprintf(w, `{"cycle":%d,"scanned":%d,"ingested":%d,"unchanged":%d,"failed":%d`,
+		cycle, report.Scanned, report.Ingested, report.Unchanged, report.Failed)
+	if len(report.Failures) > 0 {
+		fmt.Fprintf(w, `,"failures":[`)
+		for i, f := range report.Failures {
+			if i > 0 {
+				fmt.Fprintf(w, ",")
+			}
+			// Escape quotes in failure messages
+			escaped := strings.ReplaceAll(f, `"`, `\"`)
+			fmt.Fprintf(w, `"%s"`, escaped)
+		}
+		fmt.Fprintf(w, "]")
+	}
+	fmt.Fprintf(w, "}\n")
+}
+

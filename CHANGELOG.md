@@ -7,6 +7,14 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- `mem put <dir> --watch` one-way directory watch daemon (`#110`). Polls every 5s
+  for new/changed files (size-based detection), ingests them into mem, and prints
+  per-cycle reports (scanned/ingested/unchanged/failed counts). Strictly local→mem
+  one-way; no write-back, no deletion propagation, no bidirectional sync. Graceful
+  shutdown on SIGINT/SIGTERM. Supports `--format json` for machine-readable reports.
+
 ### Changed
 
 - Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.
