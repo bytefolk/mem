@@ -13,6 +13,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- Index generation HTTP create/activate/rollback stay `503 execution_unavailable` with `execution_wired: false` on that body, and the same flag is now on events as well as list/status/cancel/resume/discard. Create still returns `400` for malformed JSON or an empty `profile_id` before the 503. Empty-workspace activate is refused by the same 503. Refs #174.
 - Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.
 
 ## [0.1.2] - 2026-09-18
