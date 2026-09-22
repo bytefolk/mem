@@ -121,7 +121,7 @@ mem 只有一份数据和能力内核，但面向两类使用者：
 - [x] 实现 API / CLI / Web 的 workspace export 与空目标 `fresh` import。
 - [x] 实现导入前校验、幂等 ledger、冲突明细、失败补偿和导入后重新索引。
 - [x] 实现 `merge_conservative`。
-- [ ] 实现增量包、断点上传与完整本地同步盘体验。
+- [ ] 实现增量包、断点上传与完整本地同步盘体验。 One-way `mem put --watch` is #110 and is not this item.
 
 ### P2 — 让全部 Agent 数据可见可控
 

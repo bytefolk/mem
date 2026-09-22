@@ -260,6 +260,7 @@ curl --fail http://127.0.0.1:8080/healthz
 export MEM_SERVER=http://localhost:8080
 mem auth login
 mem put ~/Photos --recursive
+mem put ~/Photos --watch          # one-way watch of new files (#110); not a sync drive
 # 可选：同步端附带可信的拍摄时间、位置和来源；AI 建议稍后在 Web 中确认
 mem put ~/Photos/IMG_0001.jpg \
   --captured-at 2026-07-29T08:00:00+08:00 \

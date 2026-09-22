@@ -7,6 +7,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Added
+
+- `mem put <path> --watch` one-way foreground directory watch: poll `--interval` (default 30s), ingest new files after one quiet interval, report changed files without re-ingesting, and never propagate local deletes. Refs #110.
+
 ### Changed
 
 - Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.

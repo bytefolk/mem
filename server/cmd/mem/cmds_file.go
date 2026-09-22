@@ -19,6 +19,10 @@ import (
 func newPutCmd() *cobra.Command {
 	var (
 		recursive  bool
+		watch      bool
+		interval   time.Duration
+		dryRun     bool
+		limit      int
 		tag        []string
 		name       string
 		mimeFlag   string
@@ -68,6 +72,22 @@ func newPutCmd() *cobra.Command {
 			}
 
 			target := args[0]
+			if watch {
+				if target == "-" {
+					return errors.New("--watch does not read stdin")
+				}
+				return runPutWatch(cmd, watchOptions{
+					root:           target,
+					dest:           toFolder,
+					interval:       interval,
+					format:         format,
+					dryRun:         dryRun,
+					limit:          limit,
+					tags:           tag,
+					sourceMetadata: sourceMetadata,
+					client:         c,
+				})
+			}
 			if target == "-" {
 				if name == "" {
 					return errors.New("--name required when reading from stdin")
@@ -89,6 +109,10 @@ func newPutCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "recurse into directories")
+	cmd.Flags().BoolVar(&watch, "watch", false, "one-way foreground watch; ingest new files after one quiet interval")
+	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second, "watch poll interval")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "watch: plan only; do not upload or advance cursors")
+	cmd.Flags().IntVar(&limit, "limit", 0, "watch: stop after this many uploads per cycle (0 = no limit)")
 	cmd.Flags().StringArrayVar(&tag, "tag", nil, "tag(s) to attach (repeatable)")
 	cmd.Flags().StringVar(&name, "name", "", "override file name (required for stdin)")
 	cmd.Flags().StringVar(&mimeFlag, "mime", "", "override MIME type")

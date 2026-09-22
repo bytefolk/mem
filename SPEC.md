@@ -607,7 +607,7 @@ mem put <path> --tag <tag>...
 mem put <path> --captured-at <rfc3339> --lat <lat> --lon <lon> \
   [--location-accuracy <meters>] [--place <label>] \
   [--source-kind mobile|ai_device|other] [--source-name <description>]
-mem put <path> --watch                    # 守护，新文件自动入
+mem put <path> --watch                    # 守护，新文件自动入（#110 单向监视：变更只上报不重摄，本地删除不传播）
 
 # 取
 mem get <file_id> -o <path>
