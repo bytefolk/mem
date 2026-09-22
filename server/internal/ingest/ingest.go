@@ -121,6 +121,12 @@ type Cursor struct {
 	ModTime  string `json:"mtime"`
 	LastLine int    `json:"last_line"`
 
+	// Optional file-plane locators used by put --watch. Transcript connectors
+	// leave them empty; omitempty keeps existing qoder cursors byte-compatible.
+	SHA256     string `json:"sha256,omitempty"`
+	FileID     string `json:"file_id,omitempty"`
+	RemotePath string `json:"remote_path,omitempty"`
+
 	// Corrupt is set in memory when a stored cursor failed to decode. It is
 	// never persisted.
 	Corrupt bool `json:"-"`
