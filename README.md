@@ -4,7 +4,9 @@
   <img src="web/public/favicon.svg" width="72" alt="mem logo">
   <h1>mem</h1>
   <p><strong>Your agents change. Their memory should not.</strong></p>
+  <p><strong>Agent 会更换，记忆不该重来。</strong></p>
   <p>A portable, self-hosted memory plane for AI agents, with one core across API, MCP, CLI, and Web.</p>
+  <p>面向 AI Agent 的可迁移、自托管记忆平面；API、MCP、CLI 与 Web 共用同一内核。</p>
 
   <p>
     <a href="https://github.com/bytefolk/mem/actions/workflows/ci.yml"><img src="https://github.com/bytefolk/mem/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -28,6 +30,8 @@
 <!-- markdownlint-disable MD013 -->
 
 `mem` gives agents a durable place to write decisions, evidence, task state, and files, then recall them in a later session or from another agent. You keep the data and choose where it runs. `mem` does not run the agent or generate its answer.
+
+`mem` 为 Agent 提供一块由用户掌控的长期记忆空间：保存决定、证据、任务状态和原始文件，并让另一段会话、另一个 Agent 或另一台设备继续使用。数据由你持有，部署位置由你决定；`mem` 不负责运行 Agent，也不替 Agent 生成答案。
 
 Use it when you need to:
 
