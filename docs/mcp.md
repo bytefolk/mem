@@ -284,6 +284,11 @@ Use the narrowest tool that matches the Agent's need:
 | Read a known original asset | `mem_get` | The original text or binary content |
 | Explore associations from a known asset | `mem_related` | Typed related assets and relation evidence |
 
+`mem_context` with `agent_id` isolates structured-memory recall to that
+producer namespace. `extra_agent_ids` is an explicit share list (max 8) and is
+rejected without `agent_id`. File evidence is unchanged. See
+[agent-memory-namespace.md](agent-memory-namespace.md).
+
 `mem_context` is not a chatbot. Its target input is a task or question plus
 optional scope and context budget:
 

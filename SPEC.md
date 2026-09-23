@@ -924,6 +924,8 @@ CLI 的 `--idempotency-key` 由适配器转换为 HTTP `Idempotency-Key` Header�
       until:     { type: string, format: date }
       limit:     { type: integer, default: 8 }
       max_chars: { type: integer, default: 12000 }
+      agent_id:  { type: string, description: "调用方 Agent 命名空间；设置后只召回该 producer_agent，除非 extra_agent_ids 显式授权" }
+      extra_agent_ids: { type: array, items: { type: string }, description: "显式共享的其他 producer_agent；需要 agent_id，最多 8 个" }
       idempotency_key: { type: string, description: "托管请求的稳定重放 key；省略时为本次调用生成" }
     required: [query]
   output:

@@ -551,6 +551,14 @@ func registerContext(reg *tools.Registry, c *apiclient.Client) error {
 				"until":     {Type: "string", Description: "YYYY-MM-DD inclusive upper bound"},
 				"limit":     {Type: "integer", Description: "Max evidence items (default 8, max 50)", Default: 8},
 				"max_chars": {Type: "integer", Description: "Total context character budget (default 12000)", Default: 12000},
+				"agent_id": {
+					Type:        "string",
+					Description: "Calling agent namespace. When set, recall is isolated to this producer_agent unless extra_agent_ids grants others.",
+				},
+				"extra_agent_ids": {
+					Type:        "array",
+					Description: "Explicit extra producer_agent namespaces to include. Requires agent_id. Max 8.",
+				},
 				"idempotency_key": {
 					Type: "string",
 					Description: "Stable key for safely replaying the same managed request; " +
@@ -569,10 +577,13 @@ func registerContext(reg *tools.Registry, c *apiclient.Client) error {
 					body[key] = v
 				}
 			}
-			for _, key := range []string{"limit", "max_chars"} {
+			for _, key := range []string{"limit", "max_chars", "extra_agent_ids"} {
 				if v := args[key]; v != nil {
 					body[key] = v
 				}
+			}
+			if v, _ := args["agent_id"].(string); strings.TrimSpace(v) != "" {
+				body["agent_id"] = v
 			}
 			headers, err := managedEmbeddingHeaders("context", args)
 			if err != nil {
