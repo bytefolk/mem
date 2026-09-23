@@ -100,7 +100,7 @@ adapter over the canonical `memd` HTTP API — one core across API / MCP / CLI /
 | `mem_checkpoint_get` | Get one immutable checkpoint and its full handoff payload |
 | `mem_resume` | Restore the current task head or a selected historical checkpoint |
 | `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets |
-| `mem_context` | Build an evidence-backed context pack for the calling Agent |
+| `mem_context` | Build an evidence-backed context pack for the calling Agent; optional `agent_id` isolates structured memory |
 | `mem_related` | Top-K files related to a `file_id` by embedding similarity |
 | `mem_face` | Person clusters: `action=list` / `name` / `merge` |
 | `mem_durable_context_recall` | Resume explicitly granted, workspace-scoped active memories for one principal |

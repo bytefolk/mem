@@ -31,6 +31,8 @@ func (a *memoryRecallAdapter) Recall(
 		Kinds:           kinds,
 		LifecycleStatus: memory.StatusActive,
 		Limit:           q.Limit,
+		AgentID:         q.AgentID,
+		ExtraAgentIDs:   q.ExtraAgentIDs,
 	})
 	if err != nil {
 		return nil, err

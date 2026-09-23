@@ -251,10 +251,18 @@ func (s *Service) Recall(ctx context.Context, q RecallQuery) ([]RecallHit, error
 	if q.Limit > 100 {
 		q.Limit = 100
 	}
+	agents, err := AgentRecallFilter(q.AgentID, q.ExtraAgentIDs)
+	if err != nil {
+		return nil, err
+	}
 
 	args := []any{q.WorkspaceID, status}
 	where := []string{"m.workspace_id = $1", "m.lifecycle_status = $2"}
 	args, where = appendPathFilters(args, where, "m.path", scope, allowed)
+	if len(agents) > 0 {
+		args = append(args, agents)
+		where = append(where, fmt.Sprintf("m.producer_agent = ANY($%d::text[])", len(args)))
+	}
 	if q.Since != nil {
 		args = append(args, q.Since.UTC())
 		where = append(where, fmt.Sprintf(
