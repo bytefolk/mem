@@ -96,6 +96,46 @@ func TestHandleContextPassesWorkspaceAndMemoryFilters(t *testing.T) {
 	}
 }
 
+func TestHandleContextPassesAgentNamespace(t *testing.T) {
+	stub := &contextMemoryStub{}
+	s := &Server{Context: contextpack.New(nil, stub)}
+	req := httptest.NewRequest(http.MethodPost, "/v1/context",
+		strings.NewReader(`{"query":"checkpoint fields","source":"memory","agent_id":"executor","extra_agent_ids":["reviewer"]}`))
+	user := &auth.User{ID: uuid.New()}
+	token := &auth.Token{Paths: []string{"/"}}
+	ctx := context.WithValue(req.Context(), ctxUser, user)
+	ctx = context.WithValue(ctx, ctxToken, token)
+	ctx = context.WithValue(ctx, ctxWorkspace, &workspace.Workspace{ID: uuid.New()})
+	rec := httptest.NewRecorder()
+
+	s.handleContext(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if stub.query.AgentID != "executor" || len(stub.query.ExtraAgentIDs) != 1 || stub.query.ExtraAgentIDs[0] != "reviewer" {
+		t.Fatalf("memory query = %+v", stub.query)
+	}
+}
+
+func TestHandleContextRejectsExtraAgentsWithoutAgentID(t *testing.T) {
+	stub := &contextMemoryStub{}
+	s := &Server{Context: contextpack.New(nil, stub)}
+	req := httptest.NewRequest(http.MethodPost, "/v1/context",
+		strings.NewReader(`{"query":"checkpoint fields","source":"memory","extra_agent_ids":["planner"]}`))
+	user := &auth.User{ID: uuid.New()}
+	token := &auth.Token{Paths: []string{"/"}}
+	ctx := context.WithValue(req.Context(), ctxUser, user)
+	ctx = context.WithValue(ctx, ctxToken, token)
+	rec := httptest.NewRecorder()
+
+	s.handleContext(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleContextSaaSMemorySourceStaysModelIndependent(t *testing.T) {
 	stub := &contextMemoryStub{}
 	s := &Server{

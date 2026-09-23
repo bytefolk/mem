@@ -9,6 +9,12 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Per-agent memory namespace filter on lexical recall (`#227`): `POST /v1/context`
+  and `mem_context` accept `agent_id` plus optional `extra_agent_ids`. When set,
+  structured-memory recall hard-filters `producer_agent` before ranking so
+  another agent’s namespace stays out unless explicitly listed. Hits keep
+  provenance and match reason. Operator recall without `agent_id` is unchanged.
+  Design: `docs/agent-memory-namespace.md`.
 - `mem put <path> --watch` one-way foreground directory watch: poll `--interval` (default 30s), ingest new files after one quiet interval, report changed files without re-ingesting, and never propagate local deletes. Refs #110.
 
 ### Changed

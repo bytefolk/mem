@@ -10,6 +10,7 @@ import (
 
 	"github.com/PeterGuy326/mem/server/internal/auth"
 	"github.com/PeterGuy326/mem/server/internal/contextpack"
+	"github.com/PeterGuy326/mem/server/internal/memory"
 	"github.com/PeterGuy326/mem/server/internal/pathx"
 	"github.com/PeterGuy326/mem/server/internal/search"
 	"github.com/PeterGuy326/mem/server/internal/workspace"
@@ -26,15 +27,17 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Query      string  `json:"query"`
-		Scope      string  `json:"scope,omitempty"`
-		Source     string  `json:"source,omitempty"`
-		Type       string  `json:"type,omitempty"`
-		MemoryKind string  `json:"memory_kind,omitempty"`
-		Since      *string `json:"since,omitempty"`
-		Until      *string `json:"until,omitempty"`
-		Limit      int     `json:"limit,omitempty"`
-		MaxChars   int     `json:"max_chars,omitempty"`
+		Query         string   `json:"query"`
+		Scope         string   `json:"scope,omitempty"`
+		Source        string   `json:"source,omitempty"`
+		Type          string   `json:"type,omitempty"`
+		MemoryKind    string   `json:"memory_kind,omitempty"`
+		Since         *string  `json:"since,omitempty"`
+		Until         *string  `json:"until,omitempty"`
+		Limit         int      `json:"limit,omitempty"`
+		MaxChars      int      `json:"max_chars,omitempty"`
+		AgentID       string   `json:"agent_id,omitempty"`
+		ExtraAgentIDs []string `json:"extra_agent_ids,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_body", err.Error())
@@ -65,21 +68,27 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 			"memory_kind cannot be used with source=file")
 		return
 	}
+	if _, err := memory.AgentRecallFilter(req.AgentID, req.ExtraAgentIDs); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_agent", err.Error())
+		return
+	}
 	var workspaceID uuid.UUID
 	if ws, ok := r.Context().Value(ctxWorkspace).(*workspace.Workspace); ok && ws != nil {
 		workspaceID = ws.ID
 	}
 	input := contextpack.Request{
-		UserID:       u.ID,
-		WorkspaceID:  workspaceID,
-		Query:        req.Query,
-		Scope:        req.Scope,
-		AllowedPaths: tok.Paths,
-		Source:       source,
-		Type:         req.Type,
-		MemoryKind:   req.MemoryKind,
-		Limit:        req.Limit,
-		MaxChars:     req.MaxChars,
+		UserID:        u.ID,
+		WorkspaceID:   workspaceID,
+		Query:         req.Query,
+		Scope:         req.Scope,
+		AllowedPaths:  tok.Paths,
+		Source:        source,
+		Type:          req.Type,
+		MemoryKind:    req.MemoryKind,
+		Limit:         req.Limit,
+		MaxChars:      req.MaxChars,
+		AgentID:       req.AgentID,
+		ExtraAgentIDs: req.ExtraAgentIDs,
 	}
 	if req.Since != nil {
 		t, err := time.Parse("2006-01-02", *req.Since)
