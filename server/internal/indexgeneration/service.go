@@ -287,19 +287,33 @@ func (s *Service) List(ctx context.Context, workspaceID uuid.UUID, limit int) ([
 	}
 	defer rows.Close()
 	out := make([]Build, 0, limit)
+	buildIDs := make([]uuid.UUID, 0, limit)
 	for rows.Next() {
 		build, err := scanBuild(rows)
 		if err != nil {
 			return nil, fmt.Errorf("%w: scan build: %v", ErrUnavailable, err)
 		}
-		generations, err := listGenerations(ctx, s.pool, workspaceID, build.ID)
-		if err != nil {
-			return nil, err
-		}
-		build.Generations = generations
 		out = append(out, *build)
+		buildIDs = append(buildIDs, build.ID)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(buildIDs) == 0 {
+		return out, nil
+	}
+	generations, err := listGenerationsForBuilds(ctx, s.pool, workspaceID, buildIDs)
+	if err != nil {
+		return nil, err
+	}
+	byBuild := make(map[uuid.UUID][]Generation, len(buildIDs))
+	for _, g := range generations {
+		byBuild[g.BuildID] = append(byBuild[g.BuildID], g)
+	}
+	for i := range out {
+		out[i].Generations = byBuild[out[i].ID]
+	}
+	return out, nil
 }
 
 func (s *Service) Cancel(

@@ -8,10 +8,12 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -418,6 +420,37 @@ func TestIndexGenerationPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create replacement generation: %v", err)
 	}
+	listConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracer := &generationListQueryCounter{}
+	listConfig.MaxConns = 1
+	listConfig.ConnConfig.Tracer = tracer
+	listPool, err := pgxpool.NewWithConfig(ctx, listConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listPool.Close()
+	listCtx, listCancel := context.WithTimeout(ctx, 5*time.Second)
+	builds, err := New(listPool).List(listCtx, ws.ID, 100)
+	listCancel()
+	if err != nil || len(builds) != 3 {
+		t.Fatalf("batch list builds = %#v, err=%v", builds, err)
+	}
+	if got := tracer.count.Load(); got != 2 {
+		t.Fatalf("List used %d queries for 3 builds; want 2", got)
+	}
+	for _, build := range builds {
+		if len(build.Generations) == 0 {
+			t.Fatalf("build %s lost its generations", build.ID)
+		}
+		for _, generation := range build.Generations {
+			if generation.BuildID != build.ID || generation.WorkspaceID != ws.ID {
+				t.Fatalf("generation attached to wrong build: %#v", generation)
+			}
+		}
+	}
 	failing, err := service.ClaimTarget(ctx, ws.ID, managed.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -553,6 +586,16 @@ func TestIndexGenerationPostgres(t *testing.T) {
 	if _, err := service.Get(ctx, ws.ID, laterLocal.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cleaned later local build error = %v", err)
 	}
+}
+
+type generationListQueryCounter struct{ count atomic.Int64 }
+
+func (c *generationListQueryCounter) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	c.count.Add(1)
+	return ctx
+}
+
+func (c *generationListQueryCounter) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {
 }
 
 func insertGenerationTestFile(
