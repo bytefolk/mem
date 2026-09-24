@@ -87,7 +87,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
-- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - README onboarding now leads with the `deploy/compose` path as the recommended
   first-run experience (one-shot: `generate-env` → `compose up` → register →
   use CLI/MCP). The bare-metal development path (`scripts/dev_up.sh`) is
@@ -242,7 +241,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
-- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - The Release workflow now accepts only an existing annotated tag whose exact
   commit is on `main`; manual dispatch resolves the full `refs/tags/...` name
   so a same-named branch cannot shadow it. The workflow validates every public
@@ -465,7 +463,6 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
-- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - Use the platform-native sans-serif stack consistently in development and
   production so the Web UI never depends on a third-party font request.
 - Preserve the published `local-fast-v1` and `idealab-quality-v1` snapshots
