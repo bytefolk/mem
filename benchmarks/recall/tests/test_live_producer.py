@@ -8,12 +8,13 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from benchmarks.recall.__main__ import main
+from benchmarks.recall.__main__ import main, produce_exit_code
 from benchmarks.recall.adapters import load_external_rankings
 from benchmarks.recall.errors import BenchmarkError
 from benchmarks.recall.live_producer import (
     _build_path_index,
     _match_doc_by_path,
+    discover_live_configuration,
     produce_rankings,
 )
 from benchmarks.recall.dataset import Document, load_dataset
@@ -118,6 +119,35 @@ class ProduceRankingsTest(unittest.TestCase):
         requests = []
 
         class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/v1/version":
+                    payload = json.dumps({
+                        "version": "0.1.2",
+                        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "contract": "durable-context.v1",
+                    }).encode()
+                elif self.path == "/v1/workspaces/current/ai-profile":
+                    payload = json.dumps({
+                        "active": {
+                            "profile_id": "local-fast",
+                            "profile_revision": "2026-01-01.1",
+                            "embedding": {
+                                "enabled": True,
+                                "provider": "ollama",
+                                "dimensions": 768,
+                            },
+                        },
+                        "available": [],
+                    }).encode()
+                else:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
             def do_POST(self):
                 requests.append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
                 payload = json.dumps({"results": [{"path": "/research", "name": "saturn.md", "score": 0.9}]}).encode()
@@ -137,7 +167,7 @@ class ProduceRankingsTest(unittest.TestCase):
         try:
             code = main(["produce", "--memd-url", f"http://127.0.0.1:{server.server_port}",
                          "--token", "fixture", "--dataset", str(self.dataset),
-                         "--output", str(output), "--provider", "fixture", "--model", "fixture"])
+                         "--output", str(output)])
         finally:
             server.shutdown()
             thread.join()
@@ -146,6 +176,12 @@ class ProduceRankingsTest(unittest.TestCase):
         self.assertEqual(requests[0][0], "/v1/search")
         self.assertEqual(requests[0][1]["route"], "text")
         artifact = load_external_rankings(output, load_dataset(self.dataset))
+        self.assertEqual(artifact["engine"], "memd/0.1.2")
+        self.assertNotEqual(artifact["engine"], "lexical-reference")
+        self.assertEqual(artifact["configuration"]["provider"], "ollama")
+        self.assertEqual(artifact["configuration"]["model"], "local-fast@2026-01-01.1")
+        self.assertEqual(artifact["configuration"]["dimension"], 768)
+        self.assertIn("discovered", artifact["configuration"]["evidence"])
         self.assertEqual(artifact["queries"][0]["results"][0]["doc_id"], "file-en-cassini")
         self.assertGreater(artifact["queries"][0]["latency_ms"], 0)
         self.assertNotIn("client", artifact["hardware"])
@@ -206,16 +242,36 @@ class ProduceRankingsTest(unittest.TestCase):
         load_external_rankings(output, dataset)
         self.assertEqual(mock_query.call_args.kwargs["route"], "lexical")
 
+    @patch("benchmarks.recall.__main__.discover_live_configuration")
     @patch("benchmarks.recall.live_producer._query_memd")
-    def test_produce_command_fails_when_requests_fail(self, mock_query) -> None:
+    def test_produce_command_fails_when_requests_fail(self, mock_query, mock_discover) -> None:
+        mock_discover.return_value = {
+            "engine": "memd/0.1.2",
+            "provider": "ollama",
+            "model": "local-fast@2026-01-01.1",
+            "dimension": 768,
+            "index": {"kind": "not-advertised"},
+            "evidence": "discovered from GET /v1/version",
+            "server": {"version": "0.1.2"},
+        }
         mock_query.return_value = ([], 1, "http_503")
         code = main(["produce", "--memd-url", "http://localhost", "--token", "test",
                      "--dataset", str(self.dataset), "--output", str(self.root / "failed.json")])
         self.assertEqual(code, 2)
 
 
+    @patch("benchmarks.recall.__main__.discover_live_configuration")
     @patch("benchmarks.recall.live_producer._query_memd")
-    def test_malformed_hits_retain_error_artifact(self, mock_query) -> None:
+    def test_malformed_hits_retain_error_artifact(self, mock_query, mock_discover) -> None:
+        mock_discover.return_value = {
+            "engine": "memd/0.1.2",
+            "provider": "ollama",
+            "model": "local-fast@2026-01-01.1",
+            "dimension": 768,
+            "index": {"kind": "not-advertised"},
+            "evidence": "discovered from GET /v1/version",
+            "server": {"version": "0.1.2"},
+        }
         good = {"path": "/research", "name": "saturn.md", "score": 0.9}
         malformed = [
             {"path": None}, {"path": []}, {"path": {}}, {"path": 42},
@@ -291,6 +347,103 @@ class ProduceRankingsTest(unittest.TestCase):
         document = load_dataset(self.dataset).documents[0]
         other = replace(document, id="other")
         self.assertIsNone(_match_doc_by_path(document.path, document.text, [document, other]))
+
+    def test_discover_live_configuration_reads_running_memd(self) -> None:
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/v1/version":
+                    payload = json.dumps({
+                        "version": "0.1.2",
+                        "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "contract": "durable-context.v1",
+                    }).encode()
+                elif self.path == "/v1/workspaces/current/ai-profile":
+                    payload = json.dumps({
+                        "active": {
+                            "profile_id": "local-fast",
+                            "profile_revision": "r1",
+                            "embedding": {"provider": "ollama", "dimensions": 768},
+                        },
+                    }).encode()
+                else:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            cfg = discover_live_configuration(
+                f"http://127.0.0.1:{server.server_port}",
+                "tok",
+                mode="vector",
+            )
+        finally:
+            server.shutdown()
+            thread.join()
+            server.server_close()
+        self.assertEqual(cfg["engine"], "memd/0.1.2")
+        self.assertEqual(cfg["provider"], "ollama")
+        self.assertEqual(cfg["model"], "local-fast@r1")
+        self.assertEqual(cfg["dimension"], 768)
+        self.assertNotEqual(cfg["engine"], "lexical-reference")
+
+    def test_discover_live_configuration_fails_closed_without_profile(self) -> None:
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/v1/version":
+                    payload = json.dumps({"version": "0.1.2"}).encode()
+                else:
+                    payload = json.dumps({"active": None, "available": []}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with self.assertRaises(BenchmarkError):
+                discover_live_configuration(
+                    f"http://127.0.0.1:{server.server_port}",
+                    "tok",
+                    mode="vector",
+                )
+        finally:
+            server.shutdown()
+            thread.join()
+            server.server_close()
+
+    def test_unsupported_source_kind_is_not_a_produce_failure(self) -> None:
+        self.assertEqual(
+            produce_exit_code({
+                "queries": [
+                    {"status": "ok"},
+                    {"status": "error", "error_code": "unsupported_source_kind"},
+                    {"status": "error", "error_code": "unsupported_filter"},
+                ]
+            }),
+            0,
+        )
+        self.assertEqual(
+            produce_exit_code({
+                "queries": [{"status": "error", "error_code": "http_503"}]
+            }),
+            2,
+        )
 
 
 if __name__ == "__main__":
