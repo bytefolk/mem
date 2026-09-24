@@ -17,7 +17,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   Design: `docs/agent-memory-namespace.md`.
 - `mem put <path> --watch` one-way foreground directory watch: poll `--interval` (default 30s), ingest new files after one quiet interval, report changed files without re-ingesting, and never propagate local deletes. Refs #110.
 
-### Changed\n\n- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.\n- Rewrite the root README around a concise product promise, a verified Compose first-run path, source-built MCP setup, current capability and trust boundaries, and links to authoritative reference docs. Remove the unsupported unpublished `@bytefolk/mem-mcp@0.1.2` install path and keep its migration explicitly tracked in #153. Refs #229.
+### Changed
+
+- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
+- Rewrite the root README around a concise product promise, a verified Compose first-run path, source-built MCP setup, current capability and trust boundaries, and links to authoritative reference docs. Remove the unsupported unpublished `@bytefolk/mem-mcp@0.1.2` install path and keep its migration explicitly tracked in #153. Refs #229.
 - Index generation HTTP create/activate/rollback stay `503 execution_unavailable` with `execution_wired: false` on that body, and the same flag is now on events as well as list/status/cancel/resume/discard. Create still returns `400` for malformed JSON or an empty `profile_id` before the 503. Empty-workspace activate is refused by the same 503. Refs #174.
 - Ingest cursor locks try non-blocking exclusive locks and give up after 5s so a wedged peer becomes a warning instead of a silent hang. Refs #139.
 
@@ -84,6 +87,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - README onboarding now leads with the `deploy/compose` path as the recommended
   first-run experience (one-shot: `generate-env` → `compose up` → register →
   use CLI/MCP). The bare-metal development path (`scripts/dev_up.sh`) is
@@ -238,6 +242,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - The Release workflow now accepts only an existing annotated tag whose exact
   commit is on `main`; manual dispatch resolves the full `refs/tags/...` name
   so a same-named branch cannot shadow it. The workflow validates every public
@@ -460,6 +465,7 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - Use the platform-native sans-serif stack consistently in development and
   production so the Web UI never depends on a third-party font request.
 - Preserve the published `local-fast-v1` and `idealab-quality-v1` snapshots
