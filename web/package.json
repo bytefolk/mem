@@ -1,7 +1,7 @@
 {
   "name": "mem-web",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "mem · Agent-Native AI 网盘 · Web UI (Phase 1)",
   "scripts": {

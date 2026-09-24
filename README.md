@@ -1,473 +1,267 @@
-# mem
+<!-- markdownlint-disable MD013 MD033 MD041 -->
 
-> **面向 AI Agent 的可迁移网盘。**
->
-> 开源 · 自托管 · 模型可插拔 · API / MCP / CLI / UI 共用一套记忆内核。
+<div align="center">
+  <img src="web/public/favicon.svg" width="72" alt="mem logo">
+  <h1>mem</h1>
+  <p><strong>Your agents change. Their memory should not.</strong></p>
+  <p><strong>Agent 会更换，记忆不该重来。</strong></p>
+  <p>A portable, self-hosted memory plane for AI agents, with one core across API, MCP, CLI, and Web.</p>
+  <p>面向 AI Agent 的可迁移、自托管记忆平面；API、MCP、CLI 与 Web 共用同一内核。</p>
 
-[![CI](https://github.com/bytefolk/mem/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bytefolk/mem/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-experimental-orange.svg)](#project-status)
-[![MCP Server](https://img.shields.io/badge/MCP%20Server-26%20tools-blue?logo=modelcontextprotocol)](docs/mcp.md)
-[![smithery](https://smithery.ai/badge/@fullstack-ai-infra/mem-mcp)](https://smithery.ai/server/@fullstack-ai-infra/mem-mcp)
+  <p>
+    <a href="https://github.com/bytefolk/mem/actions/workflows/ci.yml"><img src="https://github.com/bytefolk/mem/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0 license"></a>
+    <a href="https://github.com/bytefolk/mem/releases"><img src="https://img.shields.io/github/v/release/bytefolk/mem?display_name=tag&sort=semver" alt="Latest release"></a>
+    <a href="docs/mcp.md"><img src="https://img.shields.io/badge/MCP-26_tools-5A67D8" alt="26 MCP tools"></a>
+    <a href="https://smithery.ai/server/@bytefolk/mem-mcp"><img src="https://smithery.ai/badge/@bytefolk/mem-mcp" alt="Smithery"></a>
+  </p>
 
-**A portable, self-hosted memory plane for AI agents.**
+  <p>
+    <a href="#quickstart">Quickstart</a> ·
+    <a href="#connect-an-agent-over-mcp">MCP setup</a> ·
+    <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+    <a href="SPEC.md">Specification</a> ·
+    <a href="docs/DEVELOPMENT.md">Contributing</a>
+  </p>
+</div>
 
-`mem` keeps files, metadata, and embeddings under your control and exposes the
-same core through an HTTP API, a command-line client, an MCP server, and a web
-interface.
+<!-- markdownlint-enable MD013 MD033 MD041 -->
 
-**mem** 是用户自有的可迁移 Memory Plane：人把文件、照片、录音和笔记放进去，
-Agent 也可以写回任务状态、观察、决定和产物。切换 Claude Code、Codex 等 Agent，
-或换到另一台电脑时，任何获授权的 Agent 都能找回带出处的上下文并继续工作。
+<!-- markdownlint-disable MD013 -->
 
-AI 网盘是 mem 面向人的信任界面。当前 Web 已能浏览/下载原件、自然语言搜索，
-查看结构化记忆与不可变任务 checkpoint，执行反馈、归档、恢复和确认遗忘，并通过
-Workspace Transfer 导出或 fresh 恢复同一份数据。不可变 correction/supersede、
-增量同步和 merge restore 仍在路线中。API、MCP 和 CLI 是同一套能力面向 Agent
-与自动化的入口。
+`mem` gives agents a durable place to write decisions, evidence, task state, and files, then recall them in a later session or from another agent. You keep the data and choose where it runs. `mem` does not run the agent or generate its answer.
 
-项目的北极星、迁移范围与当前差距见 **[GOAL.md](GOAL.md)**。
+`mem` 为 Agent 提供一块由用户掌控的长期记忆空间：保存决定、证据、任务状态和原始文件，并让另一段会话、另一个 Agent 或另一台设备继续使用。数据由你持有，部署位置由你决定；`mem` 不负责运行 Agent，也不替 Agent 生成答案。
 
-mem **不是**：
+Use it when you need to:
 
-- 聊天产品；回答由上层 Agent 负责，mem 负责提供可追溯上下文。
-- Agent runtime 或工作流编排器；mem 不接管规划、工具循环和模型执行。
-- 只上传 PDF 再聊天的通用知识库；原始多模态资产、长期关系和 Agent 写回同等重要。
+- hand work from Claude Code to Codex, another host, or another machine;
+- resume a task from an immutable checkpoint instead of reconstructing chat history;
+- recall a decision together with its source and scope;
+- keep files and structured memory behind the same authorization boundary;
+- export a workspace and restore it into another `mem` deployment.
+
+> [!WARNING]
+> `mem` is in active experimental development. Interfaces, storage schemas, and release artifacts can change. Do not use it as the only copy of important data. The current deployment profiles are for private self-hosting, not an Internet-facing multi-tenant service.
+
+## How it works
 
 ```mermaid
 flowchart LR
-    H["人"] --> UI["AI 网盘 UI"]
-    A["任意 Agent"] --> MCP["MCP / API"]
-    O["自动化与运维"] --> CLI["CLI"]
-    UI --> MEM["mem Memory Plane"]
-    MCP --> MEM
-    CLI --> MEM
-    MEM --> SRC["原始资产与出处"]
-    MEM --> IDX["结构化记忆、实体、关系与索引"]
-    SRC --> CTX["带证据的 Context Pack"]
-    IDX --> CTX
+    A["Claude Code / Codex / Cursor / your agent"] -->|MCP| M["mem-mcp"]
+    C["Scripts and operators"] -->|CLI / HTTP| API["memd"]
+    U["People"] -->|Web| W["Web app"]
+    M --> API
+    W --> API
+    API --> P[("PostgreSQL + pgvector")]
+    API --> O[("S3-compatible objects")]
+    API --> Q["Redis / indexing worker"]
+    API --> R["Evidence-backed recall"]
 ```
 
-> [!WARNING]
-> `mem` is experimental. Interfaces, storage schemas, and release artifacts may
-> change without notice. Do not use it as the only copy of important data.
+The HTTP service owns the canonical behavior. MCP, CLI, and Web call the same API instead of maintaining separate memory models.
 
-## What is in this repository?
+A typical agent loop looks like this:
 
-| Component | Purpose |
-| --- | --- |
-| `server/` | Go HTTP service (`memd`), CLI (`mem`), and stdio MCP server (`mem-mcp`) |
-| `worker/` | Python gRPC worker for extraction, embeddings, and model providers |
-| `web/` | React/Vite web interface |
-| `docker-compose.yml` | Local PostgreSQL/pgvector, Redis, and MinIO dependencies |
-| `deploy/compose/` | Production single-node deployment |
-| `deploy/helm/mem/` | Production multi-node Kubernetes deployment |
+1. `remember` a sourced observation, decision, preference, task state, or artifact reference.
+2. `checkpoint` work under a stable task key before switching sessions or agents.
+3. `context` or `resume` later to retrieve bounded, evidence-backed state.
+4. Record feedback, archive stale memory, or explicitly forget content when policy allows it.
 
-The current implementation includes file and folder operations, token-based
-access, search and retrieval surfaces, an extensible processing worker, and MCP
-tools backed by the same service API. See [SPEC.md](SPEC.md) for the evolving
-product and architecture contract.
+Model-independent structured memory and lexical recall work without an LLM or embedding provider. Optional indexing can add embeddings and extraction, but it is not a hidden dependency for `remember`, lifecycle control, checkpoint, or deterministic resume.
 
-## MCP Server
+## Quickstart
 
-`mem-mcp` is a stdio MCP server exposing the mem memory plane to any MCP-compatible
-Agent host (Claude Desktop, Claude Code, Codex, Cursor, Cline). It is a thin
-adapter over the canonical `memd` HTTP API — one core across API / MCP / CLI / UI.
+The supported first-run path uses Docker Compose. It starts the Web app, `memd`, the Worker, PostgreSQL, Redis, and MinIO on one machine.
 
-### Tools
-
-| Tool | Description |
-|------|-------------|
-| `mem_put` | Upload content (text or base64 binary) and trigger AI indexing |
-| `mem_get` | Read file content; binary returned base64-encoded, capped at 4 MiB |
-| `mem_info` | File metadata + AI fields (caption / summary / tags / timeline_at / index_status) |
-| `mem_file_annotation_decide` | Accept or reject one pending AI description/tag suggestion |
-| `mem_list` | List files with filters (tag / mime-prefix / since / until / path-prefix) |
-| `mem_ls` | List immediate subfolders + files under a folder path |
-| `mem_mkdir` | Create folder (mkdir -p semantics) |
-| `mem_mv` | Move file to a different folder, or rename in place |
-| `mem_folder_tree` | Full folder tree as nested structure |
-| `mem_remember` | Idempotently persist an observation, decision, preference, task state, fact, note or artifact reference |
-| `mem_memory_list` | List bounded structured-memory summaries |
-| `mem_memory_get` | Get one full structured memory by UUID within the token path boundary |
-| `mem_feedback` | Record useful/not-useful or pin/unpin feedback with optimistic concurrency |
-| `mem_archive` | Reversibly exclude a memory from normal recall |
-| `mem_restore` | Return an archived memory to normal recall |
-| `mem_forget` | Irreversibly redact one live memory payload after explicit confirmation |
-| `mem_checkpoint` | Persist a versioned task checkpoint or an explicit handoff to another Agent/device |
-| `mem_task_list` | List bounded resumable-task summaries |
-| `mem_checkpoint_list` | List newest-first bounded checkpoint summaries for one task |
-| `mem_checkpoint_get` | Get one immutable checkpoint and its full handoff payload |
-| `mem_resume` | Restore the current task head or a selected historical checkpoint |
-| `mem_search` | Natural-language search (text / visual / auto fuse); ranked files + snippets |
-| `mem_context` | Build an evidence-backed context pack for the calling Agent |
-| `mem_related` | Top-K files related to a `file_id` by embedding similarity |
-| `mem_face` | Person clusters: `action=list` / `name` / `merge` |
-| `mem_durable_context_recall` | Resume explicitly granted, workspace-scoped active memories for one principal |
-
-### Quick start
-
-```bash
-# build
-make build-mem-mcp            # produces ./bin/mem-mcp
-
-# run with an existing memd + token
-MEM_SERVER=http://localhost:8787 MEM_TOKEN=mem_... ./bin/mem-mcp
-```
-
-Register with Claude Code:
-
-```bash
-claude mcp add --scope user --transport stdio \
-  --env MEM_SERVER=http://localhost:8787 \
-  --env MEM_TOKEN=mem_... \
-  mem -- /absolute/path/to/bin/mem-mcp
-```
-
-Full configuration, per-tool semantics, and host setup guides are in
-[docs/mcp.md](docs/mcp.md).
-
-## 五个高频场景
-
-| 场景 | mem 提供什么 |
-|---|---|
-| **跨 Agent / 跨设备续接工作** | 找回上次做到哪里、关键决定及其依据，让新的 Agent 或新电脑接着做 |
-| **精确查找个人证据** | 从合同、发票、证件、笔记中找金额、日期和原文位置 |
-| **沉淀会议与沟通** | 把录音、纪要、聊天转成决定、行动项、人物和时间关系 |
-| **复用偏好与约束** | 保存用户明确确认的偏好、长期约束和纠正记录 |
-| **找回多媒体生活记忆** | 按人物、时间、地点和事件找照片、音频，并能打开原件 |
-
----
-
-## 目标记忆闭环
-
-mem 的核心不是一次 RAG 问答，而是以下五段闭环：
-
-1. **写入**：保存原始资产、来源、时间、Agent/会话和访问范围。
-2. **巩固**：解析、切块、抽取实体与时间，识别重复、冲突和前后版本。
-3. **召回**：联合语义、关键词、实体、时间、路径和关系召回，再排序。
-4. **使用**：按上下文预算返回原文片段、出处和置信度，由上层 Agent 决策。
-5. **反馈**：记录采用、纠正、置顶和遗忘，推动后续巩固与排序。
-
-当前已打通模型无关的
-`remember → lexical context → feedback / archive / restore / forget`
-控制闭环。自动巩固、纠正/替代关系和经过评测的版本化排序仍未完成，因此不会把
-这些路线图能力描述成现有能力。
-
-完整方向和阶段性验收标准见
-**[docs/AGENT_MEMORY_DIRECTION.md](docs/AGENT_MEMORY_DIRECTION.md)**。
-
----
-
-## API / MCP / CLI / UI 如何分工
-
-| 表面 | 主要职责 |
-|---|---|
-| **API** | 唯一能力内核与稳定契约；所有客户端最终调用它 |
-| **MCP** | Agent 的最短路径：写入、召回上下文、读取原件和反馈/生命周期控制 |
-| **CLI** | 批量导入、脚本自动化、索引重建、调试、评测、导出与运维 |
-| **UI** | AI 网盘与信任界面：浏览原件、理解召回、纠错、权限和遗忘 |
-
-`mem_remember` 写入带来源的结构化记忆；`mem_search` 返回候选资产；
-`mem_context` 从文件和结构化记忆中组装带证据的上下文。`mem_context` 不承担
-聊天人格或 Agent 推理。
-
-权限契约保持简单：`remember` 需要 `write`，`search/context` 需要 `search`，
-读取/list memory 或原件需要 `read`；反馈、归档和恢复同时需要 `read + write`；
-forget 需要 `delete` 及允许删除的 workspace 角色。写入时关联
-`source_file_id` 还需 `read`。
-`source=all` 的调用方必须检查 `partial/warnings`，避免把单路降级当成完整召回。
-
-## 开发环境
-
-本地开发依赖：
-
-- Go 1.25
-- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/)
-- Node.js 24 and npm
-- `protoc` 34.1, `protoc-gen-go` v1.36.11, and
-  `protoc-gen-go-grpc` v1.6.2 when changing protobuf definitions
-- Docker with Compose
-
-## 为什么是 Agent-Native
-
-```bash
-# 未选择 workspace profile 的旧兼容路径可检索候选资产
-# （该路径的默认 CLIP 当前只以英文作为已验收基线）
-mem search "a golden retriever standing on green grass" --format json
-
-# Agent 宿主启动独立的 stdio MCP 适配器
-MEM_TOKEN=mem_... ./bin/mem-mcp
-
-# Agent 幂等写入一条可追溯决定
-mem remember "合同复核优先检查自动续费条款" \
-  --kind decision --path /Contracts \
-  --idempotency-key contract-review-renewal-v1 --agent-id codex
-
-# 为下一步任务准备上下文，而不是在 mem 内启动聊天
-mem context "继续上次的合同审阅" --source memory --scope /Contracts
-```
-
-每项核心能力应在 API 中只有一份语义，并按需要暴露给 MCP、CLI 和 UI。Agent
-不是被动读取文件的访客，而是受权限约束的高频记忆使用者与写入者。
-
----
-
-## 与相邻项目的边界
-
-| 项目 | 核心对象 | mem 借鉴什么 | mem 的不同选择 |
-|---|---|---|---|
-| [Tencent/WeKnora](https://github.com/Tencent/WeKnora) | 文档知识平台、RAG、Agent 与自动 Wiki | 解析、混合检索、引用、评测和 Agent-first CLI/MCP | 面向个人长期数据与跨 Agent 写回，不以知识库问答/Agent runtime 为产品中心 |
-| [mem0ai/mem0](https://github.com/mem0ai/mem0) | 通用 Agent memory layer | 结构化记忆、跨会话召回和反馈 | 同时保存可浏览的原始文件、照片、录音及其 AI 网盘体验 |
-| [letta-ai/letta](https://github.com/letta-ai/letta) | 有状态 Agent runtime | 长期状态与上下文管理 | 不运行 Agent；作为任意 Agent 可替换的外置记忆后端 |
-| [khoj-ai/khoj](https://github.com/khoj-ai/khoj) | 个人 AI、聊天与 Agent | 私有化个人知识体验 | 不绑定聊天入口或 Agent 人格，优先开放协议和数据可迁移性 |
-| [nextcloud/server](https://github.com/nextcloud/server) | 文件同步与协作 | 用户掌控原件和成熟文件体验 | 在文件之上增加多模态理解、关系召回和 Agent 原生读写 |
-
-mem 的壁垒不是绑定某个更大的模型，而是长期积累的、用户可校正的多模态原件，
-时间—人物—事件关系，跨 Agent 写回，以及真实使用反馈形成的个人化召回。
-
----
-
-## 快速开始
-
-项目仍处于 Phase 1 MVP。第一次把 mem 跑起来，走 `deploy/compose`：一条命令拉起
-Web、memd、Worker、PostgreSQL、Redis 和 MinIO。这是文档上的主路径。
-`./scripts/dev_up.sh` 只留给要改 Go / Python / Web 的开发机。
-
-`mem doctor` 在一台还没有配置的机器上也会把你指向这条容器路径，而不是裸机配方。
-
-### 通过 Compose 启动（推荐）
-
-前置条件：Docker Engine 和 Docker Compose v2。命令与
-[生产部署指南](docs/DEPLOYMENT.md) 中的权威序列一致。
+Requirements: Docker Engine and Docker Compose v2.
 
 ```bash
 git clone https://github.com/bytefolk/mem.git
-cd mem
+cd mem/deploy/compose
 
-cd deploy/compose
 ./generate-env.sh
 chmod 600 .env
 docker compose --env-file .env -f compose.yaml up -d --build --wait
-docker compose --env-file .env -f compose.yaml ps
 curl --fail http://127.0.0.1:8080/healthz
 ```
 
-启动完成后，浏览器打开 `http://localhost:8080`，完成首次注册（`first_user`
-模式只允许一个账户），然后用 CLI 或 MCP：
+Open [http://localhost:8080](http://localhost:8080) and register the first user. The default `first_user` mode accepts one account, then disables registration.
+
+For the CLI, build from source and sign in:
 
 ```bash
+cd ../..
+make build-mem
+export PATH="$PWD/bin:$PATH"
 export MEM_SERVER=http://localhost:8080
+
 mem auth login
-mem put ~/Photos --recursive
-# 可选：同步端附带可信的拍摄时间、位置和来源；AI 建议稍后在 Web 中确认
-mem put ~/Photos/IMG_0001.jpg \
-  --captured-at 2026-07-29T08:00:00+08:00 \
-  --lat 31.2304 --lon 121.4737 --place Shanghai \
-  --source-kind mobile --source-name "camera sync"
-mem search "a golden retriever standing on green grass"
-mem remember "照片导入已完成" --kind task_state --path /Photos \
-  --idempotency-key photos-imported-v1
-mem context "照片导入做到哪里了" --source memory --scope /Photos
-
-# 一个 Agent 交接，另一个 Agent/新会话按稳定 task key 恢复
-mem checkpoint --input handoff.json --idempotency-key photos-handoff-v1
-mem resume photos/import
-
-# 跨 mem 部署或电脑保存完整、可校验的工作区包
-mem workspace export --output agent-workspace.membundle
+mem doctor
 ```
 
-完整的密钥、迁移、高可用、备份恢复与升级边界见
-[生产部署指南](docs/DEPLOYMENT.md)。默认视觉模型的真实英文/中文边界见
-[自然语言搜图基线](docs/acceptance/VISUAL_SEARCH_BASELINE.md)。多机方案见
-`deploy/helm/mem/`。
-
-### 裸机开发环境（仅限开发）
-
-> 裸机路径面向需要修改 Go / Python / Web 代码的开发场景。首次体验或评估请使用
-> 上方的 Compose 路径。
+Now write and recall model-independent memory:
 
 ```bash
-git clone https://github.com/bytefolk/mem.git
-cd mem
-./scripts/dev_up.sh
-mem auth login
+mem remember "Review auto-renewal before signing" \
+  --kind decision \
+  --path /Contracts \
+  --idempotency-key contract-renewal-v1 \
+  --agent-id claude-code
+
+mem context "What should I check before signing?" \
+  --source memory \
+  --scope /Contracts
 ```
 
-完整的裸机依赖、Ollama 配置和 smoke 步骤见 [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
-该文档把 macOS brew 步骤并列了 Ubuntu/Debian 与 WSL2 等价命令。
+The detailed deployment guide covers TLS, secrets, backups, upgrades, production invariants, Helm, and the exact first-user/token flow: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
----
+## Connect an agent over MCP
 
-## 近期路线
+`mem-mcp` is a stdio MCP adapter for the canonical `memd` API. Build it from the same revision as the server, then configure your host with the resulting executable:
 
-1. **跨 Agent 接续**：`handoff / checkpoint / resume` 的版本化契约、CAS/幂等
-   持久化和 API / CLI / MCP 已落地；继续扩充真实宿主验收与适配体验。
-2. **跨设备恢复**：bundle v2（兼容导入 v1）与 API / CLI / Web `fresh`
-   export/import 已落地；
-   下一步是 `merge_conservative`、增量包、断点上传与本地同步。
-3. **自然语言搜图**：持续增强视觉向量、caption、人物、时间、地点和事件的混合召回。
-4. **Agent 记忆协议**：`remember / context / feedback / forget` 控制闭环已
-   落地；下一步是不可变纠正/替代、巩固和经过评测的版本化排序。
-5. **可见可控**：结构化记忆、任务交接、Resume 与 Workspace Transfer 视图已
-   落地；继续补 correction/supersede、导入历史和更完整的权限管理。
-6. **召回可信**：继续修通索引、关系、精确引用、rerank 和上下文预算。
+```bash
+make build-mem-mcp
+```
 
-当前文本向量会记录实际 provider；无法证明来源的旧向量保持
-`legacy:unknown`，需通过 `mem provider reindex` 显式重建，绝不猜测模型身份。
-结构化记忆的关键词/词法闭环不要求向量模型；自部署可选择本地或 BYOM
-embedding，平台托管 embedding 则使用独立的 workspace 权益和额度。
+```json
+{
+  "mcpServers": {
+    "mem": {
+      "command": "/absolute/path/to/mem/bin/mem-mcp",
+      "env": {
+        "MEM_SERVER": "http://localhost:8080",
+        "MEM_TOKEN": "mem_..."
+      }
+    }
+  }
+}
+```
 
-项目暂不扩张为聊天前端、Agent runtime、通用工作流平台或连接器大集合。
+Claude Code users can register the same executable from the command line:
 
----
+```bash
+claude mcp add --scope project --transport stdio \
+  --env MEM_SERVER=http://localhost:8080 \
+  --env MEM_TOKEN=mem_... \
+  mem -- /absolute/path/to/mem/bin/mem-mcp
+```
 
-## 设计文档
+The ByteFolk npm wrapper is not yet a supported installation path. Its release migration is tracked in [issue #153](https://github.com/bytefolk/mem/issues/153).
 
-- 项目北极星与迁移目标：[GOAL.md](GOAL.md)
-- 产品、架构和当前实现规范：[SPEC.md](SPEC.md)
-- Agent 记忆产品方向：[docs/AGENT_MEMORY_DIRECTION.md](docs/AGENT_MEMORY_DIRECTION.md)
-- 结构化记忆记录决策：[docs/adr/0001-agent-memory-records.md](docs/adr/0001-agent-memory-records.md)
-- MCP 接入与工具约定：[docs/mcp.md](docs/mcp.md)
-- 托管向量权益、幂等计费与隐私边界：[docs/MANAGED_EMBEDDINGS.md](docs/MANAGED_EMBEDDINGS.md)
-- 北极星可重复验收：[docs/acceptance/NORTH_STAR.md](docs/acceptance/NORTH_STAR.md)
-- Workspace bundle 决策：[docs/adr/0004-workspace-bundle.md](docs/adr/0004-workspace-bundle.md)
-- 本地运行与验证：[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)
-- 项目开发边界：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- 测试环境与回归门槛：[docs/TESTING.md](docs/TESTING.md)
-- 参与贡献：[组织贡献基线](https://github.com/bytefolk/.github/blob/main/CONTRIBUTING.md)
-  与 [mem 开发契约](docs/DEVELOPMENT.md)
-- 版本变化：[CHANGELOG.md](CHANGELOG.md)
+The adapter currently exposes 26 tools. The main groups are:
 
----
+| Need | MCP tools |
+| --- | --- |
+| Store and inspect files | `mem_put`, `mem_get`, `mem_info`, `mem_list`, `mem_ls` |
+| Write and recall memory | `mem_remember`, `mem_search`, `mem_context`, `mem_related` |
+| Resume work | `mem_checkpoint`, `mem_task_list`, `mem_checkpoint_list`, `mem_checkpoint_get`, `mem_resume` |
+| Control lifecycle | `mem_feedback`, `mem_archive`, `mem_restore`, `mem_forget` |
+| Manage file organization | `mem_mkdir`, `mem_mv`, `mem_folder_tree` |
 
-## 仓库结构
+See [docs/mcp.md](docs/mcp.md) for every tool, permission requirement, response limit, and host-specific setup.
+
+## What ships today
+
+| Capability | Current behavior |
+| --- | --- |
+| Structured memory | Idempotent writes for observations, decisions, preferences, task state, facts, notes, and artifact references, with source and producer provenance |
+| Recall | Lexical structured-memory recall; file lexical/vector routes where the selected profile and index support them; bounded context packs with evidence and explicit partial-result warnings |
+| Task continuity | Versioned immutable checkpoints, handoff payloads, task history, and deterministic resume |
+| Files | Upload, download, folders, metadata, annotations, search surfaces, and scoped access |
+| Memory lifecycle | Feedback, pin/unpin, archive, restore, and permissioned irreversible redaction after confirmation |
+| Portability | Validated workspace export and conflict-safe `fresh` import |
+| Interfaces | HTTP API, Go CLI, 26-tool MCP server, and React Web application over one service contract |
+| Deployment | Private single-node Compose and a Helm profile that expects external PostgreSQL, Redis, and S3-compatible storage |
+
+The [specification](SPEC.md) is the source of truth for API semantics. The [changelog](CHANGELOG.md) records what landed in each release.
+
+## Trust boundaries
+
+Memory is useful only when callers can tell what it is, where it came from, and who may read it. `mem` therefore keeps these rules in the core service:
+
+- Tokens are workspace-bound and can restrict scopes and virtual paths.
+- Structured memory carries source and producer provenance.
+- Writes support idempotency keys; conflicting replay fails instead of silently changing history.
+- Recall reports `partial` results and warnings when one source degrades.
+- Checkpoints are immutable; resuming an older checkpoint does not rewrite the task history.
+- Workspace import fails on conflict in the current `fresh` mode rather than merging or overwriting silently.
+- Model stages are explicit. A profile does not silently fall back to another provider.
+- Production examples keep PostgreSQL, Redis, object storage, `memd`, and the Worker on private networks.
+
+Read [SECURITY.md](SECURITY.md) before exposing a deployment, and use a private security advisory for vulnerabilities.
+
+## What mem is not
+
+- An agent runtime. Your agent still owns planning, tool use, reasoning, and final answers.
+- A chat product. The Web app is a file and memory control surface, not an assistant persona.
+- A hosted public SaaS you can expose without additional work. Current deployment profiles target private environments.
+- A claim that every modality or retrieval route is production-ready. Profiles advertise supported stages, and unsupported routes fail closed.
+- A bidirectional sync drive. `mem put --watch` is a one-way foreground watcher for new local files.
+
+Current gaps and sequencing are documented in [GOAL.md](GOAL.md) and [docs/AGENT_MEMORY_DIRECTION.md](docs/AGENT_MEMORY_DIRECTION.md). In particular, conservative merge restore, automatic consolidation and correction/supersede relationships, and fully evaluated versioned ranking remain follow-up work.
+
+## Choose your surface
+
+| Surface | Best for | Start here |
+| --- | --- | --- |
+| MCP | Agents that need memory tools inside an existing host | [MCP guide](docs/mcp.md) |
+| CLI | Imports, scripts, checkpoints, workspace transfer, and operations | `make build-mem`, then `mem --help` |
+| HTTP API | Applications that need the canonical contract directly | [SPEC.md](SPEC.md) |
+| Web | Browsing files, reviewing memory, lifecycle controls, and workspace transfer | [Compose quickstart](#quickstart) |
+
+## Deployment options
+
+| Profile | Shape | Intended use |
+| --- | --- | --- |
+| Single-node Compose | Web, `memd`, Worker, PostgreSQL, Redis, and MinIO on one Linux host | Personal, team, edge, and evaluation installations |
+| Multi-node Helm | Replicated Web and Worker, one `memd`, external stateful services | Private platforms that operate PostgreSQL, Redis, and S3 separately |
+| Bare-metal development | Local processes and data under `.dev/` | Contributors changing Go, Python, or Web code |
+
+Use [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for private deployment and [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md) only for source development.
+
+## Repository map
 
 ```text
 mem/
-├── GOAL.md                   ← 项目北极星、迁移边界与验收场景
-├── SPEC.md                   ← 当前产品、架构和接口规范
-├── server/                   ← Go 主服务（API / CLI / MCP Server）
-├── worker/                   ← Python AI Worker（Processor + Provider）
-├── web/                      ← AI 网盘 UI
-├── docs/                     ← 产品方向、开发、测试与接入文档
-├── docker-compose.yml        ← 本地开发基础设施
-└── docker-compose.test.yml   ← 一次性 PostgreSQL 回归环境
+├── server/          Go HTTP service, CLI, and MCP server
+├── worker/          Python extraction and embedding worker
+├── web/             React/Vite control surface
+├── deploy/          Compose and Helm deployment assets
+├── benchmarks/      Offline recall fixtures and gates
+├── docs/            Architecture, operations, acceptance, and integration docs
+├── GOAL.md          Product direction and migration boundary
+└── SPEC.md          Canonical product and interface contract
 ```
 
-完整的本地启动、Worker、Web 和 smoke test 步骤见
-[docs/RUN_LOCAL.md](docs/RUN_LOCAL.md)。
+## Develop and verify
 
-Web 开发模式可单独启动：
-
-```bash
-cd web
-npm ci
-npm run dev
-```
-
-The service requires a development user and token before protected operations
-can be used. Follow [docs/RUN_LOCAL.md](docs/RUN_LOCAL.md) for the complete
-local setup and smoke test. For agent integration, build `mem-mcp` and follow
-the [MCP setup guide](docs/mcp.md).
-
-## Verify a change
-
-CI applies the following checks to pull requests. Run the applicable groups
-locally before opening one; [the mem development contract](docs/DEVELOPMENT.md)
-and [testing guide](docs/TESTING.md) define the evidence expected when a check
-cannot be run.
-
-Go integration tests require an explicitly disposable PostgreSQL database
-whose name ends in `_test`. With the Docker Compose services running, this
-creates `mem_test` if needed:
+Development requires Go 1.25, Python 3.11+ with `uv`, Node.js 24, Docker Compose, and the pinned protobuf toolchain when protobuf definitions change.
 
 ```bash
-make up
-docker compose exec -T postgres sh -c \
-  "psql -U mem -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='mem_test'\" | grep -q 1 || createdb -U mem mem_test"
-```
-
-Run the Go protobuf, formatting, vet, migration, race/coverage, and build
-checks:
-
-```bash
-go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
-PATH="$(go env GOPATH)/bin:${PATH}"
-export PATH
-make proto-go
-git diff --exit-code -- server/internal/workerpb
-
-cd server
-test -z "$(gofmt -l .)"
-go vet ./...
-export MEM_TEST_DB=postgres://mem:mem@localhost:5432/mem_test?sslmode=disable
-go run github.com/pressly/goose/v3/cmd/goose@v3.22.1 \
-  -dir internal/db/migrations postgres "${MEM_TEST_DB}" up
-go test -race -p 1 -coverpkg=./... -covermode=atomic \
-  -coverprofile=coverage.out ./...
-go tool cover -func=coverage.out
-cd ..
+make bootstrap
+make test
+make lint
 make build
 ```
 
-Run the Worker protobuf, coverage, and package checks:
-
-```bash
-cd worker
-uv sync --frozen --extra test --extra dev
-make proto
-git diff --exit-code -- mem_worker/proto
-uv run pytest --cov=mem_worker --cov-report=term-missing \
-  --cov-report=xml:coverage.xml
-uv build
-```
-
-Run the Web checks:
-
-```bash
-cd ../web
-npm ci
-npm run audit
-npm run lint
-npm run typecheck
-npm run build
-```
-
-Go and Python tests report coverage in CI. The web package currently uses
-linting, type checking, and a production build as its required baseline.
-Dependency auditing is also required: production advisories fail at moderate
-severity, while development-only advisories fail at high severity.
+Storage, authorization, migration, memory, handoff, and workspace-transfer changes also require the PostgreSQL integration and process-level acceptance suites. Use [docs/TESTING.md](docs/TESTING.md) for exact commands and disposable-database requirements.
 
 ## Contributing
 
-All changes follow an issue-first, pull-request-only workflow:
+This repository uses an issue-first, pull-request-only workflow. A material change needs a ready issue with acceptance criteria before implementation. Every PR must link its tracking record, include a reproducible validation ledger, pass required CI, and receive independent approval before squash merge.
 
-1. Open or select an issue and record its type, evidence, scope, and acceptance
-   criteria; bugs also receive an impact severity.
-2. Develop on a branch linked to that issue.
-3. Add tests and verification evidence with the change.
-4. Open a pull request that closes or references the issue.
-5. Obtain an independent review and pass required CI checks before merge.
-
-Read the
-[organization contribution baseline](https://github.com/bytefolk/.github/blob/main/CONTRIBUTING.md)
-and the [mem-specific development contract](docs/DEVELOPMENT.md), then use
-[docs/maintainers/triage.md](docs/maintainers/triage.md) for the issue
-taxonomy. Security reports must follow [SECURITY.md](SECURITY.md), not a
-public issue. Release maintainers should use
-[docs/maintainers/releasing.md](docs/maintainers/releasing.md).
+Read the [ByteFolk contribution baseline](https://github.com/bytefolk/.github/blob/main/CONTRIBUTING.md), [mem development contract](docs/DEVELOPMENT.md), and [governance rules](GOVERNANCE.md). Report security issues through [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Project status
 
-`mem` is in active experimental development. The repository is establishing a
-stable contribution, test, and release baseline before committing to broad
-distribution channels or compatibility guarantees.
+`mem` is experimental and releases under a `0.x` version line. The project is tightening its contracts, tests, and distribution paths before making broad compatibility guarantees.
+
+<!-- markdownlint-enable MD013 -->
 
 ## License
 
-[Apache License 2.0](LICENSE) — 应用层永远完整可自托管，没有“开源阉割版”。
+[Apache License 2.0](LICENSE). The self-hosted application is not a reduced
+open-source edition.
 
 Copyright © 2026 mem contributors.

@@ -7,8 +7,12 @@ import (
 	"os"
 )
 
-func lockCursorFile(_ *os.File) error {
+func tryLockCursorFile(_ *os.File) error {
 	return fmt.Errorf("cursor locks are not supported on this operating system")
+}
+
+func isCursorLockBusy(_ error) bool {
+	return false
 }
 
 func unlockCursorFile(_ *os.File) error {

@@ -362,6 +362,52 @@ func TestMemoryPostgres(t *testing.T) {
 			t.Fatalf("provenance = %+v", hit.Provenance)
 		}
 
+		executorCmd := command("executor-"+uuid.NewString(), "checkpoint fields follow the new version", "/Projects/mem")
+		executorCmd.ProducerAgent = "executor"
+		executorCmd.ProducerTask = "storage-refactor"
+		if _, err := service.Remember(ctx, executorCmd); err != nil {
+			t.Fatal(err)
+		}
+		plannerCmd := command("planner-"+uuid.NewString(), "checkpoint fields should wait for a planner RFC", "/Projects/mem")
+		plannerCmd.ProducerAgent = "planner"
+		if _, err := service.Remember(ctx, plannerCmd); err != nil {
+			t.Fatal(err)
+		}
+		own, err := service.Recall(ctx, RecallQuery{
+			WorkspaceID: workspaceA,
+			Text:        "checkpoint fields",
+			AgentID:     "executor",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(own) == 0 {
+			t.Fatal("executor recall empty")
+		}
+		for _, item := range own {
+			if item.Provenance.ProducerAgent != "executor" {
+				t.Fatalf("executor namespace leaked %+v", item.Provenance)
+			}
+		}
+		shared, err := service.Recall(ctx, RecallQuery{
+			WorkspaceID:   workspaceA,
+			Text:          "checkpoint fields",
+			AgentID:       "executor",
+			ExtraAgentIDs: []string{"planner"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sawPlanner := false
+		for _, item := range shared {
+			if item.Provenance.ProducerAgent == "planner" {
+				sawPlanner = true
+			}
+		}
+		if !sawPlanner {
+			t.Fatalf("explicit extra_agent_ids omitted planner: %+v", shared)
+		}
+
 		fts, err := service.Remember(ctx, command(
 			"fts-"+uuid.NewString(),
 			"alpha beta gamma architecture",

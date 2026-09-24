@@ -122,6 +122,10 @@ type RecallQuery struct {
 	LifecycleStatus   string
 	IncludeSuperseded bool
 	Limit             int
+	// AgentID, when set, hard-filters producer_agent to that namespace.
+	// ExtraAgentIDs are an explicit share list; they never apply without AgentID.
+	AgentID       string
+	ExtraAgentIDs []string
 }
 
 // ListQuery describes stable keyset pagination over memory records. Recursive

@@ -37,7 +37,7 @@ func (s *Server) handleListIndexGenerations(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":           builds,
-		"execution_wired": true,
+		"execution_wired": false,
 	})
 }
 
@@ -60,7 +60,7 @@ func (s *Server) handleGetIndexGeneration(w http.ResponseWriter, r *http.Request
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"generation":      build,
-		"execution_wired": true,
+		"execution_wired": false,
 	})
 }
 
@@ -81,7 +81,10 @@ func (s *Server) handleListIndexGenerationEvents(w http.ResponseWriter, r *http.
 		writeIndexGenerationError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": events})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":           events,
+		"execution_wired": false,
+	})
 }
 
 func (s *Server) handleCreateIndexGeneration(w http.ResponseWriter, r *http.Request) {
@@ -103,21 +106,11 @@ func (s *Server) handleCreateIndexGeneration(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "bad_json", err.Error())
 		return
 	}
-	profileID := strings.TrimSpace(req.ProfileID)
-	if profileID == "" {
+	if strings.TrimSpace(req.ProfileID) == "" {
 		writeError(w, http.StatusBadRequest, "bad_profile_id", "profile_id is required")
 		return
 	}
-	actor := r.Context().Value(ctxActor).(*auth.User)
-	build, err := s.IndexGenerations.Create(r.Context(), currentWorkspace(r).ID, actor.ID, profileID)
-	if err != nil {
-		writeIndexGenerationError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"generation":      build,
-		"execution_wired": true,
-	})
+	writeExecutionUnavailable(w, "index generation execution is not wired; no worker processes claimed targets")
 }
 
 func (s *Server) handleCancelIndexGeneration(w http.ResponseWriter, r *http.Request) {
@@ -165,10 +158,9 @@ func (s *Server) indexGenerationBuildAction(w http.ResponseWriter, r *http.Reque
 		build, err = s.IndexGenerations.Cancel(ctx, ws, actor.ID, id)
 	case "resume":
 		build, err = s.IndexGenerations.Resume(ctx, ws, actor.ID, id)
-	case "activate":
-		build, err = s.IndexGenerations.Activate(ctx, ws, actor.ID, id)
-	case "rollback":
-		build, err = s.IndexGenerations.Rollback(ctx, ws, actor.ID, id)
+	case "activate", "rollback":
+		writeExecutionUnavailable(w, "index generation execution is not wired; search does not route generation vectors")
+		return
 	case "discard":
 		build, err = s.IndexGenerations.Discard(ctx, ws, actor.ID, id)
 	default:
@@ -181,12 +173,20 @@ func (s *Server) indexGenerationBuildAction(w http.ResponseWriter, r *http.Reque
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"generation":      build,
-		"execution_wired": true,
+		"execution_wired": false,
 	})
 }
 
 func indexGenerationBuildID(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(strings.TrimSpace(chi.URLParam(r, "buildID")))
+}
+
+func writeExecutionUnavailable(w http.ResponseWriter, hint string) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+		"error":           "execution_unavailable",
+		"hint":            hint,
+		"execution_wired": false,
+	})
 }
 
 func writeIndexGenerationError(w http.ResponseWriter, err error) {
