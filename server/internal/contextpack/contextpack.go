@@ -38,15 +38,17 @@ type MemorySearcher interface {
 
 // MemoryQuery describes one deterministic structured-memory recall.
 type MemoryQuery struct {
-	WorkspaceID  uuid.UUID
-	Query        string
-	Scope        string
-	AllowedPaths []string
-	Kind         string
-	Since        *time.Time
-	Until        *time.Time
-	Limit        int
-	SnippetChars int
+	WorkspaceID   uuid.UUID
+	Query         string
+	Scope         string
+	AllowedPaths  []string
+	Kind          string
+	Since         *time.Time
+	Until         *time.Time
+	Limit         int
+	SnippetChars  int
+	AgentID       string
+	ExtraAgentIDs []string
 }
 
 // MemoryProvenance is the source and producer identity retained by remember.
@@ -93,18 +95,20 @@ func New(s Searcher, memories ...MemorySearcher) *Service {
 
 // Request describes one bounded recall operation.
 type Request struct {
-	UserID       uuid.UUID
-	WorkspaceID  uuid.UUID
-	Query        string
-	Scope        string
-	AllowedPaths []string
-	Source       string
-	Type         string
-	MemoryKind   string
-	Since        *time.Time
-	Until        *time.Time
-	Limit        int
-	MaxChars     int
+	UserID        uuid.UUID
+	WorkspaceID   uuid.UUID
+	Query         string
+	Scope         string
+	AllowedPaths  []string
+	Source        string
+	Type          string
+	MemoryKind    string
+	Since         *time.Time
+	Until         *time.Time
+	Limit         int
+	MaxChars      int
+	AgentID       string
+	ExtraAgentIDs []string
 }
 
 // Locator points back to the exact derived representation used for recall.
@@ -282,15 +286,17 @@ func (s *Service) build(
 		go func() {
 			defer wg.Done()
 			memories.hits, memories.err = s.memories.Recall(ctx, MemoryQuery{
-				WorkspaceID:  req.WorkspaceID,
-				Query:        req.Query,
-				Scope:        scope,
-				AllowedPaths: allowed,
-				Kind:         req.MemoryKind,
-				Since:        req.Since,
-				Until:        req.Until,
-				Limit:        req.Limit,
-				SnippetChars: perEvidence,
+				WorkspaceID:   req.WorkspaceID,
+				Query:         req.Query,
+				Scope:         scope,
+				AllowedPaths:  allowed,
+				Kind:          req.MemoryKind,
+				Since:         req.Since,
+				Until:         req.Until,
+				Limit:         req.Limit,
+				SnippetChars:  perEvidence,
+				AgentID:       req.AgentID,
+				ExtraAgentIDs: req.ExtraAgentIDs,
 			})
 		}()
 	}
