@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pressly/goose/v3"
 )
 
@@ -107,8 +109,12 @@ func TestMigrationUpgradeSequence(t *testing.T) {
 			}
 		}
 		var chunks int
-		if err := sqldb.QueryRowContext(ctx, "SELECT count(*) FROM embeddings_text WHERE file_id=$1", fileID).Scan(&chunks); err != nil || chunks != 2 {
-			t.Fatalf("preserved chunks=%d, want=2, err=%v", chunks, err)
+		wantChunks := 2
+		if version >= 27 {
+			wantChunks = 1
+		}
+		if err := sqldb.QueryRowContext(ctx, "SELECT count(*) FROM embeddings_text WHERE file_id=$1", fileID).Scan(&chunks); err != nil || chunks != wantChunks {
+			t.Fatalf("preserved chunks=%d, want=%d, err=%v", chunks, wantChunks, err)
 		}
 		if version >= 26 {
 			var producerIdx int
@@ -117,6 +123,13 @@ func TestMigrationUpgradeSequence(t *testing.T) {
 			}
 		}
 		t.Logf("PASS: strict Goose upgrade to %d; complete history and populated data preserved", version)
+	}
+	if head >= 27 {
+		_, err := sqldb.ExecContext(ctx, "INSERT INTO embeddings_text(file_id,chunk_index,chunk_text) VALUES($1,0,'duplicate')", fileID)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+			t.Fatalf("expected duplicate rejection 23505, got %v", err)
+		}
 	}
 	// The real startup path must accept the upgraded history unchanged.
 	if err := (&DB{url: dsn}).Migrate(ctx); err != nil {

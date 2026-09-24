@@ -1,5 +1,5 @@
 -- +goose Up
--- Data-plane hygiene from the index audit (#178).
+-- Data-plane hygiene from the index audit (#178), sequenced after main's 0026.
 -- Three independent fixes bundled into one migration because each is a single
 -- DDL statement and none warrants its own schema version.
 

@@ -82,7 +82,7 @@ func TestEmbeddingsTextUniqueConstraint(t *testing.T) {
 		VALUES ($1, 0, 'legacy duplicate')`, fileID); err != nil {
 		t.Fatal(err)
 	}
-	migration, err := migrationsFS.ReadFile("migrations/0026_data_plane_hygiene.sql")
+	migration, err := migrationsFS.ReadFile("migrations/0027_data_plane_hygiene.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
