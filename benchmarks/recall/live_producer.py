@@ -72,6 +72,113 @@ def _coarse_host() -> str:
         return "unknown"
 
 
+def _json_get(
+    base_url: str,
+    path: str,
+    token: str,
+    *,
+    timeout: float,
+) -> dict[str, Any]:
+    url = base_url.rstrip("/") + path
+    req = Request(url, method="GET")
+    req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urlopen(req, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise BenchmarkError(f"GET {path} failed with HTTP {exc.code}") from exc
+    except URLError as exc:
+        raise BenchmarkError(f"GET {path} failed: {exc.reason}") from exc
+    except Exception as exc:
+        raise BenchmarkError(f"GET {path} returned unreadable JSON") from exc
+    if not isinstance(payload, dict):
+        raise BenchmarkError(f"GET {path} must return a JSON object")
+    return payload
+
+
+def discover_live_configuration(
+    base_url: str,
+    token: str,
+    *,
+    mode: str,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Read engine/profile identity from a running memd, not from CLI flags."""
+    if mode not in {"lexical", "vector"}:
+        raise BenchmarkError("memd /v1/search does not expose a hybrid lexical/vector route")
+    version = _json_get(base_url, "/v1/version", token, timeout=timeout)
+    version_label = version.get("version")
+    revision = version.get("revision")
+    contract = version.get("contract")
+    if not isinstance(version_label, str) or not version_label.strip():
+        raise BenchmarkError("GET /v1/version did not return a version string")
+    engine = f"memd/{version_label.strip()}"
+    if engine == "lexical-reference":
+        raise BenchmarkError("engine must identify live memd, not lexical-reference")
+
+    profile_payload = _json_get(
+        base_url, "/v1/workspaces/current/ai-profile", token, timeout=timeout
+    )
+    active = profile_payload.get("active")
+    server: dict[str, Any] = {
+        "version": version_label.strip(),
+        "revision": revision if isinstance(revision, str) else None,
+        "contract": contract if isinstance(contract, str) else None,
+    }
+    index = {
+        "kind": "not-advertised",
+        "evidence": (
+            "GET /v1/version and GET /v1/workspaces/current/ai-profile do not "
+            "expose ANN identity"
+        ),
+    }
+    evidence = (
+        "discovered from GET /v1/version and GET /v1/workspaces/current/ai-profile"
+    )
+    if mode == "lexical":
+        return {
+            "engine": engine,
+            "provider": None,
+            "model": None,
+            "dimension": None,
+            "index": index,
+            "server": server,
+            "evidence": evidence,
+        }
+    if not isinstance(active, dict):
+        raise BenchmarkError(
+            "vector produce requires an active workspace AI profile from the running memd"
+        )
+    embedding = active.get("embedding")
+    if not isinstance(embedding, dict):
+        raise BenchmarkError("active AI profile is missing embedding stage")
+    provider = embedding.get("provider")
+    dimension = embedding.get("dimensions")
+    profile_id = active.get("profile_id")
+    profile_revision = active.get("profile_revision")
+    if not isinstance(provider, str) or not provider.strip():
+        raise BenchmarkError("active AI profile embedding.provider is empty")
+    if not isinstance(dimension, int) or isinstance(dimension, bool) or dimension <= 0:
+        raise BenchmarkError("active AI profile embedding.dimensions must be a positive integer")
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        raise BenchmarkError("active AI profile_id is empty")
+    model = profile_id.strip()
+    if isinstance(profile_revision, str) and profile_revision.strip():
+        model = f"{model}@{profile_revision.strip()}"
+    server["profile_id"] = profile_id.strip()
+    if isinstance(profile_revision, str) and profile_revision.strip():
+        server["profile_revision"] = profile_revision.strip()
+    return {
+        "engine": engine,
+        "provider": provider.strip(),
+        "model": model,
+        "dimension": dimension,
+        "index": index,
+        "server": server,
+        "evidence": evidence,
+    }
+
+
 def _query_memd(
     base_url: str,
     token: str,
@@ -131,11 +238,23 @@ def produce_rankings(
     mode: str = "vector",
     provider: str = "operator-unspecified",
     model: str = "operator-unspecified",
+    live_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if mode not in {"lexical", "vector"}:
         raise BenchmarkError("memd /v1/search does not expose a hybrid lexical/vector route")
     if not 1 <= limit <= 100 or not math.isfinite(timeout) or timeout <= 0:
         raise BenchmarkError("limit must be 1..100 and timeout must be positive and finite")
+    index_config: dict[str, Any] = {"kind": "operator-unspecified"}
+    evidence = "operator-declared configuration; model and index not verified by producer"
+    server_identity: dict[str, Any] | None = None
+    if live_config is not None:
+        engine_label = live_config["engine"]
+        provider = live_config["provider"]
+        model = live_config["model"]
+        dimension = live_config["dimension"]
+        index_config = dict(live_config["index"])
+        evidence = live_config["evidence"]
+        server_identity = live_config.get("server")
     if not isinstance(engine_label, str) or not engine_label.strip() or engine_label == "lexical-reference":
         raise BenchmarkError("engine must identify live memd, not lexical-reference")
     if mode == "vector" and (
@@ -236,24 +355,25 @@ def produce_rankings(
             row["error_code"] = mapping_error
         query_rows.append(row)
 
+    configuration: dict[str, Any] = {
+        "mode": mode,
+        "provider": None if mode == "lexical" else provider,
+        "model": None if mode == "lexical" else model,
+        "dimension": None if mode == "lexical" else dimension,
+        "evidence": evidence,
+        "index": index_config,
+        "search": {
+            "top_k": limit,
+            "route": "lexical" if mode == "lexical" else "text",
+            "workspace": "bound by the supplied token; not inferred from dataset labels",
+        },
+    }
+    if isinstance(server_identity, dict) and server_identity:
+        configuration["server"] = server_identity
     return {
         "schema_version": "mem.recall-rankings.v1",
         "engine": engine_label,
-        "configuration": {
-            "mode": mode,
-            "provider": None if mode == "lexical" else provider,
-            "model": None if mode == "lexical" else model,
-            "dimension": None if mode == "lexical" else dimension,
-            "evidence": "operator-declared configuration; model and index not verified by producer",
-            "index": {
-                "kind": "operator-unspecified",
-            },
-            "search": {
-                "top_k": limit,
-                "route": "lexical" if mode == "lexical" else "text",
-                "workspace": "bound by the supplied token; not inferred from dataset labels",
-            },
-        },
+        "configuration": configuration,
         "hardware": {
             "host": _coarse_host(),
         },
