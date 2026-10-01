@@ -483,3 +483,29 @@ Use this table in pull requests and add implementation-specific scenarios:
 - Web builds and test caches remain in ignored repository paths. Browser tests
   print their retained screenshot directories under the operating-system temp
   directory; delete only those printed directories after review.
+## Personal GitHub fixture acceptance
+
+Use a fresh, owned PostgreSQL database ending in `_test`, separate from any
+running user's mem database:
+
+```sh
+cd server
+MEM_OAUTH_TEST_DB=postgres://.../mem_oauth_test go test ./internal/api -run TestGitHubHTTPIntegration -count=1
+go test ./internal/auth ./internal/config ./internal/api ./internal/db ./cmd/memd
+cd ../web
+npm run build
+npm test
+npm run lint
+```
+
+The provider fixture checks PKCE/minimal scopes, primary verified email and
+secret-safe errors. HTTP/PostgreSQL acceptance checks closed password signup,
+allowlisted bootstrap, state tampering/replay, email collision, CSRF, machine
+credential separation, logout revocation, cross-account linking denial and
+binding callback rejection after logout/account switch, including logout while
+provider exchange is running. Frontend regression checks old-Bearer callback
+ordering, failed cookie bootstrap, logout acknowledgement, cross-tab CSRF/cache
+refresh and delayed 401s from an earlier account. CI creates a separate fresh
+`mem_oauth_test` database for this fixture; ordinary `MEM_TEST_DB` integration
+continues against its own database. These tests use no real GitHub credentials
+and are not live provider certification.

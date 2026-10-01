@@ -1,7 +1,13 @@
+map $uri $mem_auth_loggable {
+    default 1;
+    /v1/auth/github/callback 0;
+}
 server {
     listen 8080;
     server_name _;
     server_tokens off;
+    # OAuth callback codes and state must not enter access logs.
+    access_log /dev/stdout combined if=$mem_auth_loggable;
 
     root /usr/share/nginx/html;
     index index.html;

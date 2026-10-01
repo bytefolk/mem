@@ -19,6 +19,33 @@ export const LANGS: { code: Lang; label: string }[] = [
 
 // Flat key → per-language string. `{n}` placeholders are interpolated.
 const dict = {
+  'github.signIn': { zh: '使用 GitHub 登录', en: 'Sign in with GitHub' },
+  'github.link': { zh: '绑定 GitHub 账号', en: 'Link GitHub account' },
+  'github.connected': { zh: '已绑定 @{login}', en: 'Connected as @{login}' },
+  'github.linkDescription': {
+    zh: '绑定后可使用 GitHub 登录当前账号。已有邮箱账号需要再次确认密码。',
+    en: 'Use GitHub to sign in to this account. Confirm your password when linking an existing email account.',
+  },
+  'github.linkRequired': {
+    zh: '请先用邮箱密码登录，再到账号菜单绑定 GitHub。',
+    en: 'Sign in with your email and password, then link GitHub from the account menu.',
+  },
+  'github.failed': {
+    zh: 'GitHub 登录未完成，请确认使用已获授权的个人账号后重试。',
+    en: 'GitHub sign-in did not complete. Retry with your authorized personal account.',
+  },
+  'github.reauthenticate': {
+    zh: '请确认当前密码，或重新登录后再绑定。',
+    en: 'Confirm your current password or sign in again before linking.',
+  },
+  'github.disabled': {
+    zh: '此部署尚未启用 GitHub 登录。',
+    en: 'GitHub sign-in is not enabled on this deployment.',
+  },
+  'github.logoutFailed': {
+    zh: '退出登录未完成，请重试。',
+    en: 'Sign-out did not complete. Please retry.',
+  },
   // ---- app metadata / fatal fallback ----
   'app.title': { zh: 'mem · Agent 原生 AI 网盘', en: 'mem · Agent-native AI drive' },
   'app.description': {

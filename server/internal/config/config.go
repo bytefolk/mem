@@ -59,10 +59,15 @@ type Config struct {
 	WorkerAuthKey   []byte
 
 	// Deployment / Auth
-	DeploymentMode   string // private|saas
-	RegistrationMode string // open|first_user|disabled
-	SessionTTL       time.Duration
-	CORSOrigins      []string // allowed browser origins; empty disables CORS (same-origin only)
+	DeploymentMode       string // private|saas
+	RegistrationMode     string // open|first_user|disabled
+	SessionTTL           time.Duration
+	CORSOrigins          []string // allowed browser origins; empty disables CORS (same-origin only)
+	PublicURL            string
+	GitHubClientID       string
+	GitHubClientSecret   string
+	GitHubAllowedUserIDs []string
+	GitHubBootstrap      bool
 	// ManagedEmbeddingProvider is the operator-selected primary exact Worker
 	// provider spec. ManagedEmbeddingProviders is the complete exact allow-set
 	// derived from that primary and the enabled immutable profile generations.
@@ -335,6 +340,9 @@ func Load() (*Config, error) {
 		if err := validateProduction(cfg); err != nil {
 			return nil, err
 		}
+	}
+	if err := loadGitHub(cfg); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }

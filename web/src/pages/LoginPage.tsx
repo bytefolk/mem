@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Logo } from '@/components/layout/Logo';
 import { useAuth } from '@/hooks/useAuth';
-import { ApiException } from '@/lib/api';
+import { api, ApiException } from '@/lib/api';
 import { toast } from 'sonner';
 import { useT } from '@/i18n';
 
@@ -18,10 +18,43 @@ export function LoginPage() {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
+  const [github, setGithub] = React.useState(false);
+  const [canRegister, setCanRegister] = React.useState(true);
+  const [githubLoading, setGithubLoading] = React.useState(false);
+  React.useEffect(() => {
+    api
+      .get<{ github: boolean; registration: boolean }>('/auth/capabilities')
+      .then((res) => {
+        setGithub(res.github);
+        setCanRegister(res.registration);
+      })
+      .catch(() => setGithub(false));
+    const result = new URLSearchParams(window.location.search).get('github');
+    if (result && !['ok', 'linked'].includes(result))
+      setError(t(result === 'link_required' ? 'github.linkRequired' : 'github.failed'));
+  }, [t]);
 
+  if (loading)
+    return (
+      <div role="status" className="p-6 text-center">
+        …
+      </div>
+    );
   if (token) return <Navigate to="/" replace />;
 
   const isRegister = mode === 'register';
+
+  async function signInWithGitHub() {
+    setGithubLoading(true);
+    setError(null);
+    try {
+      const result = await api.post<{ url: string }>('/auth/github/start', { intent: 'login' });
+      window.location.assign(result.url);
+    } catch {
+      setError(t('github.failed'));
+      setGithubLoading(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,7 +76,9 @@ export function LoginPage() {
             ? err.message
             : t('toast.retryLater');
       setError(msg);
-      toast.error(isRegister ? t('login.signUpFailed') : t('login.signInFailed'), { description: msg });
+      toast.error(isRegister ? t('login.signUpFailed') : t('login.signInFailed'), {
+        description: msg,
+      });
     }
   }
 
@@ -61,9 +96,20 @@ export function LoginPage() {
           <p className="text-sm text-fg-muted">{t('login.tagline')}</p>
         </div>
         <form onSubmit={onSubmit} className="surface p-6 flex flex-col gap-4 shadow-soft">
+          {github && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              loading={githubLoading || loading}
+              onClick={signInWithGitHub}
+            >
+              {t('github.signIn')}
+            </Button>
+          )}
           {/* Mode switch */}
           <div className="flex rounded-lg bg-bg-inset p-1 text-sm">
-            {(['login', 'register'] as Mode[]).map((m) => (
+            {((canRegister ? ['login', 'register'] : ['login']) as Mode[]).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -136,7 +182,7 @@ export function LoginPage() {
                   {t('login.goSignIn')}
                 </button>
               </>
-            ) : (
+            ) : canRegister ? (
               <>
                 {t('login.noAccount')}
                 <button
@@ -150,12 +196,10 @@ export function LoginPage() {
                   {t('login.goSignUp')}
                 </button>
               </>
-            )}
+            ) : null}
           </div>
         </form>
-        <p className="mt-4 text-center text-xs text-fg-subtle">
-          {t('login.footer')}
-        </p>
+        <p className="mt-4 text-center text-xs text-fg-subtle">{t('login.footer')}</p>
       </div>
     </div>
   );

@@ -3,6 +3,10 @@ import type { ApiError } from './types';
 const TOKEN_KEY = 'mem.token';
 const WORKSPACE_KEY = 'mem.workspace.current';
 const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '') + '/v1';
+let browserCSRF: string | null = null;
+export function setBrowserCSRF(value: string | null): void {
+  browserCSRF = value;
+}
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -44,9 +48,20 @@ function forceLogout(): void {
   clearToken();
   localStorage.removeItem('mem.user');
   localStorage.removeItem(WORKSPACE_KEY);
+  localStorage.removeItem('mem.auth.cookie');
+  browserCSRF = null;
   if (window.location.pathname !== '/login') {
     window.location.assign('/login');
   }
+}
+
+function authSnapshot(): string {
+  const token = getToken();
+  return token ? `bearer:${token}` : `cookie:${localStorage.getItem('mem.auth.cookie') ?? ''}`;
+}
+
+function logoutIfCurrent(snapshot: string): void {
+  if (snapshot === authSnapshot()) forceLogout();
 }
 
 export class ApiException extends Error {
@@ -86,6 +101,7 @@ function buildQuery(query: RequestOptions['query']): string {
 }
 
 export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const snapshot = authSnapshot();
   const { body, formData, query, headers, ...rest } = opts;
 
   const finalHeaders: Record<string, string> = {
@@ -97,6 +113,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
   if (token) {
     finalHeaders['Authorization'] = `Bearer ${token}`;
   }
+  if (!token && browserCSRF) finalHeaders['X-Mem-CSRF'] = browserCSRF;
   const workspaceID = getCurrentWorkspaceID();
   if (workspaceID) finalHeaders['X-Workspace-ID'] = workspaceID;
 
@@ -110,6 +127,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
 
   const url = `${API_BASE}${path}${buildQuery(query)}`;
   const res = await fetch(url, {
+    credentials: 'same-origin',
     ...rest,
     headers: finalHeaders,
     body: payload,
@@ -130,7 +148,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
     // invalid_credentials is a wrong-password 401 from /auth/login — the form
     // shows it inline; every other 401 means the stored token is dead.
     if (res.status === 401 && err.error !== 'invalid_credentials') {
-      forceLogout();
+      logoutIfCurrent(snapshot);
     }
     throw new ApiException(err);
   }
@@ -147,18 +165,20 @@ export async function apiRawResponse(
   path: string,
   opts: RawRequestOptions = {},
 ): Promise<Response> {
+  const snapshot = authSnapshot();
   const { query, headers, ...rest } = opts;
   const finalHeaders = new Headers(headers);
   if (!finalHeaders.has('Accept')) finalHeaders.set('Accept', 'application/json');
 
   const token = getToken();
   if (token) finalHeaders.set('Authorization', `Bearer ${token}`);
+  if (!token && browserCSRF) finalHeaders.set('X-Mem-CSRF', browserCSRF);
   const workspaceID = getCurrentWorkspaceID();
   if (workspaceID) finalHeaders.set('X-Workspace-ID', workspaceID);
 
   const url = `${API_BASE}${path}${buildQuery(query)}`;
-  const response = await fetch(url, { ...rest, headers: finalHeaders });
-  if (response.status === 401) forceLogout();
+  const response = await fetch(url, { credentials: 'same-origin', ...rest, headers: finalHeaders });
+  if (response.status === 401) logoutIfCurrent(snapshot);
   return response;
 }
 
@@ -176,6 +196,7 @@ function safeParse(text: string): unknown {
  * so we pull the bytes here and the caller turns them into an object URL.
  */
 export async function apiBlob(path: string, opts: RequestOptions = {}): Promise<Blob> {
+  const snapshot = authSnapshot();
   // Drop body/formData — a binary GET never carries them; keeping them would
   // leak `body: unknown` into fetch's RequestInit.
   const { query, headers, body: _body, formData: _formData, ...rest } = opts;
@@ -186,13 +207,14 @@ export async function apiBlob(path: string, opts: RequestOptions = {}): Promise<
   };
   const token = getToken();
   if (token) finalHeaders['Authorization'] = `Bearer ${token}`;
+  if (!token && browserCSRF) finalHeaders['X-Mem-CSRF'] = browserCSRF;
   const workspaceID = getCurrentWorkspaceID();
   if (workspaceID) finalHeaders['X-Workspace-ID'] = workspaceID;
 
   const url = `${API_BASE}${path}${buildQuery(query)}`;
-  const res = await fetch(url, { ...rest, headers: finalHeaders });
+  const res = await fetch(url, { credentials: 'same-origin', ...rest, headers: finalHeaders });
   if (!res.ok) {
-    if (res.status === 401) forceLogout();
+    if (res.status === 401) logoutIfCurrent(snapshot);
     throw new ApiException({ error: res.statusText || 'blob fetch failed', status: res.status });
   }
   return res.blob();

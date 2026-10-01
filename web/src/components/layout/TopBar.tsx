@@ -186,10 +186,24 @@ export function TopBar({ children }: { children?: React.ReactNode }) {
                   <Button
                     variant="ghost"
                     size="sm"
+                    className="w-full justify-start"
+                    onClick={() => navigate('/account')}
+                  >
+                    {t('nav.account')}
+                  </Button>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     className="w-full justify-start text-left text-danger hover:text-danger"
-                    onClick={() => {
-                      logout();
-                      navigate('/login');
+                    onClick={async () => {
+                      try {
+                        await logout();
+                        navigate('/login');
+                      } catch {
+                        window.alert(t('github.logoutFailed'));
+                      }
                     }}
                   >
                     <LogOut className="h-3.5 w-3.5" />

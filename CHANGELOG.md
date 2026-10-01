@@ -7,6 +7,18 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Personal GitHub preview
+
+- Add allowlisted GitHub browser sign-in and explicit account binding with
+  PKCE, single-use browser-bound state, immutable provider subjects, verified
+  primary email and no automatic email linking. Browser cookies have
+  server-side expiry/revocation and mutation CSRF/origin checks. Existing
+  Bearer clients retain their contract.
+- Add a small Sealos Helm overlay with closed password enrollment and explicit
+  allowlisted first-owner GitHub bootstrap. No model Worker is needed for
+  files and lexical memory recall. Real provider/deployment certification is
+  separate from the fixture tests.
+
 ### Added
 
 - Per-agent memory namespace filter on lexical recall (`#227`): `POST /v1/context`

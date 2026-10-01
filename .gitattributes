@@ -1,0 +1,6 @@
+# Build checks hash this upstream snapshot byte-for-byte and compare generated
+# CSS; preserve their canonical LF representation in Windows worktrees too.
+web/design-system/tokens.json text eol=lf
+web/src/styles/design-tokens.generated.css text eol=lf
+# CLI contract snapshots also compare exact bytes.
+server/cmd/mem/testdata/*.golden.json text eol=lf
