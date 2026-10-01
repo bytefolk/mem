@@ -1,0 +1,63 @@
+name: Build Sealos preview images
+
+on:
+  push:
+    branches: ["feat/65-github-sealos", "preview/sealos-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mem-preview-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - image: mem-preview-server
+            context: server
+          - image: mem-preview-web
+            context: web
+          - image: mem-preview-worker
+            context: worker
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish commit image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/bytefolk/${{ matrix.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: |
+            VERSION=sealos-preview
+            REVISION=${{ github.sha }}
+            WORKER_EXTRAS=
+          cache-from: type=gha,scope=mem-preview-${{ matrix.context }}
+          cache-to: type=gha,scope=mem-preview-${{ matrix.context }},mode=max
+      - name: Record image digest
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          printf '%s\n' "ghcr.io/bytefolk/$IMAGE_NAME@$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
