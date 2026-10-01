@@ -46,11 +46,12 @@ explicitly link GitHub; matching email never merges accounts.
 
 ## Rollout
 
-Select the intended instance name and `defaults.app_host` before creating the
-GitHub OAuth App; its callback must exactly match the generated hostname.
-The personal deployment's requested host is
-`mem-peterguy326-f5396ac8.hzh.sealos.run`; the generic template defaults remain
-random to avoid duplicate instances. Use public images only after verifying
+Select the intended instance name and `defaults.app_host`, then read the actual
+rendered Ingress hostname before finalizing the GitHub OAuth App callback.
+The console hostname does not establish `SEALOS_CLOUD_DOMAIN`; the personal
+Hangzhou workspace rendered `mem-peterguy326-f5396ac8.sealoshzh.site`.
+The generic template defaults remain random to avoid duplicate instances.
+Use public images only after verifying
 anonymous pull. For private images, precreate a fixed pull Secret and add its
 name to all application workloads/init containers; do not reference a missing
 Secret or copy a broad personal GitHub token to the cluster.
@@ -60,6 +61,15 @@ performs its free dry-run/quota preview, then deploys exactly that template
 instance. Every resource carries `cloud.sealos.io/deploy-on-sealos` and the
 last App CR opens the HTTPS Web entry. A successful API response still needs
 pod readiness, URL checks and real GitHub callback/asset acceptance.
+
+Web renders the image's shared nginx template using only `MEMD_UPSTREAM` and
+`MEM_MAX_BODY_SIZE`. The upstream arrives as a single-line Pod environment
+value because the Template API leaves instance expressions inside ConfigMap
+block scalars unresolved. Generated configs use the `/tmp` claim; the image's
+main nginx config is copied there with its include redirected to the generated
+server config. UID/GID 101, read-only root filesystem and dropped capabilities
+are retained. nginx variables and OAuth callback access-log filtering remain
+in the shared template.
 
 `mem-migrate` runs as the single memd replica's init container, then memd
 starts with `MEM_AUTO_MIGRATE=false`. Database-not-ready failures retry with

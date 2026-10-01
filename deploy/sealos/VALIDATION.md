@@ -169,3 +169,71 @@ successfully published all three images for the original `6e85c95` commit:
 These are publication results for that earlier commit. Anonymous registry
 pulls, new-head image publication, full remote CI on the committed repair,
 and all Sealos/live GitHub acceptance remain unverified.
+
+## Native Web startup follow-up
+
+The baseline `58ca323d82cf32d1bdde7260570737b31fda77a1` subsequently passed all
+10 [CI jobs](https://github.com/bytefolk/mem/actions/runs/36867557186), all four
+[security jobs](https://github.com/bytefolk/mem/actions/runs/36867557222), and
+the Agent-memory integration/acceptance and three preview image builds. These
+are remote checks for that baseline, not certification of the follow-up below.
+
+A real Sealos Template API dry-run returned HTTP 200 and the actual deploy
+returned HTTP 201 with 15 resources. PostgreSQL and Redis became ready, all six
+RWO claims bound (7Gi total), and the managed bucket's policy reads `private`.
+Database/cache/Worker services remain ClusterIP. Ingress access logging reads
+`false`. Runtime inputs and raw API/log evidence stay outside Git with 0600
+file permissions and 0700 directories; no credentials are included here.
+
+The platform rendered the actual public domain as
+`mem-peterguy326-f5396ac8.sealoshzh.site`, rather than the console's hostname.
+The operator's OAuth App callback was updated to that hostname with the
+existing `/v1/auth/github/callback` route.
+
+The first Web Pod reproduced `nginx: [emerg] unexpected "}" in
+/etc/nginx/conf.d/default.conf:26`. Its live ConfigMap contained one unresolved
+`${{ defaults.app_name }}` in `proxy_pass`, while the namespace expression had
+rendered. Pod readback confirmed UID/GID/fsGroup 101, read-only root filesystem,
+dropped capabilities and the intended `/tmp`/cache claims; this was a syntax
+failure, not a permission failure. A resourceVersion-guarded replacement of
+that single upstream expression and a Web-only rollout fixed the live Pod.
+It became Ready with no restarts on the new revision; `/healthz` and `/` returned
+HTTP 200. No database, runtime key, claim or container privilege was changed.
+
+The generic recipe now supplies the dynamic upstream as a single-line Pod
+environment value. A static ConfigMap startup script renders only the two
+application variables in the image's shared nginx template, then copies the
+main config to `/tmp` with its include redirected to that generated config.
+No instance expression remains in the startup block.
+
+Validation of this follow-up:
+
+- A fresh `mem-web:deploy-validation` production image built successfully.
+  The existing user's `mem-web:local` tag and running Compose stack were not
+  changed. That older cached image was insufficient to validate the current
+  OAuth log filter, so the regression uses the freshly built image.
+- `scripts/test_sealos_web_startup.sh` passed with the actual startup block,
+  UID 101, read-only root, dropped capabilities and writable temporary mounts.
+  Real nginx syntax, HTTP health and SPA login checks passed; the generated
+  config rendered the upstream/body limit and preserved nginx variables and
+  the OAuth callback access-log filter. The owned test container was removed.
+  This regression now runs in the existing `test-deploy-build` CI gate.
+- Production Compose/Helm validation passed using a source archive plus the
+  focused overlays. The archive explicitly disables Windows `core.autocrlf`
+  conversion; CRLF Helm render lines in a default Windows archive had caused
+  the shell's exact-kind checks to reject an otherwise valid chart. The
+  successful log is retained outside Git at
+  `/home/huyz/sealos-preview-build/mem-nginx-deployment-1790865281589645862/deployment.log`.
+- A separate, nondeployed validation instance for the updated native template
+  passed the real Template API dry-run: HTTP 200, 15 resources. The existing
+  instance was not redeployed, and its generated DB/Redis keys were retained.
+- Shell syntax and `git diff --check` passed.
+
+At this evidence point, memd's migration image pull has failed with TCP
+`connection timed out` and `connection reset by peer`; the Worker image is
+still pulling. The final linux/amd64 compressed sizes are approximately
+23.94MiB server, 20.07MiB Web and 132.10MiB Worker. Authenticated manifest
+access succeeds, and Web layers eventually pulled, but backend/Worker layer
+delivery and live login/file/memory acceptance remain outstanding. Web's
+auth-capabilities endpoint returns 502 until memd starts. A new follow-up CI
+run and the generic startup's real cloud rollout are also not claimed here.

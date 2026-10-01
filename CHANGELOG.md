@@ -38,6 +38,10 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- Render Sealos Web nginx configuration at startup from the shared image
+  template into its writable `/tmp` claim, avoiding unresolved instance
+  expressions in ConfigMap block scalars while retaining nonroot/read-only
+  container security and OAuth callback access-log filtering.
 - Restore the Agent-memory integration gates for migration 0027 and build the
   disposable MinIO/mc test dependency from pinned official source commits
   when the upstream community image registries reject pulls.
