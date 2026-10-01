@@ -12,7 +12,9 @@ password enrollment, one atomic first owner, explicit existing-account link,
 browser cookies, unchanged machine Bearer API semantics, and a native Sealos
 recipe. This does not complete the broader hosted-SaaS authentication roadmap.
 The existing auth epic is design context, not a claimed ready issue or approval.
-No PR, production release, merge or independent end-to-end approval is claimed.
+At this initial local validation stage, no PR, production release, merge or
+independent end-to-end approval was claimed. Later CI follow-ups are recorded
+below; the initial `NOT VERIFIED` rows describe that local validation stage.
 
 | Check | Result | Evidence and limitations |
 | --- | --- | --- |
@@ -73,3 +75,37 @@ generated it locally, and all five browser gates subsequently passed.
 Before any wider rollout, attach actual Sealos/GitHub/asset acceptance and
 independent review to the PR validation ledger. Treat every `NOT VERIFIED`
 row above as outstanding; source audit is not provider or deployment evidence.
+
+## PR 231 dependency-audit follow-up
+
+The first PR CI run at `6e85c9511625e043023dc6dd78ef126e0c8a5e8b` failed
+both the [Web audit](https://github.com/bytefolk/mem/actions/runs/36865578915/job/110380137487)
+and [Windows audit evidence](https://github.com/bytefolk/mem/actions/runs/36865578915/job/110380137434)
+on newly reported development-only transitive dependencies. Production audit
+already reported zero vulnerabilities. The Windows process fixture passed and
+correctly preserved audit exit 1, so no audit script or severity gate was
+weakened.
+
+The targeted lockfile update preserves parent dependency ranges and changes
+only `brace-expansion` 1.1.18 to 1.1.21, 2.1.4 to 2.1.7, and `undici` 7.29.0
+to 7.30.0. npm supplied the updated registry integrity hashes. It addresses the
+[brace-expansion advisories](https://github.com/advisories/GHSA-q2hr-2g5m-vwhr)
+and [undici advisories](https://github.com/advisories/GHSA-3wwx-pv8p-q78v)
+reported by the real registry; the complete registry report now contains no
+vulnerabilities.
+
+- Native Windows Node 24.19.0: `node --test scripts/test_win_audit_verify.mjs`
+  passed all 4 process tests.
+- Native `cmd.exe /d /c ..\scripts\win-audit-verify.bat` passed both the
+  production-moderate and all-dependencies-high audits with zero vulnerabilities
+  and final exit 0. Transcript retained outside Git at
+  `C:\Users\huyz\rw-clone\mem-preview-evidence\win-audit-dependency-refresh.txt`;
+  it records the tested checkout and exact audit exit status.
+- Ubuntu WSL Node 24.11.1: the real `npm run audit` and affected Web checks
+  passed after `npm ci --ignore-scripts --no-audit --no-fund`: both audit
+  thresholds report zero vulnerabilities, all 119 unit tests pass, and lint,
+  typecheck and the production build succeed. The large-bundle warning is
+  unchanged; the produced JS/CSS asset hashes are unchanged.
+- The same original CI run's [Go race/coverage job](https://github.com/bytefolk/mem/actions/runs/36865578915/job/110380137449)
+  succeeded, including the separately provisioned OAuth database fixture.
+- Remote CI must rerun on the committed repair before the PR is declared green.

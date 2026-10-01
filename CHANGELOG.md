@@ -19,6 +19,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   files and lexical memory recall. Real provider/deployment certification is
   separate from the fixture tests.
 
+### Security
+
+- Refresh Web development-only transitive dependencies to patched
+  `brace-expansion` 1.1.21/2.1.7 and `undici` 7.30.0, restoring the unchanged
+  Linux and Windows real-registry audit gates. Production dependency ranges
+  and audit severity thresholds are unchanged.
+
 ### Added
 
 - Per-agent memory namespace filter on lexical recall (`#227`): `POST /v1/context`
