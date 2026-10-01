@@ -237,3 +237,65 @@ access succeeds, and Web layers eventually pulled, but backend/Worker layer
 delivery and live login/file/memory acceptance remain outstanding. Web's
 auth-capabilities endpoint returns 502 until memd starts. A new follow-up CI
 run and the generic startup's real cloud rollout are also not claimed here.
+
+## Live runtime recovery and personal acceptance
+
+The application revision `62b47e1affcdf7d7f01ffee49ef72ed6c4a7be5e`
+passed all 24 PR checks, including [CI](https://github.com/bytefolk/mem/actions/runs/36877773632),
+[security](https://github.com/bytefolk/mem/actions/runs/36877773651), and
+[Agent-memory integration/browser acceptance](https://github.com/bytefolk/mem/actions/runs/36877774016).
+Its [published images](https://github.com/bytefolk/mem/actions/runs/36877770694)
+were copied to an operator-owned regional private registry with every manifest
+and blob SHA verified. Anonymous access and the read-only puller's writes were
+rejected. The live server/Web/Worker retain that application's image provenance;
+this follow-up changes the deployment recipe and its verification only.
+
+Once the original image pulls completed, actual startup exposed three recipe
+errors: the unsupported `local_fast_v2` spelling, `/tmp` failing memd's existing
+0700 transfer-directory check, and Worker exec probes timing out at Kubernetes'
+default one second. Worker logs showed normal `server.listening`; events showed
+timed-out probes and liveness restarts, rather than a processor crash.
+The recipe now uses `local-fast-v2`, a private subdirectory created by memd,
+and a startup probe plus explicit steady-state timeouts. Focused server-side
+dry-runs and spec readbacks verified unchanged runtime keys, claims, resource
+limits and security. UID/resourceVersion-guarded replacement of only the
+known bad old Pod revisions recovered the blocked rollout; no persistent
+resource was deleted. The generic Web startup also rolled out successfully,
+and live `nginx -t -c /tmp/nginx.conf` passed.
+
+Actual platform verification subsequently passed:
+
+- All five mem workloads Ready 1/1, final server/Worker zero restarts; migration
+  init exit 0, migration head 27 and pgvector 0.8.1.
+- Public Web/health/auth capabilities HTTP 200, GitHub enabled, password
+  registration disabled, visitor registration HTTP 403 and exact actual
+  `/v1/auth/github/callback` redirect.
+- Worker authenticated bucket HEAD succeeded, anonymous bucket LIST HTTP 403,
+  managed bucket policy private and dependency services ClusterIP.
+- The operator completed real GitHub authorization as `PeterGuy326`, uploaded
+  a nonsensitive text fixture, reloaded it, previewed its content and saw the
+  bound identity on Account. Logout and another GitHub login preserved the file.
+  Read-only database checks confirmed one user, one matching GitHub identity,
+  one correctly owned fixture and its expected SHA.
+- An isolated local Chromium check exercised the actual `downloadFile` module
+  with a fixture cookie and byte response. The click produced a download event,
+  the expected filename and a saved file matching the fixture byte for byte
+  (`0ff3c4c81dbd68c246debf992ec83408795ef3b9ef403b66b3742bfeb5b84146`).
+  The cloud in-app browser did not expose a download event during this run;
+  cloud download completion remains unverified. Live memory write/recall was
+  not exercised in this acceptance.
+
+Runtime/API evidence and screenshots remain outside Git in protected operator
+files. No production credential or user-uploaded private file is recorded here.
+
+The new `scripts/test_sealos_runtime_startup.py` passed against the exact live
+62b server/Worker images. With networking disabled, memd passed production
+configuration and its private temporary-directory setup before the expected
+DB refusal. An isolated required-auth Worker and disposable Redis passed real
+startup/readiness/liveness exec checks at 500m CPU/512Mi and read-only root.
+This verifies authenticated configuration can start; the intentionally unsigned
+HealthCheck does not certify business HMAC authorization. Owned containers and
+network were removed, and the temporary read-only registry login was erased.
+The regression is connected to the existing deployment-image CI gate. The
+follow-up also passed `git diff --check`; its new-head remote CI is still pending
+at this evidence point.

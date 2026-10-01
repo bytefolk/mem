@@ -77,6 +77,13 @@ the Pod; do not bypass migration. This revision adds migration 0027. It
 preserves existing users/memberships/machine tokens; downgrade refuses to
 orphan a GitHub-only account. Back up an existing deployment first.
 
+The native profile is `local-fast-v2`. Workspace transfers use
+`/tmp/mem-workspace-transfers`; memd creates this private 0700 directory under
+the writable claim and rejects a shared temporary root. Worker exec health
+checks need time for Python imports and two gRPC waits: startup permits up to
+180 seconds, with 15-second startup and 10-second steady-state probe timeouts.
+The existing CPU, memory, authentication and container security limits remain.
+
 The native recipe disables ingress access logging, and the inner nginx filters
 OAuth callback query strings. It intentionally has no placeholder NetworkPolicy:
 the base Helm chart's example CIDR would block Sealos dependencies/GitHub.

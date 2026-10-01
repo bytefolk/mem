@@ -38,6 +38,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- Correct native Sealos startup to use the compiled `local-fast-v2` profile,
+  a private 0700 transfer subdirectory and Worker probe timeouts that accommodate
+  Python/gRPC startup under the preview CPU limit.
 - Render Sealos Web nginx configuration at startup from the shared image
   template into its writable `/tmp` claim, avoiding unresolved instance
   expressions in ConfigMap block scalars while retaining nonroot/read-only

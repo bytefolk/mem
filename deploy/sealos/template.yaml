@@ -262,11 +262,11 @@ spec:
             - { name: MEM_GITHUB_BOOTSTRAP, value: 'true' }
             - { name: MEM_GITHUB_ALLOWED_USER_IDS, value: '${{ inputs.github_allowed_user_ids }}' }
             - { name: MEM_PUBLIC_URL, value: 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}' }
-            - { name: MEM_AI_PROFILES, value: local_fast_v2 }
+            - { name: MEM_AI_PROFILES, value: local-fast-v2 }
             - { name: MEM_SESSION_TTL, value: 24h }
             - { name: MEM_WORKER_AUTH_KEY_ID, value: preview-v1 }
             - { name: MEM_WORKER_GRPC, value: '${{ defaults.app_name }}-worker.${{ SEALOS_NAMESPACE }}.svc.cluster.local:50051' }
-            - { name: MEM_WORKSPACE_TRANSFER_TMP_DIR, value: /tmp }
+            - { name: MEM_WORKSPACE_TRANSFER_TMP_DIR, value: /tmp/mem-workspace-transfers }
             - { name: MEM_WORKSPACE_BUNDLE_MAX_BYTES, value: '536870912' }
             - { name: MEM_WORKSPACE_TRANSFER_MAX_CONCURRENT, value: '1' }
             - name: MEM_DB_URL
@@ -378,12 +378,19 @@ spec:
                   name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: bucket
           ports: [{ name: grpc, containerPort: 50051 }]
+          startupProbe:
+            exec: { command: [python, -m, mem_worker.healthcheck] }
+            timeoutSeconds: 15
+            periodSeconds: 15
+            failureThreshold: 12
           readinessProbe:
             exec: { command: [python, -m, mem_worker.healthcheck] }
+            timeoutSeconds: 10
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             exec: { command: [python, -m, mem_worker.healthcheck] }
+            timeoutSeconds: 10
             initialDelaySeconds: 30
             periodSeconds: 15
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
