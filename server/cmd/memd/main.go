@@ -259,7 +259,13 @@ func run() error {
 		RegistrationMode:          cfg.RegistrationMode,
 		SessionTTL:                cfg.SessionTTL,
 		CORSOrigins:               cfg.CORSOrigins,
+		PublicURL:                 cfg.PublicURL,
+		GitHubAllowedUserIDs:      cfg.GitHubAllowedUserIDs,
+		GitHubBootstrap:           cfg.GitHubBootstrap,
 		Log:                       logger,
+	}
+	if cfg.GitHubClientID != "" {
+		srv.GitHub = &auth.GitHubOAuth{ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret, RedirectURL: cfg.PublicURL + "/v1/auth/github/callback"}
 	}
 
 	if cfg.DeploymentMode == "saas" {

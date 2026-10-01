@@ -22,9 +22,12 @@ services:
 
   minio:
     profiles: ["e2e"]
-    # MinIO withdrew its Docker Hub repositories in October 2025; quay.io serves
-    # the same digest-pinned image.
-    image: quay.io/minio/minio:latest@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    # Official community container pulls are unavailable. Build only the test
+    # dependency from pinned upstream commits; see scripts/test-minio/Dockerfile.
+    image: mem-test-minio:7aac2a2c5b7c-77f82e18b540
+    build:
+      context: ./scripts/test-minio
+    pull_policy: build
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: mem
@@ -34,7 +37,7 @@ services:
     tmpfs:
       - /data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9000/minio/health/ready"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -42,7 +45,10 @@ services:
 
   minio-init:
     profiles: ["e2e"]
-    image: quay.io/minio/mc:latest@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    image: mem-test-minio:7aac2a2c5b7c-77f82e18b540
+    build:
+      context: ./scripts/test-minio
+    pull_policy: build
     depends_on:
       minio:
         condition: service_healthy

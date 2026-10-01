@@ -1,4 +1,6 @@
 .git
+.env*
+!.env.example
 node_modules
 dist
 playwright-report

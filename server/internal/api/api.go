@@ -197,6 +197,10 @@ type Server struct {
 	RegistrationMode          string
 	SessionTTL                time.Duration
 	CORSOrigins               []string // allowed browser origins; empty disables CORS
+	PublicURL                 string
+	GitHub                    GitHubIdentityProvider
+	GitHubAllowedUserIDs      []string
+	GitHubBootstrap           bool
 	Log                       *slog.Logger
 }
 
@@ -232,6 +236,12 @@ func (s *Server) Router() http.Handler {
 	// Public auth
 	r.Post("/v1/auth/register", s.handleRegister)
 	r.Post("/v1/auth/login", s.handleLogin)
+	r.Get("/v1/auth/capabilities", s.handleAuthCapabilities)
+	r.Post("/v1/auth/github/start", s.handleGitHubStart)
+	r.Get("/v1/auth/github/callback", s.handleGitHubCallback)
+	r.Get("/v1/auth/session", s.handleBrowserSession)
+	r.Post("/v1/auth/logout", s.handleBrowserLogout)
+	r.With(s.authMiddleware).Get("/v1/auth/github/identity", s.handleGitHubIdentity)
 
 	// Token-authenticated routes
 	r.Group(func(r chi.Router) {
@@ -516,6 +526,11 @@ func (s *Server) requestTimeoutMiddleware(next http.Handler) http.Handler {
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
+		if header == "" && s.GitHub != nil {
+			if s.authenticateBrowser(w, r, next) {
+				return
+			}
+		}
 		const prefix = "Bearer "
 		if len(header) <= len(prefix) || header[:len(prefix)] != prefix {
 			writeError(w, http.StatusUnauthorized, "missing_bearer", "Authorization: Bearer <token> required")
@@ -810,6 +825,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "email or password is incorrect")
 		return
 	}
+	s.clearPriorBrowser(w, r)
 	s.issueSession(w, u, http.StatusOK)
 }
 
@@ -844,6 +860,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "register_failed", err.Error())
 		return
 	}
+	s.clearPriorBrowser(w, r)
 	s.issueSession(w, u, http.StatusCreated)
 }
 

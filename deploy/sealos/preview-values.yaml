@@ -1,0 +1,36 @@
+# Personal preview overlay for ../helm/mem. Set registry images and ingress
+# host from the actual Sealos account; no credentials belong in this file.
+existingSecret: mem-runtime
+runtime:
+  deploymentMode: private
+  registrationMode: disabled
+  aiProfiles: local-fast-v2
+  logLevel: info
+memd:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  topologySpreadConstraints: {enabled: false}
+  podDisruptionBudget: {enabled: false}
+worker:
+  enabled: false
+web:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+  topologySpreadConstraints: {enabled: false}
+  podDisruptionBudget: {enabled: false}
+ingress:
+  enabled: true
+  host: mem.example.com # override with the Sealos-assigned HTTPS hostname
+  tls:
+    enabled: true
+    secretName: mem-tls # override for the actual Sealos ingress/TLS controller
+networkPolicy:
+  # The base chart's 192.0.2.0/24 is a documentation placeholder and blocks
+  # real dependencies/GitHub. This small private namespace preview disables
+  # that placeholder policy. Add measured dependency/GitHub egress before
+  # using this as a shared or hardened environment.
+  enabled: false

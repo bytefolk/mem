@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router';
 import { LoginGate } from './LoginGate';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { LoginPage } from '@/pages/LoginPage';
+import { AccountPage } from '@/pages/AccountPage';
 import { ExplorerPage } from '@/pages/ExplorerPage';
 import { FileDetailPage } from '@/pages/FileDetailPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
       { path: '/faces', element: <Navigate to="/search" replace /> },
       { path: '/providers', element: <ProvidersPage /> },
       { path: '/permissions', element: <PermissionsPage /> },
+      { path: '/account', element: <AccountPage /> },
       { path: '/memories', element: <MemoriesPage /> },
       { path: '/memories/:memoryId', element: <MemoriesPage /> },
       { path: '/transfer', element: <TransferPage /> },

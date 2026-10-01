@@ -57,6 +57,7 @@ jobs:
     timeout-minutes: 30
     env:
       MEM_TEST_DB: postgres://mem:mem@localhost:5432/mem_test?sslmode=disable
+      MEM_OAUTH_TEST_DB: postgres://mem:mem@localhost:5432/mem_oauth_test?sslmode=disable
     services:
       postgres:
         image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
@@ -125,6 +126,9 @@ jobs:
           postgres
           "${MEM_TEST_DB}"
           up
+
+      - name: Create isolated GitHub OAuth acceptance database
+        run: psql "${MEM_TEST_DB}" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE mem_oauth_test;'
 
       - name: Test with race detector and coverage
         working-directory: server

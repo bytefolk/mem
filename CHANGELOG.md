@@ -7,6 +7,25 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ## [Unreleased]
 
+### Personal GitHub preview
+
+- Add allowlisted GitHub browser sign-in and explicit account binding with
+  PKCE, single-use browser-bound state, immutable provider subjects, verified
+  primary email and no automatic email linking. Browser cookies have
+  server-side expiry/revocation and mutation CSRF/origin checks. Existing
+  Bearer clients retain their contract.
+- Add a small Sealos Helm overlay with closed password enrollment and explicit
+  allowlisted first-owner GitHub bootstrap. No model Worker is needed for
+  files and lexical memory recall. Real provider/deployment certification is
+  separate from the fixture tests.
+
+### Security
+
+- Refresh Web development-only transitive dependencies to patched
+  `brace-expansion` 1.1.21/2.1.7 and `undici` 7.30.0, restoring the unchanged
+  Linux and Windows real-registry audit gates. Production dependency ranges
+  and audit severity thresholds are unchanged.
+
 ### Added
 
 - Per-agent memory namespace filter on lexical recall (`#227`): `POST /v1/context`
@@ -19,6 +38,16 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- Correct native Sealos startup to use the compiled `local-fast-v2` profile,
+  a private 0700 transfer subdirectory and Worker probe timeouts that accommodate
+  Python/gRPC startup under the preview CPU limit.
+- Render Sealos Web nginx configuration at startup from the shared image
+  template into its writable `/tmp` claim, avoiding unresolved instance
+  expressions in ConfigMap block scalars while retaining nonroot/read-only
+  container security and OAuth callback access-log filtering.
+- Restore the Agent-memory integration gates for migration 0027 and build the
+  disposable MinIO/mc test dependency from pinned official source commits
+  when the upstream community image registries reject pulls.
 - The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - Rewrite the root README around a concise product promise, a verified Compose first-run path, source-built MCP setup, current capability and trust boundaries, and links to authoritative reference docs. Remove the unsupported unpublished `@bytefolk/mem-mcp@0.1.2` install path and keep its migration explicitly tracked in #153. Refs #229.
 - Index generation HTTP create/activate/rollback stay `503 execution_unavailable` with `execution_wired: false` on that body, and the same flag is now on events as well as list/status/cancel/resume/discard. Create still returns `400` for malformed JSON or an empty `profile_id` before the 503. Empty-workspace activate is refused by the same 503. Refs #174.

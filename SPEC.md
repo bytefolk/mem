@@ -9,6 +9,18 @@
 
 ## 0. TL;DR
 
+Personal GitHub browser login is optional and requires an exact public HTTPS
+origin, OAuth client credentials and numeric GitHub subject allowlist. New
+GitHub first-owner bootstrap is explicit and requires disabled public password
+registration. HTTP surfaces: `GET /v1/auth/capabilities`,
+`POST /v1/auth/github/start`, `GET /v1/auth/github/callback`,
+`GET /v1/auth/session`, `POST /v1/auth/logout`, and authenticated
+`GET /v1/auth/github/identity`. GitHub identities never link by email alone;
+binding requires password reauthentication or a recent browser session and
+the callback retains the same active actor/session. See
+[`deploy/sealos/README.md`](deploy/sealos/README.md). This personal flow does
+not claim the full hosted identity/OIDC/MFA roadmap is implemented.
+
 **mem** 是一个开源、自托管、面向 Agent 的可迁移网盘。
 形态像网盘，机器入口像共享 Memory Plane。
 

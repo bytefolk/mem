@@ -146,6 +146,8 @@ if [ "${MEM_VALIDATE_BUILD_IMAGES:-0}" = "1" ]; then
   docker build --tag mem-server:deploy-validation "$repo_root/server"
   docker build --tag mem-worker:deploy-validation "$repo_root/worker"
   docker build --tag mem-web:deploy-validation "$repo_root/web"
+  sh "$repo_root/scripts/test_sealos_web_startup.sh"
+  python3 "$repo_root/scripts/test_sealos_runtime_startup.py"
 fi
 
 echo "PASS: production Compose and Helm deployment validation"
