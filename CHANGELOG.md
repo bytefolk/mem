@@ -38,6 +38,9 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Changed
 
+- Restore the Agent-memory integration gates for migration 0027 and build the
+  disposable MinIO/mc test dependency from pinned official source commits
+  when the upstream community image registries reject pulls.
 - The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
 - Rewrite the root README around a concise product promise, a verified Compose first-run path, source-built MCP setup, current capability and trust boundaries, and links to authoritative reference docs. Remove the unsupported unpublished `@bytefolk/mem-mcp@0.1.2` install path and keep its migration explicitly tracked in #153. Refs #229.
 - Index generation HTTP create/activate/rollback stay `503 execution_unavailable` with `execution_wired: false` on that body, and the same flag is now on events as well as list/status/cancel/resume/discard. Create still returns `400` for malformed JSON or an empty `profile_id` before the 503. Empty-workspace activate is refused by the same 503. Refs #174.

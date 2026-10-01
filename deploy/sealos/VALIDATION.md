@@ -109,3 +109,63 @@ vulnerabilities.
 - The same original CI run's [Go race/coverage job](https://github.com/bytefolk/mem/actions/runs/36865578915/job/110380137449)
   succeeded, including the separately provisioned OAuth database fixture.
 - Remote CI must rerun on the committed repair before the PR is declared green.
+
+## PR 231 PostgreSQL and lifecycle gate follow-up
+
+The [PostgreSQL job](https://github.com/bytefolk/mem/actions/runs/36865578987/job/110380137083)
+at `6e85c9511625e043023dc6dd78ef126e0c8a5e8b` passed every populated migration
+upgrade through 0027 and preserved the recorded history/data, then failed
+because `scripts/verify.sh` still expected migration head 26. The runner now
+expects 27; its rollback, populated-upgrade, HNSW, required-test execution and
+race checks are unchanged. The existing isolated OAuth database fixture remains
+in the separate Go CI job because it requires a fresh empty database.
+
+The [HTTP/CLI/MCP job](https://github.com/bytefolk/mem/actions/runs/36865578987/job/110380137349)
+failed before building or starting memd: the existing test Compose MinIO image
+pull returned `unauthorized`. This Compose reference is identical in the PR's
+base commit. Independent anonymous manifest queries reproduced the registry
+rejection for the community repositories on Quay and Docker Hub.
+
+The [official MinIO source-only distribution instructions](https://github.com/minio/minio#source-only-distribution)
+describe building from source; the upstream community repository is archived.
+The test stack now builds only this disposable dependency from official
+[MinIO commit 7aac2a2](https://github.com/minio/minio/commit/7aac2a2c5b7c882e68c1ce017d8256be2feea27f)
+and [mc commit 77f82e1](https://github.com/minio/mc/commit/77f82e18b5401a65958f1619df6ebb994634bd88).
+`scripts/test-minio/Dockerfile` pins the Docker Official Go and Alpine image
+digests, enables the public Go checksum database and retains both licenses.
+Its dedicated context denies all files except Dockerfile and `.dockerignore`;
+no repository code, runtime secret or provider credential enters it. The
+production Sealos managed bucket configuration is unaffected.
+
+Validation uses a tracked source archive of `6e85c95` plus only the four scoped
+runner/test-image file overlays, with shell line endings normalized in the
+Linux validation directory. Host Go is 1.25.9, the pinned image builder Go is
+1.25.10, and the disposable PostgreSQL image is the same pgvector digest used
+by CI. No development/production database is used.
+
+- `git diff --check`, `bash -n scripts/verify.sh`, and the full e2e Compose
+  model validation passed.
+- The fixed official source image built successfully, and
+  `scripts/acceptance_agent_memory.sh` exited 0. It preserved the complete HTTP
+  remember/replay/conflict/model-free recall, CLI/checkpoint path isolation,
+  sequential MCP lifecycle, and PostgreSQL logical-forget redaction checks.
+- `scripts/verify.sh integration` exited 0, including populated migration
+  upgrades, rollback round trips, HNSW checks and every required PostgreSQL
+  regression. `scripts/verify.sh integration-race` also exited 0 with all
+  required PostgreSQL regressions executing and passing under the Go race
+  detector.
+- Test containers, owned databases and networks are removed by their guarded
+  cleanup paths. Logs are retained outside Git at
+  `/home/huyz/sealos-preview-build/mem-ci-fixes-audit-acceptance.log` and
+  `/home/huyz/sealos-preview-build/mem-ci-fixes-audit-integration.log`.
+
+The [preview image run](https://github.com/bytefolk/mem/actions/runs/36865387084)
+successfully published all three images for the original `6e85c95` commit:
+
+- `mem-preview-server@sha256:a43a5d0e5b310df0cfaf73157d2585609266d354352f8cabbac4cd298d3ae20b`
+- `mem-preview-web@sha256:dfb90d483d932c493804f2c72cb30fbbf42188855bf86b6ac22437344bc95727`
+- `mem-preview-worker@sha256:7ec03edb854759bb95daedd4db4aae7826542a49f4c59c8e7149c136261258ba`
+
+These are publication results for that earlier commit. Anonymous registry
+pulls, new-head image publication, full remote CI on the committed repair,
+and all Sealos/live GitHub acceptance remain unverified.
