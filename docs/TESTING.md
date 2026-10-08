@@ -300,6 +300,15 @@ Run the isolated, model-free process test:
 make test-acceptance
 ```
 
+The script builds temporary MinIO/mc binaries from checksum-pinned official
+source archives because Community Edition is now source-only. It uses the
+existing Go toolchain, `tar` and `sha256sum`, then builds a uniquely named test
+image on a pinned official Alpine runtime. The temporary Compose override,
+image and run directory are removed by its ownership-checked cleanup. This
+does not replace images or credentials in a production deployment. Network
+access to the fixed source archives and locked Go module dependencies is
+required; missing artifacts or checksum mismatches fail the gate.
+
 The script owns a per-run Compose project, random loopback PostgreSQL/MinIO
 ports, an ephemeral database/store and a new memd process on an atomically
 locked, twice-preflighted loopback port. It builds the current CLI, MCP adapter

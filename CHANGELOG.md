@@ -24,6 +24,17 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   Design: `docs/agent-memory-namespace.md`.
 - `mem put <path> --watch` one-way foreground directory watch: poll `--interval` (default 30s), ingest new files after one quiet interval, report changed files without re-ingesting, and never propagate local deletes. Refs #110.
 
+### Fixed
+
+- Restore Linux/Windows Web dependency audit gates by removing the unpatched
+  braces build-tool chain with official Tailwind/PostCSS 4 and typescript-eslint
+  8, while retaining existing theme utility behavior and browser acceptance.
+  Apply compatible transitive security updates without relaxing audit thresholds.
+  Validation and public advisory references: `docs/acceptance/VAULT_SYNC_VALIDATION.md`.
+- Build isolated lifecycle-test MinIO/mc images from checksum-pinned official
+  sources when former public images are no longer anonymously pullable. Keep
+  production assets and all HTTP/CLI/MCP assertions unchanged. Refs #234.
+
 ### Changed
 
 - The live recall producer (`python3 -m benchmarks.recall produce`) reads engine, profile, provider and embedding dimension from the running memd instead of CLI labels, scores the multilingual v1 set (English and Chinese, including image-description queries), and stays on-demand rather than a CI gate. Refs #175.
