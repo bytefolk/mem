@@ -4,7 +4,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-unit}"
-EXPECTED_MIGRATION_HEAD=26
+EXPECTED_MIGRATION_HEAD=27
 MIGRATION_ROLLBACK_TARGET=11
 MODEL_TEXT_CANONICAL_BASE=15
 WORKSPACE_AI_PROFILE_BASE=16
@@ -65,6 +65,7 @@ run_race() {
       ./internal/file \
       ./internal/folder \
       ./internal/memory \
+      ./internal/vaultsync \
       ./internal/handoff \
       ./internal/workspacelock \
       ./internal/workspacebundle \
@@ -350,6 +351,7 @@ run_postgres_tests() {
     TestReleasedFileStageRetryPostgres
     TestDurableContextPostgres
     TestTextANNFileSemanticsPostgres
+    TestVaultSyncPostgres
   )
 
   integration_log="$(mktemp "${TMPDIR:-/tmp}/mem-integration.XXXXXX")"
@@ -360,8 +362,9 @@ run_postgres_tests() {
     MEM_TEST_DB="$MEM_TEST_DB" go test \
       ${race_flag:+"$race_flag"} \
       -v -count=1 -p 1 -timeout 20m \
-      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestWorkspaceTransferMergeConservativePostgres|TestHandoffCrossAgentHTTPIntegration|TestRelocateHTTPPostgres|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestAnnotationDecisionIntegration|TestIndexerEnrichmentIntegration|TestRecomputePerson|TestManagedEmbeddingEntitlementPostgres|TestManagedSearchReplayPostgres|TestManagedEmbeddingHTTPAuthorizationPostgres|TestAIProfilePostgres|TestIndexGenerationPostgres|TestManagedAISettlementOutboxPostgres|TestReleasedFileStageRetryPostgres|TestDurableContextPostgres|TestTextANNFileSemanticsPostgres)$' \
+      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestWorkspaceTransferMergeConservativePostgres|TestHandoffCrossAgentHTTPIntegration|TestRelocateHTTPPostgres|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestAnnotationDecisionIntegration|TestIndexerEnrichmentIntegration|TestRecomputePerson|TestManagedEmbeddingEntitlementPostgres|TestManagedSearchReplayPostgres|TestManagedEmbeddingHTTPAuthorizationPostgres|TestAIProfilePostgres|TestIndexGenerationPostgres|TestManagedAISettlementOutboxPostgres|TestReleasedFileStageRetryPostgres|TestDurableContextPostgres|TestTextANNFileSemanticsPostgres|TestVaultSyncPostgres)$' \
       ./internal/memory \
+      ./internal/vaultsync \
       ./internal/handoff \
       ./internal/workspacetransfer \
       ./internal/api \

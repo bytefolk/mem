@@ -9,6 +9,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Workspace-scoped Markdown Vault sync HTTP API (`#234`): discover Vaults, pull bounded
+  snapshots and atomically commit logical-note deltas with whole-Vault CAS.
+  Independent empty notes, immutable revisions and deletion tombstones preserve
+  identity and concurrent edits; workspace, read/write and token-path boundaries
+  reuse canonical authorization. Additive migration 0027 leaves existing files
+  unchanged. See `docs/VAULT_SYNC.md` for limits, downgrade data loss and the
+  explicit boundary from current workspace-bundle export/import formats.
 - Per-agent memory namespace filter on lexical recall (`#227`): `POST /v1/context`
   and `mem_context` accept `agent_id` plus optional `extra_agent_ids`. When set,
   structured-memory recall hard-filters `producer_agent` before ranking so
