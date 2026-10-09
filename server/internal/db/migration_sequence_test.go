@@ -116,6 +116,13 @@ func TestMigrationUpgradeSequence(t *testing.T) {
 				t.Fatalf("producer_agent index=%d, err=%v", producerIdx, err)
 			}
 		}
+		if version >= 27 {
+			var tables int
+			if err := sqldb.QueryRowContext(ctx, `SELECT count(*) FROM pg_tables WHERE schemaname='public'
+				AND tablename IN ('vaults','vault_commits','vault_entry_revisions','vault_entry_heads')`).Scan(&tables); err != nil || tables != 4 {
+				t.Fatalf("Vault tables=%d, want=4, err=%v", tables, err)
+			}
+		}
 		t.Logf("PASS: strict Goose upgrade to %d; complete history and populated data preserved", version)
 	}
 	// The real startup path must accept the upgraded history unchanged.

@@ -174,6 +174,7 @@ type Server struct {
 	Search                   SearchService    // optional; nil disables /v1/search
 	Context                  *contextpack.Service
 	Memory                   MemoryService
+	VaultSync                VaultSyncService
 	DurableContext           DurableContextService
 	Handoff                  handoff.ServicePort
 	Provider                 *provider.Service      // optional; nil disables /v1/providers
@@ -241,6 +242,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/v1/capabilities", s.handleCapabilities)
 		r.Get("/v1/workspaces", s.handleListWorkspaces)
 		r.Get("/v1/workspaces/current", s.handleCurrentWorkspace)
+		r.With(s.requireScope(auth.ScopeRead)).Get("/v1/vault/list", s.handleVaultList)
+		r.With(s.requireScope(auth.ScopeRead)).Get("/v1/vault/snapshot", s.handleVaultSnapshot)
+		r.With(s.requireScope(auth.ScopeRead), s.requireScope(auth.ScopeWrite)).Post("/v1/vault/commit", s.handleVaultCommit)
 		r.With(s.requireScope(auth.ScopeRead)).Get(
 			"/v1/workspaces/current/ai-profile", s.handleGetAIProfile,
 		)

@@ -9,6 +9,13 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
 
 ### Added
 
+- Workspace-scoped Markdown Vault sync HTTP API (`#234`): discover Vaults, pull bounded
+  snapshots and atomically commit logical-note deltas with whole-Vault CAS.
+  Independent empty notes, immutable revisions and deletion tombstones preserve
+  identity and concurrent edits; workspace, read/write and token-path boundaries
+  reuse canonical authorization. Additive migration 0027 leaves existing files
+  unchanged. See `docs/VAULT_SYNC.md` for limits, downgrade data loss and the
+  explicit boundary from current workspace-bundle export/import formats.
 - Per-agent memory namespace filter on lexical recall (`#227`): `POST /v1/context`
   and `mem_context` accept `agent_id` plus optional `extra_agent_ids`. When set,
   structured-memory recall hard-filters `producer_agent` before ranking so
@@ -16,6 +23,17 @@ The project publishes 0.x prerelease versions; a stable release line is not yet 
   provenance and match reason. Operator recall without `agent_id` is unchanged.
   Design: `docs/agent-memory-namespace.md`.
 - `mem put <path> --watch` one-way foreground directory watch: poll `--interval` (default 30s), ingest new files after one quiet interval, report changed files without re-ingesting, and never propagate local deletes. Refs #110.
+
+### Fixed
+
+- Restore Linux/Windows Web dependency audit gates by removing the unpatched
+  braces build-tool chain with official Tailwind/PostCSS 4 and typescript-eslint
+  8, while retaining existing theme utility behavior and browser acceptance.
+  Apply compatible transitive security updates without relaxing audit thresholds.
+  Validation and public advisory references: `docs/acceptance/VAULT_SYNC_VALIDATION.md`.
+- Build isolated lifecycle-test MinIO/mc images from checksum-pinned official
+  sources when former public images are no longer anonymously pullable. Keep
+  production assets and all HTTP/CLI/MCP assertions unchanged. Refs #234.
 
 ### Changed
 
