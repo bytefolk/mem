@@ -4,7 +4,9 @@ set -euo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${REPO_ROOT}/docker-compose.test.yml"
+COMPOSE_OVERRIDE=""
 COMPOSE_PROJECT=""
+MINIO_IMAGE=""
 PG_PORT="${MEM_ACCEPTANCE_PG_PORT:-0}"
 S3_PORT="${MEM_ACCEPTANCE_S3_PORT:-0}"
 HTTP_PORT_REQUESTED="${MEM_ACCEPTANCE_HTTP_PORT:-}"
@@ -33,11 +35,15 @@ require_command() {
 }
 
 compose() {
+  local -a compose_files=(-f "$COMPOSE_FILE")
+  if [[ -n "$COMPOSE_OVERRIDE" ]]; then
+    compose_files+=(-f "$COMPOSE_OVERRIDE")
+  fi
   MEM_TEST_PROJECT="$COMPOSE_PROJECT" \
   MEM_TEST_PG_PORT="$PG_PORT" \
   MEM_TEST_S3_PORT="$S3_PORT" \
   MEM_TEST_DB_NAME="$DB_NAME" \
-    docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" --profile e2e "$@"
+    docker compose -p "$COMPOSE_PROJECT" "${compose_files[@]}" --profile e2e "$@"
 }
 
 cleanup() {
@@ -62,6 +68,14 @@ cleanup() {
     ! compose down --volumes --remove-orphans >/dev/null 2>&1; then
     printf 'WARNING: failed to remove Compose project %s\n' "$COMPOSE_PROJECT" >&2
     cleanup_status=1
+  fi
+  if [[ -n "$MINIO_IMAGE" ]] &&
+    docker image inspect "$MINIO_IMAGE" >/dev/null 2>&1; then
+    if [[ "$MINIO_IMAGE" != "${COMPOSE_PROJECT}:minio" ]] ||
+      ! docker image rm "$MINIO_IMAGE" >/dev/null 2>&1; then
+      printf 'WARNING: failed to remove acceptance MinIO image\n' >&2
+      cleanup_status=1
+    fi
   fi
   if [[ -n "$E2E_DIR" && "$E2E_DIR" == "${E2E_ROOT}/acceptance."* ]]; then
     if ! rm -rf -- "$E2E_DIR"; then
@@ -92,6 +106,8 @@ require_command curl
 require_command jq
 require_command od
 require_command tr
+require_command tar
+require_command sha256sum
 
 curl_safe() {
   command curl --connect-timeout 2 --max-time 20 "$@"
@@ -184,6 +200,64 @@ published_port() {
   printf '%s\n' "${address##*:}"
 }
 
+build_test_minio() {
+  # MinIO CE is source-only; its former public minio and mc images no longer
+  # pull anonymously. Build the official sources, without third-party mirrors.
+  # https://github.com/minio/minio#source-only-distribution
+  local minio_revision="7aac2a2c5b7c882e68c1ce017d8256be2feea27f"
+  local mc_revision="77f82e18b5401a65958f1619df6ebb994634bd88"
+  local build_dir="${E2E_DIR}/minio-build"
+  mkdir -p "${build_dir}/minio" "${build_dir}/mc" "${build_dir}/licenses"
+  curl --fail --silent --show-error --location --retry 2 \
+    --connect-timeout 5 --max-time 180 \
+    "https://codeload.github.com/minio/minio/tar.gz/${minio_revision}" \
+    --output "${build_dir}/minio.tar.gz"
+  curl --fail --silent --show-error --location --retry 2 \
+    --connect-timeout 5 --max-time 180 \
+    "https://codeload.github.com/minio/mc/tar.gz/${mc_revision}" \
+    --output "${build_dir}/mc.tar.gz"
+  printf '%s  %s\n' \
+    '71794c2df26aad0cc99e8421c58b7aa2dd55969f979b0e7d1e931042e9fabcd6' \
+    "${build_dir}/minio.tar.gz" \
+    '167415edd21bc29f5360943dac64272aa5cda0a39f3070b15cfeca671c43d975' \
+    "${build_dir}/mc.tar.gz" | sha256sum --check --status \
+    || die "official MinIO source checksum mismatch"
+  tar -xzf "${build_dir}/minio.tar.gz" --strip-components=1 -C "${build_dir}/minio"
+  tar -xzf "${build_dir}/mc.tar.gz" --strip-components=1 -C "${build_dir}/mc"
+  (
+    cd "${build_dir}/minio"
+    CGO_ENABLED=0 GOOS=linux go build -mod=readonly -trimpath -buildvcs=false \
+      -o "${build_dir}/minio-bin" .
+  )
+  (
+    cd "${build_dir}/mc"
+    CGO_ENABLED=0 GOOS=linux go build -mod=readonly -trimpath -buildvcs=false \
+      -o "${build_dir}/mc-bin" .
+  )
+  cp "${build_dir}/minio/LICENSE" "${build_dir}/licenses/minio-LICENSE"
+  cp "${build_dir}/mc/LICENSE" "${build_dir}/licenses/mc-LICENSE"
+  cat >"${build_dir}/Dockerfile" <<'DOCKERFILE'
+FROM alpine:3.22.6@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+COPY minio-bin /usr/local/bin/minio
+COPY mc-bin /usr/local/bin/mc
+COPY licenses /usr/share/licenses/minio
+ENTRYPOINT ["minio"]
+DOCKERFILE
+  printf 'minio/\nmc/\n*.tar.gz\n' >"${build_dir}/.dockerignore"
+  MINIO_IMAGE="${COMPOSE_PROJECT}:minio"
+  docker build --tag "$MINIO_IMAGE" "$build_dir"
+  COMPOSE_OVERRIDE="${E2E_DIR}/minio-compose.yml"
+  cat >"$COMPOSE_OVERRIDE" <<YAML
+services:
+  minio:
+    image: ${MINIO_IMAGE}
+    pull_policy: never
+  minio-init:
+    image: ${MINIO_IMAGE}
+    pull_policy: never
+YAML
+}
+
 mkdir -p "$E2E_ROOT"
 E2E_DIR="$(mktemp -d "${E2E_ROOT}/acceptance.XXXXXX")"
 run_suffix="${E2E_DIR##*.}"
@@ -194,6 +268,9 @@ COMPOSE_PROJECT="mem-acceptance-${run_suffix}"
 mkdir -p "$HTTP_LOCK_ROOT"
 chmod 700 "$HTTP_LOCK_ROOT"
 acquire_http_port "$HTTP_PORT_REQUESTED"
+
+log "Building isolated MinIO from checksum-pinned official sources"
+build_test_minio
 
 log "Starting isolated PostgreSQL and MinIO"
 COMPOSE_STARTED=true
