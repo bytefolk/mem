@@ -106,6 +106,42 @@ func listGenerations(
 	return out, rows.Err()
 }
 
+func listGenerationsForBuilds(
+	ctx context.Context,
+	q queryer,
+	workspaceID uuid.UUID,
+	buildIDs []uuid.UUID,
+) ([]Generation, error) {
+	rows, err := q.Query(ctx, `
+		SELECT id, build_id, workspace_id, route_kind, provider,
+		       model_revision, output_dimension, pipeline_revision,
+		       profile_id, profile_revision, state, created_at, updated_at
+		  FROM index_generations
+		 WHERE workspace_id = $1 AND build_id = ANY($2::uuid[])
+		 ORDER BY build_id, route_kind
+	`, workspaceID, buildIDs)
+	if err != nil {
+		return nil, fmt.Errorf("%w: list route generations batch: %v", ErrUnavailable, err)
+	}
+	defer rows.Close()
+	var out []Generation
+	for rows.Next() {
+		var generation Generation
+		if err := rows.Scan(
+			&generation.ID, &generation.BuildID, &generation.WorkspaceID,
+			&generation.RouteKind, &generation.Provider,
+			&generation.ModelRevision, &generation.OutputDimension,
+			&generation.PipelineRevision, &generation.ProfileID,
+			&generation.ProfileRevision, &generation.State,
+			&generation.CreatedAt, &generation.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("%w: scan route generation: %v", ErrUnavailable, err)
+		}
+		out = append(out, generation)
+	}
+	return out, rows.Err()
+}
+
 func getInflightIdentity(
 	ctx context.Context,
 	q queryer,

@@ -107,10 +107,10 @@ func (s *memoryServiceStub) CreateRelation(
 func (s *memoryServiceStub) ListRelations(
 	_ context.Context,
 	q memory.ListRelationsQuery,
-) ([]memory.Relation, error) {
+) (*memory.ListRelationsResult, error) {
 	s.calls++
 	s.listRelationsQuery = q
-	return s.relations, s.controlErr
+	return &memory.ListRelationsResult{Relations: s.relations}, s.controlErr
 }
 
 func memoryHandlerContext(req *http.Request, paths []string) (*http.Request, uuid.UUID, uuid.UUID, uuid.UUID) {
