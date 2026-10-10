@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bytefolk/mem/blob/main/docs/schemas/vault-snapshot.v1.schema.json",
+  "title": "Workspace Vault current-state snapshot v1",
+  "description": "Canonical GET snapshot and successful commit response. This transports current logical notes and tombstones, not auth state or retained history. UTF-8 byte bounds are additionally enforced by the server.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "vaultId", "title", "revision", "updatedAt", "entries"],
+  "properties": {
+    "schemaVersion": { "const": "vault-snapshot.v1" },
+    "vaultId": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "maxLength": 256, "$comment": "At most 256 UTF-8 bytes; empty only before the first commit." },
+    "revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "updatedAt": { "type": ["string", "null"], "format": "date-time" },
+    "entries": {
+      "type": "array", "maxItems": 1000,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["noteId", "path", "content", "revision", "deleted", "properties"],
+        "properties": {
+          "noteId": { "$ref": "#/$defs/id" },
+          "path": { "type": "string", "minLength": 1, "maxLength": 512, "$comment": "Canonical safe relative POSIX path, at most 512 UTF-8 bytes. Active paths are case-fold unique." },
+          "content": { "type": "string", "maxLength": 1048576, "$comment": "At most 1 MiB UTF-8 bytes; only tab, CR and LF control characters are accepted." },
+          "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "deleted": { "type": "boolean" },
+          "properties": { "type": "object", "$comment": "At most 16 KiB serialized JSON. Untrusted application data, never a permission grant." }
+        },
+        "allOf": [{ "if": { "properties": { "deleted": { "const": true } } }, "then": { "properties": { "content": { "const": "" } } } }]
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "not": { "const": "00000000-0000-0000-0000-000000000000" } }
+  }
+}
