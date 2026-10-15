@@ -6,18 +6,19 @@ These draft changes are cumulative, not independently deployable:
 | --- | --- | --- | --- |
 | 1 | #194 / #183 | 0024 file lexical lane | released/main schema 23 (merged) |
 | 2 | #173 HNSW completion (supersedes #197 HOLD) | 0025 HNSW indexes + text continuation | #194, schema 24 |
-| 3 | #195 / #185 | 0027 data-plane hygiene | schema 26 |
+| 3 | #195 / #185 | 0028 data-plane hygiene | schema 27 |
 
-Migrations 0024–0026 are now on `main`. PR #195 must integrate that exact
-history before adding data-plane hygiene as 0027. Local repair branches retain
+Migrations 0024–0027 are now on `main`. PR #195 must integrate that exact
+history before adding data-plane hygiene as 0028. Local repair branches retain
 the original authored commits and add a current-main integration commit rather
 than rewriting published history.
 
-The hygiene migration was originally reviewed as draft 0026, but main now owns
-0026 for `memory_producer_agent`. The unmerged hygiene migration therefore
-moves to 0027. An operator who privately applied the old draft under version 26
-must stop and obtain a recovery plan; do not rewrite Goose history to make the
-new main sequence appear valid.
+The hygiene migration was originally reviewed as draft 0026, then sequenced as
+0027 while main owned only 0026. Main has since taken 0027 for `vault_sync`
+(#235), so the unmerged hygiene migration moves on to 0028 — the next version
+free on main. An operator who privately applied the old draft under version 26
+or 27 must stop and obtain a recovery plan; do not rewrite Goose history to make
+the new main sequence appear valid.
 
 Migration 0025 creates the three cosine HNSW indexes. The shipping text route
 no longer uses `DISTINCT ON (f.id) ORDER BY f.id` as its primary plan: it walks
@@ -25,12 +26,12 @@ cosine-ordered candidates and falls back to that exact query only when a bounded
 scan underfills. Visual cosine-order already matched HNSW. Face DDL is not a
 face-query speedup. #195 still requires predecessor schema 25. Recall and live
 latency remain `#175`, not this migration. #195 now requires predecessor schema
-26.
+27.
 
 This document does not waive a review gate or authorize deployment.
 
 Goose startup remains strict: no `WithAllowMissing` or equivalent option is
-enabled. A database that already applied 27 while omitting 24/25/26 will correctly
+enabled. A database that already applied 28 while omitting 24/25/26/27 will correctly
 fail startup against the cumulative schema. Stop and obtain an operator-owned
 recovery plan for such a database; do not edit its migration history, renumber
 its SQL, or apply lower versions out of order to manufacture a pass.
@@ -56,7 +57,7 @@ an operator-owned recovery; do not mark an unverified partial schema applied.
 `scripts/verify.sh integration` creates a separate, owned `_test` database and
 runs `TestMigrationUpgradeSequence`. It applies real Goose migrations to 23,
 seeds a file with duplicate text chunks, then advances one version at a time
-to the branch's declared head (24 through 27). Each step checks full applied
+to the branch's declared head (24 through 28). Each step checks full applied
 history and preserved data; subsequent steps check lexical backfill, valid
 HNSW DDL, producer-agent indexing, and hygiene deduplication/unique rejection.
 Finally the ordinary production

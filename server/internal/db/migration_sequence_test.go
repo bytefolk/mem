@@ -110,7 +110,7 @@ func TestMigrationUpgradeSequence(t *testing.T) {
 		}
 		var chunks int
 		wantChunks := 2
-		if version >= 27 {
+		if version >= 28 {
 			wantChunks = 1
 		}
 		if err := sqldb.QueryRowContext(ctx, "SELECT count(*) FROM embeddings_text WHERE file_id=$1", fileID).Scan(&chunks); err != nil || chunks != wantChunks {
@@ -131,7 +131,7 @@ func TestMigrationUpgradeSequence(t *testing.T) {
 		}
 		t.Logf("PASS: strict Goose upgrade to %d; complete history and populated data preserved", version)
 	}
-	if head >= 27 {
+	if head >= 28 {
 		_, err := sqldb.ExecContext(ctx, "INSERT INTO embeddings_text(file_id,chunk_index,chunk_text) VALUES($1,0,'duplicate')", fileID)
 		var pgErr *pgconn.PgError
 		if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
