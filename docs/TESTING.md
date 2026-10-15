@@ -274,8 +274,10 @@ Required tests:
 - `TestManagedAISettlementOutboxPostgres`
 - `TestReleasedFileStageRetryPostgres`
 - `TestDurableContextPostgres`
+- `TestVaultSyncPostgres` (two-client CAS, distinct empty notes, auth/workspace,
+  immutable history, tombstones, path swap/title and migration 27 down/up)
 
-Expected result: migrations reach the declared current head (currently `20`),
+Expected result: migrations reach the declared current head (currently `27`),
 all rollback-state assertions pass, every named test prints `PASS`, all commands
 exit `0`, and the race run reports no data race.
 
@@ -297,6 +299,15 @@ Run the isolated, model-free process test:
 ```bash
 make test-acceptance
 ```
+
+The script builds temporary MinIO/mc binaries from checksum-pinned official
+source archives because Community Edition is now source-only. It uses the
+existing Go toolchain, `tar` and `sha256sum`, then builds a uniquely named test
+image on a pinned official Alpine runtime. The temporary Compose override,
+image and run directory are removed by its ownership-checked cleanup. This
+does not replace images or credentials in a production deployment. Network
+access to the fixed source archives and locked Go module dependencies is
+required; missing artifacts or checksum mismatches fail the gate.
 
 The script owns a per-run Compose project, random loopback PostgreSQL/MinIO
 ports, an ephemeral database/store and a new memd process on an atomically
@@ -449,8 +460,8 @@ Use this table in pull requests and add implementation-specific scenarios:
 | V2 | Worker processing regressions remain hermetic | `make test-worker` | Exit `0`; real-model gate explicitly skipped |
 | V3 | Localization, theme, enrichment, memory, transfer and managed-embedding control surfaces work in a browser | `make test-web` | Typecheck/lint/build, the localization audit, all browser acceptance suites and managed status mapping pass |
 | V4 | High-risk Go paths are race-free | `make test-race` | Exit `0`; no data-race warning |
-| V5 | Fresh schema, rollback and PostgreSQL semantics hold | `make test-integration` | Migration head and eighteen named tests pass, none skipped |
-| V6 | DB concurrency paths are race-free | `make test-integration-race` | The same eighteen tests pass under `-race` |
+| V5 | Fresh schema, rollback and PostgreSQL semantics hold | `make test-integration` | Migration head and all required named tests pass, none skipped |
+| V6 | DB concurrency paths are race-free | `make test-integration-race` | The same required tests pass under `-race` |
 | V7 | Real service boundaries agree | `make test-acceptance` | HTTP, CLI and MCP share one isolated service; memory citation/provenance, bounded checkpoint listing, full checkpoint get, lifecycle and forget redaction pass |
 | V8 | Five config shapes and the real adapter preserve the host-neutral MCP contract | `MEM_MCP_CERT_BINARY=... make test-agent-certification` | All fixtures and current-adapter scenarios pass with no skip |
 | V9 | Multilingual visual quality meets the chosen checkpoint | Opt-in command in section 7 | All fixed ranking assertions pass |

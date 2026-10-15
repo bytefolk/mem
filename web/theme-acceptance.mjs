@@ -116,6 +116,38 @@ async function assertTheme(page, theme) {
   assert.equal(await page.locator('[data-toast-theme]').getAttribute('data-toast-theme'), theme);
 }
 
+async function assertUtilityCompatibility(page) {
+  await page.keyboard.press('Tab');
+  const values = await page.evaluate(() => {
+    const probe = document.createElement('button');
+    probe.className = 'rounded-sm backdrop-blur-sm text-fg bg-accent/10 outline-none';
+    const focusProbe = document.createElement('button');
+    focusProbe.className = 'focus-visible:outline-none';
+    const reference = document.createElement('span');
+    reference.style.color = 'rgb(var(--fg) / calc(var(--fg-opacity, 1) * 1))';
+    reference.style.backgroundColor = 'rgb(var(--accent) / calc(var(--accent-opacity, 1) * 0.1))';
+    document.body.append(probe, focusProbe, reference); focusProbe.focus();
+    const rgba = (value) => {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d'); context.fillStyle = value; context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data];
+    };
+    const style = getComputedStyle(probe); const focused = getComputedStyle(focusProbe); const expected = getComputedStyle(reference);
+    const result = { radius: style.borderRadius, blur: style.backdropFilter, cursor: style.cursor,
+      outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth,
+      focusVisible: focusProbe.matches(':focus-visible'), focusOutlineStyle: focused.outlineStyle, focusOutlineWidth: focused.outlineWidth,
+      foreground: rgba(style.color), expectedForeground: rgba(expected.color),
+      accent: rgba(style.backgroundColor), expectedAccent: rgba(expected.backgroundColor) };
+    probe.remove(); focusProbe.remove(); reference.remove(); return result;
+  });
+  assert.equal(values.radius, '2px'); assert.equal(values.blur, 'blur(4px)'); assert.equal(values.cursor, 'pointer');
+  assert.equal(values.outlineStyle, 'solid'); assert.equal(values.outlineWidth, '2px');
+  assert.equal(values.focusVisible, true); assert.equal(values.focusOutlineStyle, 'solid'); assert.equal(values.focusOutlineWidth, '2px');
+  for (const [actual, expected] of [[values.foreground, values.expectedForeground], [values.accent, values.expectedAccent]]) {
+    assert.ok(actual.every((value, index) => Math.abs(value - expected[index]) <= 1), 'theme color/opacity utility changed');
+  }
+}
+
 const vite = startVite();
 let browser;
 let failure;
@@ -135,6 +167,7 @@ try {
   const lightToggle = defaultPage.getByRole('button', { name: 'Switch to light theme' });
   await lightToggle.waitFor();
   await assertTheme(defaultPage, 'dark');
+  await assertUtilityCompatibility(defaultPage);
   assert.equal(
     await defaultPage.evaluate(() => localStorage.getItem('mem.theme')),
     null,
@@ -148,6 +181,10 @@ try {
 
   await lightToggle.click();
   await assertTheme(defaultPage, 'light');
+  await assertUtilityCompatibility(defaultPage);
+  await defaultPage.emulateMedia({ forcedColors: 'active' });
+  await assertUtilityCompatibility(defaultPage);
+  await defaultPage.emulateMedia({ forcedColors: 'none' });
   assert.equal(await defaultPage.evaluate(() => localStorage.getItem('mem.theme')), 'light');
   assert.equal(
     (await defaultPage.evaluate(() => getComputedStyle(document.body).backgroundColor)).replaceAll(

@@ -9,7 +9,7 @@ import tempfile
 
 from .dataset import load_dataset
 from .errors import BenchmarkError
-from .live_producer import produce_rankings
+from .live_producer import discover_live_configuration, produce_rankings
 from .runner import (
     compare_artifacts,
     comparison_summary,
@@ -24,6 +24,15 @@ from .runner import (
 PACKAGE_ROOT = Path(__file__).resolve().parent
 DEFAULT_DATASET = PACKAGE_ROOT / "data" / "v1"
 DEFAULT_BASELINE = PACKAGE_ROOT / "baselines" / "lexical-reference.v1.json"
+_PRODUCE_EXPECTED_GAPS = frozenset({"unsupported_source_kind", "unsupported_filter"})
+
+
+def produce_exit_code(rankings: dict) -> int:
+    """Exit 2 only for transport/mapping failures, not dataset surface gaps."""
+    for query in rankings.get("queries", []):
+        if query.get("status") == "error" and query.get("error_code") not in _PRODUCE_EXPECTED_GAPS:
+            return 2
+    return 0
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -79,13 +88,9 @@ def _parser() -> argparse.ArgumentParser:
     produce.add_argument("--output", type=Path, required=True)
     produce.add_argument("--limit", type=int, default=10)
     produce.add_argument("--timeout", type=float, default=30.0)
-    produce.add_argument("--engine", default="live-memd")
-    produce.add_argument("--dimension", type=int, default=768)
     produce.add_argument(
         "--mode", default="vector", choices=["lexical", "vector"]
     )
-    produce.add_argument("--provider", default="operator-unspecified")
-    produce.add_argument("--model", default="operator-unspecified")
     return parser
 
 
@@ -122,24 +127,37 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "produce":
             dataset = load_dataset(args.dataset)
+            live_config = discover_live_configuration(
+                args.memd_url,
+                args.token,
+                mode=args.mode,
+                timeout=args.timeout,
+            )
             rankings = produce_rankings(
                 dataset,
                 base_url=args.memd_url,
                 token=args.token,
                 limit=args.limit,
                 timeout=args.timeout,
-                engine_label=args.engine,
-                dimension=args.dimension,
                 mode=args.mode,
-                provider=args.provider,
-                model=args.model,
+                live_config=live_config,
             )
             write_json(args.output, rankings)
             ok_count = sum(1 for q in rankings["queries"] if q["status"] == "ok")
-            err_count = sum(1 for q in rankings["queries"] if q["status"] == "error")
-            print(f"produced rankings: {ok_count} ok, {err_count} error")
+            real_errors = [
+                q
+                for q in rankings["queries"]
+                if q.get("status") == "error" and q.get("error_code") not in _PRODUCE_EXPECTED_GAPS
+            ]
+            gap_count = sum(
+                1
+                for q in rankings["queries"]
+                if q.get("error_code") in _PRODUCE_EXPECTED_GAPS
+            )
+            print(f"produced rankings: {ok_count} ok, {len(real_errors)} error, {gap_count} unsupported")
+            print(f"engine: {rankings['engine']}")
             print(f"rankings artifact: {args.output}")
-            return 2 if err_count else 0
+            return produce_exit_code(rankings)
 
         first = run_benchmark(
             dataset_dir=args.dataset,

@@ -65,6 +65,7 @@ run_race() {
       ./internal/file \
       ./internal/folder \
       ./internal/memory \
+      ./internal/vaultsync \
       ./internal/handoff \
       ./internal/workspacelock \
       ./internal/workspacebundle \
@@ -350,6 +351,7 @@ run_postgres_tests() {
     TestReleasedFileStageRetryPostgres
     TestDurableContextPostgres
     TestTextANNFileSemanticsPostgres
+    TestVaultSyncPostgres
   )
 
   integration_log="$(mktemp "${TMPDIR:-/tmp}/mem-integration.XXXXXX")"
@@ -360,8 +362,9 @@ run_postgres_tests() {
     MEM_TEST_DB="$MEM_TEST_DB" go test \
       ${race_flag:+"$race_flag"} \
       -v -count=1 -p 1 -timeout 20m \
-      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestWorkspaceTransferMergeConservativePostgres|TestHandoffCrossAgentHTTPIntegration|TestRelocateHTTPPostgres|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestAnnotationDecisionIntegration|TestIndexerEnrichmentIntegration|TestRecomputePerson|TestManagedEmbeddingEntitlementPostgres|TestManagedSearchReplayPostgres|TestManagedEmbeddingHTTPAuthorizationPostgres|TestAIProfilePostgres|TestIndexGenerationPostgres|TestManagedAISettlementOutboxPostgres|TestReleasedFileStageRetryPostgres|TestDurableContextPostgres|TestTextANNFileSemanticsPostgres)$' \
+      -run '^(TestMemoryPostgres|TestHandoffPostgres|TestWorkspaceTransferPostgres|TestWorkspaceTransferMergeConservativePostgres|TestHandoffCrossAgentHTTPIntegration|TestRelocateHTTPPostgres|TestMemoryPathLifecycleIntegration|TestWorkspacePathLockingIntegration|TestFilePathLockingIntegration|TestAnnotationDecisionIntegration|TestIndexerEnrichmentIntegration|TestRecomputePerson|TestManagedEmbeddingEntitlementPostgres|TestManagedSearchReplayPostgres|TestManagedEmbeddingHTTPAuthorizationPostgres|TestAIProfilePostgres|TestIndexGenerationPostgres|TestManagedAISettlementOutboxPostgres|TestReleasedFileStageRetryPostgres|TestDurableContextPostgres|TestTextANNFileSemanticsPostgres|TestVaultSyncPostgres)$' \
       ./internal/memory \
+      ./internal/vaultsync \
       ./internal/handoff \
       ./internal/workspacetransfer \
       ./internal/api \

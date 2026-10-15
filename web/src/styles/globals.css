@@ -1,14 +1,30 @@
 @import './design-tokens.generated.css';
+@import 'tailwindcss';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@config '../../tailwind.config.js';
+
+/* Preserve the existing v3 utility scale while removing its unpatched
+ * dependency chain. The product palette remains in the pinned JS config. */
+@theme {
+  --radius-sm: 0.125rem;
+  --blur-sm: 4px;
+}
 
 @layer base {
   html,
   body,
   #root {
     height: 100%;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: rgb(156 163 175);
   }
 
   body {
@@ -48,7 +64,7 @@
 
   /* Focus ring — keyboard only, geometric not glow-y */
   :focus-visible {
-    @apply outline-none ring-2 ring-accent/60 ring-offset-2 ring-offset-bg;
+    @apply outline-hidden ring-2 ring-accent/60 ring-offset-2 ring-offset-bg;
   }
 
   /* Heading defaults */
@@ -107,4 +123,14 @@
   transform: translateX(-100%);
   background: linear-gradient(90deg, transparent, rgb(var(--border-strong) / 0.25), transparent);
   animation: shimmer 1.6s infinite;
+}
+
+/* Keep existing class consumers' keyboard outline visible in forced colors.
+ * These declarations follow the v4 utility layer's outline-style: none. */
+@layer utilities {
+  .outline-none,
+  .focus-visible\:outline-none:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
 }

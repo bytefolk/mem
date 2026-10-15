@@ -254,6 +254,28 @@ workspace import 的数据库 commit 若无法确认结果，服务端不得删�
 
 ---
 
+### F9A · Workspace Markdown Vault 同步（HTTP v1）
+
+需求：[mem #234](https://github.com/bytefolk/mem/issues/234)。
+
+`GET /v1/vault/list`、`GET /v1/vault/snapshot?vaultId=<UUID>` 与
+`POST /v1/vault/commit` 提供工作区内的逻辑笔记同步底座。每份笔记使用独立
+`noteId`，相同正文和空笔记不会因 blob 去重而合并。commit 传递
+`{vaultId,baseRevision,title?,entries:[{noteId,path,content,deleted?,properties?}]}`
+增量；整个 Vault 的 head 在单个事务内执行 CAS，过期 head 返回 `409`
+及 `currentRevision`，不覆盖其他客户端。删除保留 tombstone 与不可原地更新的
+正文 revision；重命名保留逻辑 ID。只读需 `read`，提交需 `read` + `write`，
+复用现有 workspace membership 和 `/Vaults/<vaultId>` token path 边界。
+properties 仅为有界数据，不能授予工具或身份权限。图片等原件继续使用 files API。
+
+`vault-snapshot.v1` 是独立的当前状态可迁移合同，详见
+[API、限制与错误码](docs/VAULT_SYNC.md) 和
+[JSON Schema](docs/schemas/vault-snapshot.v1.schema.json)。CLI/MCP/Web 本次不新增
+Vault 命令或独立笔记编辑器。现有 workspace bundle v1/v2 不包含 Vault 表和历史；
+完整历史仍需数据库备份。服务不运行桌面文件监听或自动合并客户端冲突；客户端必须
+拉取 head、三方合并并保留冲突副本。迁移 0027 不改变 files/auth/memory 表；降级
+到 0026 会丢弃 Vault 数据，操作前需备份。
+
 ## 4. 非功能需求
 
 | 维度 | 目标 |

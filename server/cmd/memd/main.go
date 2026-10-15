@@ -37,6 +37,7 @@ import (
 	"github.com/PeterGuy326/mem/server/internal/relator"
 	"github.com/PeterGuy326/mem/server/internal/search"
 	"github.com/PeterGuy326/mem/server/internal/storage"
+	"github.com/PeterGuy326/mem/server/internal/vaultsync"
 	"github.com/PeterGuy326/mem/server/internal/workerclient"
 	"github.com/PeterGuy326/mem/server/internal/workspace"
 	"github.com/PeterGuy326/mem/server/internal/workspacebundle"
@@ -236,6 +237,7 @@ func run() error {
 		Search:                   searchSvc,
 		Context:                  contextSvc,
 		Memory:                   memorySvc,
+		VaultSync:                vaultsync.New(database.Pool),
 		DurableContext:           durableContextSvc,
 		Handoff:                  handoffSvc,
 		Provider:                 providerSvc,
