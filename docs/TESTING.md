@@ -277,7 +277,7 @@ Required tests:
 - `TestVaultSyncPostgres` (two-client CAS, distinct empty notes, auth/workspace,
   immutable history, tombstones, path swap/title and migration 27 down/up)
 
-Expected result: migrations reach the declared current head (currently `27`),
+Expected result: migrations reach the declared current head (currently `28`),
 all rollback-state assertions pass, every named test prints `PASS`, all commands
 exit `0`, and the race run reports no data race.
 
